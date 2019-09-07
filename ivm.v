@@ -1,4 +1,6 @@
 From Equations Require Import Equations.
+Set Equations With UIP.
+
 Require Import Coq.Bool.Bvector.
 Require Import Nat.
 Require Vector.
@@ -6,12 +8,78 @@ Require Import Arith Omega List.
 
 Set Implicit Arguments.
 
-Notation "x |> f" := (f x) (at level 150, left associativity, only parsing).
-Notation "x >>= f" := (option_map f x) (at level 150, left associativity, only parsing).
 
 Arguments Vector.cons : default implicits.
 Arguments Bcons : default implicits.
 Arguments Bneg : default implicits.
+
+
+(**** Monad basics *)
+
+
+(* Special notation for the identity monad *)
+
+(* Bind *)
+Notation "x |> f" := (f x) (at level 98, left associativity, only parsing).
+
+
+(* Based on https://github.com/coq/coq/wiki/AUGER_Monad. *)
+Class Monad (m: Type -> Type): Type :=
+{
+  ret: forall A, A -> m A;
+  bind: forall A, m A -> forall B, (A -> m B) -> m B;
+
+  monad_right: forall A (a: m A), a = bind a (@ret A);
+  monad_left: forall A (a: A) B (f: A -> m B), f a = bind (ret a) f;
+  monad_assoc: forall A (ma: m A) B f C (g: B -> m C),
+      bind ma (fun x => bind (f x) g) = bind (bind ma f) g
+}.
+Notation "ma >>= f" := (bind ma _ f) (at level 98, left associativity).
+
+Section monadic_functions.
+  Context {m: Type -> Type} `{M: Monad m}.
+
+  Definition wbind {A: Type} (ma: m A) {B: Type} (mb: m B) :=
+    ma >>= fun _ => mb.
+
+  Definition join {A: Type} (mma: m (m A)): m A :=
+    mma >>= id.
+
+  Definition liftM {A B: Type} (f: A -> B) (ma: m A): m B :=
+    ma >>= fun a => ret (f a).
+
+  Definition liftM2 {A B C: Type} (f: A -> B -> C) (ma: m A) (mb: m B): m C :=
+    ma >>= (fun a => mb >>= (fun b => ret (f a b))).
+
+  Definition traverse {A B: Type} (f: A -> m B) (lst: list A) : m (list B) :=
+    fold_right (liftM2 cons) (ret nil) (map f lst).
+
+  Equations traverse_vector {A B: Type} (f: A -> m B) {n} (vec: Vector.t A n) : m (Vector.t B n) :=
+    traverse_vector _ Vector.nil := ret (Vector.nil B);
+    traverse_vector f (Vector.cons x v) with f x, traverse_vector f v := {
+      traverse_vector _ _ mb mvb := mb >>= (fun b => mvb >>= (fun vb => ret (Vector.cons b vb)))
+    }.
+
+End monadic_functions.
+
+Notation "ma >> mb" := (wbind ma mb) (at level 98, left associativity).
+Notation "c ;; d" := (c >> d) (at level 60, right associativity).
+Notation "a ::= e ; c" := (e >>= (fun a => c)) (at level 60, right associativity).
+
+Instance Maybe: Monad option :=
+{
+  ret := @Some;
+  bind A ma B f := match ma with None => None | Some a => f a end
+}.
+Proof.
+  - abstract (intros A a; case a; split).
+  - abstract (split).
+  - abstract (intros A x B f C g; case x; split).
+Defined.
+
+
+
+(**** Bit vectors. TODO: Should we use BinNat instead of nat as well? *)
 
 Definition Bits8 := Bvector 8.
 Definition Bits16 := Bvector 16.
@@ -44,6 +112,9 @@ Definition neg64 (x: Bits64) : Bits64 := Bneg x |> addNat64 1.
 Definition add64 (x y: Bits64) : Bits64 := (fromBits x) + (fromBits y) |> toBits 64.
 Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
 
+
+(**** State *)
+
 Equations addresses (start: Bits64) n : Vector.t Bits64 n :=
   addresses _ 0 := Vector.nil Bits64;
   addresses start (S n) := Vector.cons start (addresses (addNat64 1 start) n).
@@ -51,8 +122,7 @@ Equations addresses (start: Bits64) n : Vector.t Bits64 n :=
 Definition Gray := Bits8.
 Definition Color := (Bits16 * Bits16 * Bits16)%type.
 
-
-(* Inspired by the 'sigma' type of Equations. *)
+(* Record types inspired by the 'sigma' type of Equations. *)
 
 Set Primitive Projections.
 Global Unset Printing Primitive Projection Parameters.
@@ -85,12 +155,12 @@ Record State :=
       memory: Bits64 -> option Bits8;
       allocation: Bits64 -> nat;
 
-      allocationsDefined:
+      allocations_defined:
         forall (a: Bits64),
           memory a <> None <->
           exists start, Vector.Exists (eq a) (addresses start (allocation start));
 
-      allocationsDisjoint:
+      allocations_disjoint:
         forall start0 start1,
           (Vector.Exists
              (fun a => Vector.Exists (eq a) (addresses start0 (allocation start0)))
@@ -101,57 +171,202 @@ Record State :=
 Unset Primitive Projections.
 
 
-Equations options {A} {n} (v: Vector.t (option A) n): option (Vector.t A n) :=
-  options Vector.nil := Some (Vector.nil A);
-  options (Vector.cons _ v) with options v := {
-    options (Vector.cons (Some x) _) (Some v) => Some (Vector.cons x v);
-    options _ _ := None
-  }.
-
-Definition load n (s: State) (start: Bits64) : option nat :=
-  addresses start n |> Vector.map s.(memory) |> options >>= fromLittleEndian.
-
-Definition top (s: State): option Bits64 := load 8 s s.(SP) >>= toBits 64.
-
-
-Definition ioAndTerminationUnchanged (s0 s1: State) : Prop :=
-  s1.(terminated) = s0.(terminated)
-  /\ s1.(input) = s0.(input)
-  /\ s1.(output) = s0.(output).
-
-Definition zero8 := toBits 8 0.
-
-Definition memChangeRel start n (pred: option Bits8 -> option Bits8 -> Prop) (s0 s1: State) : Prop :=
-  let addrs := addresses start n in
-  Vector.Forall (fun a => pred (s0.(memory) a) (s1.(memory) a)) addrs
-  /\ forall (a: Bits64), Vector.Forall (fun x => x <> a) addrs -> s0.(memory) a = s1.(memory) a.
-
-Definition allocateRel (n: nat) (s0 s1: State) : Prop :=
-  ioAndTerminationUnchanged s0 s1
-  /\ s1.(PC) = s0.(PC)
-  /\ s1.(SP) = subNat64 8 s0.(SP)
-  /\ match top s1 with
-    | None => False
-    | Some start =>
-      memChangeRel start n (fun _ x1 => x1 = Some zero8) s0 s1
-      /\ s0.(allocation) start = 0
-      /\ s1.(allocation) start = n
-      /\ forall a, a <> start -> s1.(allocation) a = s0.(allocation) a
-    end.
+(* Since State is completely finite, this should be provable even without
+PropExtensionality or Functionalextensionality, but this will have to wait. *)
+Axiom State_extensionality : forall (s0 s1: State),
+    s0.(terminated) = s1.(terminated)
+    -> s0.(PC) = s1.(PC)
+    -> s0.(SP) = s1.(SP)
+    -> s0.(input) = s1.(input)
+    -> s0.(output) = s1.(output)
+    -> s0.(memory) = s1.(memory)
+    -> s0.(allocation) = s1.(allocation)
+    -> s0 = s1.
 
 
-Definition deallocateRel (s0 s1: State) : Prop :=
-  ioAndTerminationUnchanged s0 s1
-  /\ s1.(PC) = s0.(PC)
-  /\ s1.(SP) = addNat64 8 s0.(SP)
-  /\ match top s0 with
-    | None => False
-    | Some start =>
-      memChangeRel start (s0.(allocation) start) (fun _ x1 => x1 = None) s0 s1
-      /\ s1.(allocation) start = 0
-      /\ forall a, a <> start -> s1.(allocation) a = s0.(allocation) a
-    end.
+(**** Relational state monad *)
+
+Definition ST (A: Type) := State -> A -> State -> Prop.
+
+Require Import Coq.Logic.FunctionalExtensionality.
+Require Import Coq.Logic.PropExtensionality.
+
+(* Extensionality is needed since A is an arbitrary type.
+   This can be avoided if we define monads in terms of a setoid.
+ *)
+Lemma ST_extensionality {A} (st0 st1: ST A):
+  (forall s0 x1 s1, st0 s0 x1 s1 <-> st1 s0 x1 s1) -> st0 = st1.
+Proof.
+  intro H.
+  repeat (intro || apply functional_extensionality).
+  apply propositional_extensionality.
+  apply H.
+Qed.
+
+Require Import Coq.Program.Tactics.
+
+Instance StateMonad: Monad ST :=
+{
+  ret A x0 s0 x1 s1 := x1 = x0 /\ s0 = s1;
+  bind A ma B f s0 b s2 := exists a s1, ma s0 a s1 /\ f a s1 b s2;
+}.
+Proof. (* TODO: Automate! Or use 'admit' for now? *)
+  - intros; apply ST_extensionality; intros; split.
+    + eauto.
+    + intros [? [? [? [? ?]]]].
+      subst.
+      assumption.
+  - intros; apply ST_extensionality; intros; split.
+    + eauto.
+    + intros [? [? [[? ?] ?]]].
+      subst.
+      assumption.
+  - intros; apply ST_extensionality; intros; split.
+    + intros [? [? [? [? [? [? ?]]]]]].
+      exists x2, x3; split.
+      * exists x, x0; split; assumption.
+      * assumption.
+    + intros [? [? [[? [? [? ?]]] ?]]].
+      exists x2, x3; split.
+      * assumption.
+      * exists x, x0; split; assumption.
+Defined.
 
 
-(* Notice that it makes sense to allocate 0 bytes or deallocate an address
+(**** Change management *)
+
+Definition intersect {A} (st1 st2: ST A): ST A :=
+  fun s0 x1 s1 => st1 s0 x1 s1 /\ st2 s0 x1 s1.
+
+Notation "st1 ⩀ st2" := (intersect st1 st2) (at level 50, left associativity).
+
+Definition stateUnchangedST {A} : ST A :=
+  fun s0 _ s1 => s0 = s1.
+
+Lemma ret_characterized {A} (x: A) :
+  stateUnchangedST ⩀ (fun _ x1 _ => x = x1) = ret x.
+Proof.
+  unfold stateUnchangedST, intersect.
+  apply ST_extensionality.
+  firstorder.
+Qed.
+
+Definition registersUnchangedST {A} : ST A :=
+  fun s0 _ s1 =>
+    s0.(terminated) = s1.(terminated)
+    /\ s0.(PC) = s1.(PC)
+    /\ s0.(SP) = s1.(SP).
+
+Definition memoryUnchangedST {A} : ST A :=
+  fun s0 _ s1 =>
+    s0.(allocation) = s1.(allocation)
+    /\ s0.(memory) = s1.(memory).
+
+Definition ioUnchangedST {A} : ST A :=
+  fun s0 _ s1 =>
+    s0.(input) = s1.(input)
+    /\ s0.(output) = s1.(output).
+
+Lemma stateUnchanged_characterized {A} :
+  @registersUnchangedST A ⩀ memoryUnchangedST ⩀ ioUnchangedST = stateUnchangedST.
+Proof.
+  unfold registersUnchangedST, memoryUnchangedST, ioUnchangedST, stateUnchangedST.
+  repeat (unfold intersect).
+  apply ST_extensionality.
+  intros; firstorder; subst; try (reflexivity || assumption).
+  apply State_extensionality; assumption.
+Qed.
+
+
+(**** Building blocks *)
+
+Definition valueST {A} (p: State -> A -> Prop): ST A :=
+  stateUnchangedST ⩀ (fun s0 x1 _ => p s0 x1).
+
+Definition extractST {A} (f: State -> A): ST A :=
+  valueST (fun s0 x1 => f s0 = x1).
+
+Definition getPcST : ST Bits64 := extractST PC.
+
+Definition getSpST : ST Bits64 := extractST SP.
+
+(* Get the value at the n bytes starting at start. *)
+Definition tryGetST (start: Bits64) (n: nat) : ST (option nat) :=
+  extractST (fun s => addresses start n
+                   |> traverse_vector s.(memory)
+                   |> liftM fromLittleEndian).
+
+Definition force {A} (st: ST (option A)) : ST A :=
+  fun s0 x1 s1 => st s0 (Some x1) s1.
+
+Definition getST (start: Bits64) (n: nat) : ST nat :=
+  tryGetST start n |> force.
+
+Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
+  fun s0 _ s1 =>
+    let other a := Vector.Forall (fun x => x <> a) (addresses start n) in
+    forall a, other a -> s0.(memory) a = s1.(memory) a.
+
+(* Observe that if (setST start n value s0 x1 s1), then we know that the
+   addresses were allocated because of s1.(allocations_defined).
+   Formally:
+   Vector.Forall (fun a => s0.(memory) a <> None) (addresses start n)
+ *)
+Definition setST (start: Bits64) (n: nat) (value: nat) : ST unit :=
+  registersUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ otherMemoryUnchangedST start n
+    ⩀ (fun s0 _ s1 =>
+         s0.(allocation) = s1.(allocation)
+         /\ getST start n s1 value s1).
+
+Definition setSpST (a: Bits64): ST unit :=
+  memoryUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ (fun s0 _ s1 =>
+         (* Is this more readable than s0.(terminated) ...? *)
+         terminated s0 = terminated s1
+         /\ PC s0 = PC s1
+         /\ a = SP s1).
+
+Definition popST: ST nat :=
+  a ::= getSpST;
+  setSpST (addNat64 8 a);;
+  getST a 8.
+
+Definition pushST (value: nat): ST unit :=
+  a0 ::= getSpST;
+  let a1 := subNat64 8 a0 in
+  setSpST a1;;
+  setST a1 8 value.
+
+
+(**** Memory allocation *)
+
+Definition otherAllocationsUnchanged (start: Bits64) : ST unit :=
+  fun s0 _ s1 =>
+    forall a, a <> start -> s0.(allocation) a = s1.(allocation) a.
+
+Definition allocateST (n: nat) : ST Bits64 :=
+  registersUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ (fun s0 start s1 =>
+         s0.(allocation) start = 0
+         /\ s1.(allocation) start = n
+         /\ otherAllocationsUnchanged start s0 tt s1
+         /\ otherMemoryUnchangedST start n s0 tt s1
+         /\ getST start n s1 0 s1). (* Memory initialized to 0. *)
+
+Definition deallocateST (start: Bits64) : ST unit :=
+  registersUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ otherAllocationsUnchanged start
+    ⩀ (fun s0 _ s1 =>
+         s1.(allocation) start = 0
+         /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 tt s1).
+
+(* Observe that allocations_defined ensures that unallocated memory is
+None and that it makes sense to allocate 0 bytes or deallocate an address
 which was never allocated! *)
+
+(* To be continued... *)
