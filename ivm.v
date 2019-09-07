@@ -1,11 +1,13 @@
 From Equations Require Import Equations.
-Require Import Arith Omega List.
 Require Import Coq.Bool.Bvector.
 Require Import Nat.
 Require Vector.
+Require Import Arith Omega List.
 
 Set Implicit Arguments.
 
+Notation "x |> f" := (f x) (at level 150, left associativity, only parsing).
+Notation "x >>= f" := (option_map f x) (at level 150, left associativity, only parsing).
 
 Arguments Vector.cons : default implicits.
 Arguments Bcons : default implicits.
@@ -37,6 +39,14 @@ Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
 
 (* Compute (fromLittleEndian (toLittleEndian 2 12345)). *)
 
+Definition addNat64 k (x: Bits64) : Bits64 := k + (fromBits x) |> toBits 64.
+Definition neg64 (x: Bits64) : Bits64 := Bneg x |> addNat64 1.
+Definition add64 (x y: Bits64) : Bits64 := (fromBits x) + (fromBits y) |> toBits 64.
+Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
+
+Equations addresses (start: Bits64) n : Vector.t Bits64 n :=
+  addresses _ 0 := Vector.nil Bits64;
+  addresses start (S n) := Vector.cons start (addresses (addNat64 1 start) n).
 
 Definition Gray := Bits8.
 Definition Color := (Bits16 * Bits16 * Bits16)%type.
@@ -65,35 +75,31 @@ Record OutputImage :=
 
 Record OutputSound := mkOutputSound { rate: Bits32; samples: list (Bits16 * Bits16) }.
 
-Definition MemoryState := Bits64 -> option Bits8.
-
 Record State :=
   mkState {
-      inputFrames: list InputFrame;
-      outputFrames: list (OutputImage * OutputSound);
-      memory: MemoryState;
-      programCounter: Bits64;
-      stackPointer: Bits64;
       terminated: bool;
+      PC: Bits64; (* Program counter *)
+      SP: Bits64; (* Stack pointer *)
+      input: list InputFrame;
+      output: list (OutputImage * OutputSound);
+      memory: Bits64 -> option Bits8;
+      allocation: Bits64 -> nat;
+
+      allocationsDefined:
+        forall (a: Bits64),
+          memory a <> None <->
+          exists start, Vector.Exists (eq a) (addresses start (allocation start));
+
+      allocationsDisjoint:
+        forall start0 start1,
+          (Vector.Exists
+             (fun a => Vector.Exists (eq a) (addresses start0 (allocation start0)))
+             (addresses start1 (allocation start1))) ->
+          start0 = start1;
     }.
 
 Unset Primitive Projections.
 
-Notation "x |> f" := (f x) (at level 150, left associativity, only parsing).
-Notation "x ||> f" := (option_map f x) (at level 150, left associativity, only parsing).
-
-
-Definition addNat64 k (x: Bits64) : Bits64 := k + (fromBits x) |> toBits 64.
-
-Definition neg64 (x: Bits64) : Bits64 := Bneg x |> addNat64 1.
-
-Definition add64 (x y: Bits64) : Bits64 := (fromBits x) + (fromBits y) |> toBits 64.
-
-Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
-
-Equations addresses n (start: Bits64) : Vector.t Bits64 n :=
-  addresses 0 _ := Vector.nil Bits64;
-  addresses (S n) start := Vector.cons start (addNat64 1 start |> addresses n).
 
 Equations options {A} {n} (v: Vector.t (option A) n): option (Vector.t A n) :=
   options Vector.nil := Some (Vector.nil A);
@@ -103,35 +109,49 @@ Equations options {A} {n} (v: Vector.t (option A) n): option (Vector.t A n) :=
   }.
 
 Definition load n (s: State) (start: Bits64) : option nat :=
-  addresses n start |> Vector.map s.(memory) |> options ||> fromLittleEndian.
+  addresses start n |> Vector.map s.(memory) |> options >>= fromLittleEndian.
 
-Definition top (s: State): option Bits64 := load 8 s s.(stackPointer) ||> toBits 64.
+Definition top (s: State): option Bits64 := load 8 s s.(SP) >>= toBits 64.
 
 
 Definition ioAndTerminationUnchanged (s0 s1: State) : Prop :=
-  s1.(inputFrames) = s0.(inputFrames)
-  /\ s1.(outputFrames) = s0.(outputFrames)
-  /\ s1.(terminated) = s0.(terminated).
+  s1.(terminated) = s0.(terminated)
+  /\ s1.(input) = s0.(input)
+  /\ s1.(output) = s0.(output).
 
 Definition zero8 := toBits 8 0.
 
-Definition memChangeRel n start (pred: option Bits8 -> option Bits8 -> Prop) (s0 s1: State) : Prop :=
-  let addrs := addresses n start in
+Definition memChangeRel start n (pred: option Bits8 -> option Bits8 -> Prop) (s0 s1: State) : Prop :=
+  let addrs := addresses start n in
   Vector.Forall (fun a => pred (s0.(memory) a) (s1.(memory) a)) addrs
   /\ forall (a: Bits64), Vector.Forall (fun x => x <> a) addrs -> s0.(memory) a = s1.(memory) a.
 
 Definition allocateRel (n: nat) (s0 s1: State) : Prop :=
   ioAndTerminationUnchanged s0 s1
-  /\ s1.(programCounter) = s0.(programCounter)
-  /\ s1.(stackPointer) = subNat64 8 s0.(stackPointer)
+  /\ s1.(PC) = s0.(PC)
+  /\ s1.(SP) = subNat64 8 s0.(SP)
   /\ match top s1 with
     | None => False
-    | Some start => memChangeRel n start (fun x0 x1 => x0 = None /\ x1 = Some zero8) s0 s1
+    | Some start =>
+      memChangeRel start n (fun _ x1 => x1 = Some zero8) s0 s1
+      /\ s0.(allocation) start = 0
+      /\ s1.(allocation) start = n
+      /\ forall a, a <> start -> s1.(allocation) a = s0.(allocation) a
     end.
 
-(* Trouble! *)
-Definition deallocateRel (a: Bits64) ...
 
-(* The state must remember all allocations.
-   And these must be consistent with each other and the memory.
-   Maybe we should change State to a type class? *)
+Definition deallocateRel (s0 s1: State) : Prop :=
+  ioAndTerminationUnchanged s0 s1
+  /\ s1.(PC) = s0.(PC)
+  /\ s1.(SP) = addNat64 8 s0.(SP)
+  /\ match top s0 with
+    | None => False
+    | Some start =>
+      memChangeRel start (s0.(allocation) start) (fun _ x1 => x1 = None) s0 s1
+      /\ s1.(allocation) start = 0
+      /\ forall a, a <> start -> s1.(allocation) a = s0.(allocation) a
+    end.
+
+
+(* Notice that it makes sense to allocate 0 bytes or deallocate an address
+which was never allocated! *)
