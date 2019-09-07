@@ -173,7 +173,7 @@ Unset Primitive Projections.
 
 (* Since State is completely finite, this should be provable even without
 PropExtensionality or Functionalextensionality, but this will have to wait. *)
-Axiom State_extensionality : forall (s0 s1: State),
+Lemma State_extensionality : forall (s0 s1: State),
     s0.(terminated) = s1.(terminated)
     -> s0.(PC) = s1.(PC)
     -> s0.(SP) = s1.(SP)
@@ -182,6 +182,9 @@ Axiom State_extensionality : forall (s0 s1: State),
     -> s0.(memory) = s1.(memory)
     -> s0.(allocation) = s1.(allocation)
     -> s0 = s1.
+Proof.
+Admitted. (* TODO *)
+
 
 
 (**** Relational state monad *)
