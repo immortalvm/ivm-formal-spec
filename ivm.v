@@ -69,7 +69,7 @@ Section monadic_functions.
 End monadic_functions.
 
 Notation "ma ;; mb" := (wbind ma mb) (at level 60, right associativity).
-Notation "a ::= mb ; mc" := (mb >>= (fun a => mc)) (at level 60, right associativity).
+Notation "a ::= ma ; mb" := (ma >>= (fun a => mb)) (at level 60, right associativity).
 
 Instance Maybe: Monad option :=
 {
