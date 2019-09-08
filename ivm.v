@@ -5,6 +5,7 @@ Require Import Coq.Bool.Bvector.
 Require Import Nat.
 Require Vector.
 Require Import Arith Omega List.
+Require Import Coq.Program.Tactics.
 
 Set Implicit Arguments.
 
@@ -167,6 +168,17 @@ Record OutputImage :=
 
 Record OutputSound := mkOutputSound { oRate: Bits32; oSamples: list (Bits16 * Bits16) }.
 
+Definition consistent (memory: Bits64 -> option Bits8) (allocation: Bits64 -> nat) :=
+  (forall (a: Bits64),
+      memory a <> None <->
+      exists start, Vector.Exists (eq a) (addresses (allocation start) start))
+  /\
+  (forall start0 start1,
+      (Vector.Exists
+         (fun a => Vector.Exists (eq a) (addresses (allocation start0) start0))
+         (addresses (allocation start1) start1)) ->
+      start0 = start1).
+
 Record State :=
   mkState {
       terminated: bool;
@@ -176,22 +188,10 @@ Record State :=
       output: list (OutputImage * OutputSound);
       memory: Bits64 -> option Bits8;
       allocation: Bits64 -> nat;
-
-      allocations_defined:
-        forall (a: Bits64),
-          memory a <> None <->
-          exists start, Vector.Exists (eq a) (addresses (allocation start) start);
-
-      allocations_disjoint:
-        forall start0 start1,
-          (Vector.Exists
-             (fun a => Vector.Exists (eq a) (addresses (allocation start0) start0))
-             (addresses (allocation start1) start1)) ->
-          start0 = start1;
+      consistency: consistent memory allocation;
     }.
 
 Unset Primitive Projections.
-
 
 Lemma State_expanion (s: State) :
   s = {|
@@ -201,20 +201,28 @@ Lemma State_expanion (s: State) :
     input := s.(input);
     output := s.(output);
     memory := s.(memory);
-    allocation := s.(allocation);
-    allocations_defined := s.(allocations_defined);
-    allocations_disjoint := s.(allocations_disjoint);
+    consistency := s.(consistency);
   |}.
 Proof.
   reflexivity.
 Qed.
 
-Require Import Coq.Logic.FunctionalExtensionality.
 Require Import Coq.Logic.PropExtensionality.
 
+(* Since State is finite, this might be provable even without
+   PropExtensionality, but that will have to wait. *)
+Lemma State_injectivity
+      t0 p0 s0 i0 o0 m0 a0 (c0: consistent m0 a0)
+      t1 p1 s1 i1 o1 m1 a1 (c1: consistent m1 a1):
+  t0=t1 -> p0=p1 -> s0=s1 -> i0=i1 -> o0=o1 -> m0=m1 -> a0=a1
+  -> {|terminated:=t0; PC:=p0; SP:=s0; input:=i0; output:=o0; memory:=m0; consistency:=c0|}
+  = {|terminated:=t1; PC:=p1; SP:=s1; input:=i1; output:=o1; memory:=m1; consistency:=c1|}.
+Proof.
+  repeat (intro e; destruct e).
+  destruct (proof_irrelevance (consistent m0 a0) c0 c1).
+  reflexivity.
+Qed.
 
-(* Since State is finite, we might be provable even without
-PropExtensionality or Functionalextensionality, but this will have to wait. *)
 Lemma State_extensionality : forall (s0 s1: State),
     s0.(terminated) = s1.(terminated)
     -> s0.(PC) = s1.(PC)
@@ -225,18 +233,18 @@ Lemma State_extensionality : forall (s0 s1: State),
     -> s0.(allocation) = s1.(allocation)
     -> s0 = s1.
 Proof.
-  intros s0 s1.
-  intros e1 e2 e3 e4 e5 e6 e7.
+  intros.
   rewrite (State_expanion s0).
-  rewrite e1, e2, e3, e4, e5.
-  clear e1 e2 e3 e4 e5.
-  (* TODO: The rest involves dependent types, but it should be within reach. *)
-Admitted.
+  rewrite (State_expanion s1).
+  apply State_injectivity; assumption.
+Qed.
 
 
 (**** Relational state monad *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
+
+Require Import Coq.Logic.FunctionalExtensionality.
 
 (* Extensionality is needed since A is an arbitrary type.
    This can be avoided if we define monads in terms of a setoid.
@@ -249,8 +257,6 @@ Proof.
   apply propositional_extensionality.
   apply H.
 Qed.
-
-Require Import Coq.Program.Tactics.
 
 Instance StateMonad: Monad ST :=
 {
@@ -693,6 +699,7 @@ Definition initialState (inputList: list InputFrame) : State.
              allocation := fun _ => 0;
            |}).
   (* TODO: Automate *)
+  split.
   - firstorder.
     exfalso.
     revert_last.
@@ -714,7 +721,11 @@ Equations fillST (start: Bits64) (bytes: list Bits8) : ST unit :=
 
 (* Because of non-determinism and Coq's lack of general recursion, this
    must be defined as a predicate rather than a (partial) function. *)
-Definition execution (prog: list Bits8) (arg: list Bits8) (inputList: list InputFrame) (outputList: list (OutputImage * OutputSound)) : Prop :=
+Definition execution
+           (prog: list Bits8)
+           (arg: list Bits8)
+           (inputList: list InputFrame)
+           (outputList: list (OutputImage * OutputSound)) : Prop :=
   let s0 :=
       initialState inputList in
   let prepST: ST unit :=
