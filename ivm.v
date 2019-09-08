@@ -323,26 +323,26 @@ Definition setST (start: Bits64) (n: nat) (value: nat) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherMemoryUnchangedST start n
-    ⩀ (fun s0 _ s1 =>
-         s0.(allocation) = s1.(allocation)
-         /\ getST start n s1 value s1).
+    ⩀ fun s0 _ s1 =>
+        s0.(allocation) = s1.(allocation)
+        /\ getST start n s1 value s1.
 
 Definition setPcST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ (fun s0 _ s1 =>
-         s0.(terminated) = s1.(terminated)
-         /\ s0.(SP) = s1.(SP)
-         /\ a = s1.(PC)).
+    ⩀ fun s0 _ s1 =>
+        s0.(terminated) = s1.(terminated)
+        /\ s0.(SP) = s1.(SP)
+        /\ a = s1.(PC).
 
 Definition setSpST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ (fun s0 _ s1 =>
-         (* Is this more readable? *)
-         terminated s0 = terminated s1
-         /\ PC s0 = PC s1
-         /\ a = SP s1).
+    ⩀ fun s0 _ s1 =>
+        (* Is this more readable? *)
+        terminated s0 = terminated s1
+        /\ PC s0 = PC s1
+        /\ a = SP s1.
 
 Definition nextST (n: nat) : ST nat :=
   a ::= getPcST;
@@ -370,20 +370,20 @@ Definition otherAllocationsUnchanged (start: Bits64) : ST unit :=
 Definition allocateST (n: nat) : ST Bits64 :=
   registersUnchangedST
     ⩀ ioUnchangedST
-    ⩀ (fun s0 start s1 =>
-         s0.(allocation) start = 0
-         /\ s1.(allocation) start = n
-         /\ otherAllocationsUnchanged start s0 tt s1
-         /\ otherMemoryUnchangedST start n s0 tt s1
-         /\ getST start n s1 0 s1). (* Memory initialized to 0. *)
+    ⩀ fun s0 start s1 =>
+        s0.(allocation) start = 0
+        /\ s1.(allocation) start = n
+        /\ otherAllocationsUnchanged start s0 tt s1
+        /\ otherMemoryUnchangedST start n s0 tt s1
+        /\ getST start n s1 0 s1. (* Memory initialized to 0. *)
 
 Definition deallocateST (start: Bits64) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherAllocationsUnchanged start
-    ⩀ (fun s0 _ s1 =>
-         s1.(allocation) start = 0
-         /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 tt s1).
+    ⩀ fun s0 _ s1 =>
+        s1.(allocation) start = 0
+        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 tt s1.
 
 (* Observe that allocations_defined ensures that unallocated memory is
 None and that it makes sense to allocate 0 bytes or deallocate an address
