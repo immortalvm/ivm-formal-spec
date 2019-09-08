@@ -299,11 +299,15 @@ Definition tryGetST (start: Bits64) (n: nat) : ST (option nat) :=
                    |> traverse_vector s.(memory)
                    |> liftM fromLittleEndian).
 
-Definition force {A} (st: ST (option A)) : ST A :=
-  fun s0 x1 s1 => st s0 (Some x1) s1.
+Definition undefinedST {A}: ST A :=
+  fun _ _ _ => True.
 
+Definition valueOrUndefinedST {A} (oa: option A) : ST A :=
+  match oa with Some a => ret a | _ => undefinedST end.
+
+(* NB: The behavior is completely undefined if there is an access violation! *)
 Definition getST (start: Bits64) (n: nat) : ST nat :=
-  tryGetST start n |> force.
+  tryGetST start n >>= valueOrUndefinedST.
 
 Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
   fun s0 _ s1 =>
