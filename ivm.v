@@ -13,6 +13,11 @@ Arguments Vector.cons : default implicits.
 Arguments Bcons : default implicits.
 Arguments Bneg : default implicits.
 Arguments Bsign : default implicits.
+Arguments BVand : default implicits.
+Arguments BVor : default implicits.
+Arguments BVxor : default implicits.
+
+Import ListNotations.
 
 
 (**** Monad basics *)
@@ -53,7 +58,7 @@ Section monadic_functions.
     ma >>= (fun a => mb >>= (fun b => ret (f a b))).
 
   Definition traverse {A B: Type} (f: A -> m B) (lst: list A) : m (list B) :=
-    fold_right (liftM2 cons) (ret nil) (map f lst).
+    fold_right (liftM2 cons) (ret []) (map f lst).
 
   Equations traverse_vector {A B: Type} (f: A -> m B) {n} (vec: Vector.t A n) : m (Vector.t B n) :=
     traverse_vector _ Vector.nil := ret (Vector.nil B);
@@ -63,9 +68,8 @@ Section monadic_functions.
 
 End monadic_functions.
 
-Notation "ma >> mb" := (wbind ma mb) (at level 98, left associativity).
-Notation "c ;; d" := (c >> d) (at level 60, right associativity).
-Notation "a ::= e ; c" := (e >>= (fun a => c)) (at level 60, right associativity).
+Notation "ma ;; mb" := (wbind ma mb) (at level 60, right associativity).
+Notation "a ::= mb ; mc" := (mb >>= (fun a => mc)) (at level 60, right associativity).
 
 Instance Maybe: Monad option :=
 {
@@ -127,6 +131,8 @@ Definition signExtend {n} (v: Bvector (S n)) : Bits64.
   omega.
 Defined.
 
+Definition zero64 : Bits64 := toBits 64 0.
+Definition true64 : Bits64 := Bneg zero64.
 
 
 (**** State *)
@@ -145,21 +151,21 @@ Global Unset Printing Primitive Projection Parameters.
 
 Record InputFrame :=
   mkInputFrame {
-      iWidth: nat;
-      iHeight: nat;
+      iWidth: Bits32;
+      iHeight: Bits32;
       iPixel: nat -> nat -> option Gray;
       iDef: forall x y, x < iWidth -> y < iHeight -> iPixel x y <> None;
     }.
 
 Record OutputImage :=
   mkOutputImage {
-      oWidth: nat;
-      oHeight: nat;
+      oWidth: Bits32;
+      oHeight: Bits32;
       oPixel: nat -> nat -> option Color;
       oDef: forall x y, x < oWidth -> y < oHeight -> oPixel x y <> None;
     }.
 
-Record OutputSound := mkOutputSound { rate: Bits32; samples: list (Bits16 * Bits16) }.
+Record OutputSound := mkOutputSound { oRate: Bits32; oSamples: list (Bits16 * Bits16) }.
 
 Record State :=
   mkState {
@@ -229,7 +235,7 @@ Instance StateMonad: Monad ST :=
   ret A x0 s0 x1 s1 := x1 = x0 /\ s0 = s1;
   bind A ma B f s0 b s2 := exists a s1, ma s0 a s1 /\ f a s1 b s2;
 }.
-Proof. (* TODO: Automate! Or use 'admit' for now? *)
+Proof. (* TODO: Automate *)
   - intros; apply ST_extensionality; intros; split.
     + eauto.
     + intros [? [? [? [? ?]]]].
@@ -315,8 +321,14 @@ Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
                    |> traverse_vector s.(memory)
                    |> liftM fromLittleEndian).
 
+(* We assume that even undefined operations do not roll back IO. *)
 Definition undefinedST {A}: ST A :=
-  fun _ _ _ => True.
+  fun s0 _ s1 =>
+    (exists i, s0.(input) = i ++ s0.(input))
+    /\ match s1.(output) with
+      | [] => s0.(output) = []
+      | _ :: r => exists o, o ++ s1.(output) = s1.(output)
+      end.
 
 Definition valueOrUndefinedST {A} (oa: option A) : ST A :=
   match oa with Some a => ret a | _ => undefinedST end.
@@ -407,4 +419,293 @@ Definition deallocateST (start: Bits64) : ST unit :=
 None and that it makes sense to allocate 0 bytes or deallocate an address
 which was never allocated! *)
 
-(* To be continued... *)
+
+(**** Input and output *)
+
+Definition newFrameST (width height sampleRate: nat) : ST unit :=
+  registersUnchangedST
+    ⩀ memoryUnchangedST
+    ⩀ fun s0 _ s1 =>
+        s0.(input) = s1.(input)
+        /\ match s1.(output) with
+          | [] => False
+          | (image, sound) :: rest =>
+            s0.(output) = rest
+            /\ width = image.(oWidth)
+            /\ height = image.(oHeight)
+            /\ sampleRate = sound.(oRate)
+            /\ sound.(oSamples) = []
+          end.
+
+(* Does not take into account that the operation may be undefined. *)
+Definition trySetPixelST (x y r g b : nat) : ST unit :=
+  registersUnchangedST
+    ⩀ memoryUnchangedST
+    ⩀ fun s0 _ s1 =>
+        s0.(input) = s1.(input)
+        /\ match s0.(output), s1.(output) with
+          | (i0, s0) :: r0, (i1, s1) :: r1 =>
+            r0 = r1
+            /\ s0 = s1
+            (* Redundant:
+            /\ i0.(oWidth) = i1.(oWidth)
+            /\ i0.(oHeight) = i1.(oHeight) *)
+            /\ forall xx yy, i1.(oPixel) xx yy = if (xx =? x) && (yy =? y)
+                                           then Some (toBits 16 r, toBits 16 g, toBits 16 b)
+                                           else i0.(oPixel) xx yy
+          | _, _ => False
+          end.
+
+Definition setPixelST (x y r g b : nat) : ST unit :=
+  let wd (s: State) :=
+      match s.(output) with
+      | [] => false
+      | (i, _) :: _ => (x <? i.(oWidth)) && (y <? i.(oHeight))
+      end in
+  wellDefined ::= extractST wd;
+  if wellDefined
+  then trySetPixelST x y r g b
+  else undefinedST.
+
+(* Does not take into account that the operation may be undefined. *)
+Definition tryAddSampleST (left right : nat) : ST unit :=
+  registersUnchangedST
+    ⩀ memoryUnchangedST
+    ⩀ fun s0 _ s1 =>
+        s0.(input) = s1.(input)
+        /\ match s0.(output), s1.(output) with
+          | (i0, s0) :: r0, (i1, s1) :: r1 =>
+            r0 = r1
+            /\ i0 = i1
+            /\ s0.(oRate) = s1.(oRate)
+            /\ (toBits 16 left, toBits 16 right) :: s0.(oSamples) = s1.(oSamples)
+          | _, _ => False
+          end.
+
+Definition addSampleST (left right : nat) : ST unit :=
+  let wd (s: State) := match s.(output) with [] => false | _ => true end in
+  wellDefined ::= extractST wd;
+  if wellDefined
+  then tryAddSampleST left right
+  else undefinedST.
+
+
+
+(**** Execution *)
+
+Definition exitST : ST unit :=
+  memoryUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ fun s0 _ s1 =>
+        terminated s1 = true
+        /\ PC s0 = PC s1
+        /\ SP s0 = SP s1.
+
+Module Instructions.
+  Notation "'EXIT'" := 0.
+  Notation "'NOP'" := 1.
+  Notation "'JUMP'" := 2.
+  Notation "'JUMP_ZERO'" := 3.
+  Notation "'SET_SP'" := 4.
+  Notation "'GET_PC'" := 5.
+  Notation "'GET_SP'" := 6.
+  Notation "'PUSH0'" := 7.
+  Notation "'PUSH1'" := 8.
+  Notation "'PUSH2'" := 9.
+  Notation "'PUSH4'" := 10.
+  Notation "'PUSH8'" := 11.
+  Notation "'SIGX1'" := 12.
+  Notation "'SIGX2'" := 13.
+  Notation "'SIGX4'" := 14.
+  Notation "'LOAD1'" := 16.
+  Notation "'LOAD2'" := 17.
+  Notation "'LOAD4'" := 18.
+  Notation "'LOAD8'" := 19.
+  Notation "'STORE1'" := 20.
+  Notation "'STORE2'" := 21.
+  Notation "'STORE4'" := 22.
+  Notation "'STORE8'" := 23.
+  Notation "'ALLOCATE'" := 24.
+  Notation "'DEALLOCATE'" := 25.
+  Notation "'ADD'" := 32.
+  Notation "'MULT'" := 33.
+  Notation "'DIV'" := 34.
+  Notation "'REM'" := 35.
+  Notation "'LT'" := 36.
+  Notation "'AND'" := 40.
+  Notation "'OR'" := 41.
+  Notation "'NOT'" := 42.
+  Notation "'XOR'" := 43.
+  Notation "'POW2'" := 44.
+  Notation "'NEW_FRAME'" := 48.
+  Notation "'SET_PIXEL'" := 49.
+  Notation "'ADD_SAMPLE'" := 50.
+End Instructions.
+
+Section step_definition.
+Import Instructions.
+
+Definition stepST : ST unit :=
+  nextST 1 >>= fun op => match op with
+  | EXIT => exitST
+  | NOP => stateUnchangedST
+
+  | JUMP => popST >>= setPcST
+  | JUMP_ZERO =>
+      offset ::= nextST 1;
+      v ::= popST;
+      if v =? 0
+      then pc ::= getPcST;
+           setPcST (add64 pc (signExtend (toBits 8 offset)))
+      else stateUnchangedST
+
+  | SET_SP => popST >>= setSpST
+  | GET_PC => getPcST >>= pushST
+  | GET_SP => getSpST >>= pushST
+
+  | PUSH0 => pushST 0
+  | PUSH1 => nextST 1 >>= pushST
+  | PUSH2 => nextST 2 >>= pushST
+  | PUSH4 => nextST 4 >>= pushST
+  | PUSH8 => nextST 8 >>= pushST
+
+  | SIGX1 => v ::= popST; pushST (signExtend v)
+  | SIGX2 => v ::= popST; pushST (signExtend v)
+  | SIGX4 => v ::= popST; pushST (signExtend v)
+
+  | LOAD1 => popST >>= getST 1 >>= pushST
+  | LOAD2 => popST >>= getST 2 >>= pushST
+  | LOAD4 => popST >>= getST 4 >>= pushST
+  | LOAD8 => popST >>= getST 8 >>= pushST
+
+  | STORE1 => a ::= popST; v ::= popST; setST 1 a v
+  | STORE2 => a ::= popST; v ::= popST; setST 2 a v
+  | STORE4 => a ::= popST; v ::= popST; setST 4 a v
+  | STORE8 => a ::= popST; v ::= popST; setST 8 a v
+
+  | ALLOCATE => popST >>= allocateST >>= pushST
+  | DEALLOCATE => popST >>= deallocateST
+
+  (* Clip to 64 bits *)
+  | ADD => x ::= popST; y ::= popST; pushST (x + y)
+  | MULT => x ::= popST; y ::= popST; pushST (x * y)
+  | DIV =>
+      x ::= popST;
+      y ::= popST;
+      pushST (if x =? 0 then 0 else y / x)
+  | REM =>
+      x ::= popST;
+      y ::= popST;
+      pushST (if x =? 0 then 0 else modulo y x)
+  | LT =>
+      x ::= popST;
+      y ::= popST;
+      pushST (if y <? x then true64 else zero64) (* multiple coercions *)
+  | AND =>
+      x ::= popST;
+      y ::= popST;
+      pushST (BVand x y : Bits64)
+  | OR =>
+      x ::= popST;
+      y ::= popST;
+      pushST (BVor x y : Bits64)
+  | XOR =>
+      x ::= popST;
+      y ::= popST;
+      pushST (BVxor x y : Bits64)
+  | NOT =>
+      x ::= popST;
+      pushST (Bneg x : Bits64)
+  | POW2 =>
+      n ::= popST;
+      pushST (2 ^ n)
+
+  | NEW_FRAME =>
+      rate ::= popST;
+      height ::= popST;
+      width ::= popST;
+      newFrameST width height rate
+  | SET_PIXEL =>
+      b ::= popST;
+      g ::= popST;
+      r ::= popST;
+      y ::= popST;
+      x ::= popST;
+      setPixelST x y r g b
+  | ADD_SAMPLE =>
+      right ::= popST;
+      left ::= popST;
+      addSampleST left right
+
+  (* TODO: Handle input instructions when they are ready. *)
+
+  | _ => undefinedST
+  end.
+
+End step_definition. (* This limits the scope of the instruction notation. *)
+
+Equations nStepsST (n: nat): ST unit :=
+  nStepsST 0 := stateUnchangedST;
+  nStepsST (S n) := stepST ;; nStepsST n.
+
+(* Transitive closure *)
+Definition multiStepST: ST unit :=
+  fun s0 _ s1 => exists n, nStepsST n s0 tt s1.
+
+Definition runST: ST unit:=
+  fun s0 _ s1 =>
+    multiStepST s0 tt s1
+    /\ s1.(terminated) = true.
+
+(* Avoid complaints from Equations when using depelim. *)
+Derive Signature for Vector.Exists.
+
+Definition initialState (inputList: list InputFrame) : State.
+  refine ({|
+             terminated := false;
+             PC := zero64;
+             SP := zero64;
+             input := inputList;
+             output := [];
+             memory := fun _ => None;
+             allocation := fun _ => 0;
+           |}).
+  (* TODO: Automate *)
+  - firstorder.
+    exfalso.
+    revert_last.
+    funelim (addresses x 0).
+    simpl.
+    intro H.
+    depelim H.
+  - intros x y.
+    funelim (addresses x 0).
+    simpl.
+    intro H.
+    exfalso.
+    depelim H.
+Defined.
+
+Equations fillST (start: Bits64) (bytes: list Bits8) : ST unit :=
+  fillST _ [] := stateUnchangedST;
+  fillST a (x :: r) := setST 1 a x ;; fillST (addNat64 1 a) r.
+
+(* Because of non-determinism and Coq's lack of general recursion, this
+   must be defined as a predicate rather than a (partial) function. *)
+Definition execution (prog: list Bits8) (arg: list Bits8) (inputList: list InputFrame) (outputList: list (OutputImage * OutputSound)) : Prop :=
+  let s0 :=
+      initialState inputList in
+  let prepST: ST unit :=
+      prog_start ::= allocateST (length prog);
+      fillST prog_start prog;;
+      setPcST prog_start;;
+      let restSize := length arg + 3 * 8 in
+      arg_start ::= allocateST restSize;
+      fillST arg_start arg;;
+      setSpST (addNat64 restSize arg_start) in
+  let checkOutputST: ST unit :=
+      (* Observe that we reverse the output list. *)
+      fun s0 _ s1 => s0 = s1 /\ s1.(output) = rev outputList in
+  let st :=
+      prepST ;; runST ;; checkOutputST in
+  exists s1, st s0 tt s1.
