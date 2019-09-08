@@ -193,7 +193,27 @@ Record State :=
 Unset Primitive Projections.
 
 
-(* Since State is completely finite, this should be provable even without
+Lemma State_expanion (s: State) :
+  s = {|
+    terminated := s.(terminated);
+    PC := s.(PC);
+    SP := s.(SP);
+    input := s.(input);
+    output := s.(output);
+    memory := s.(memory);
+    allocation := s.(allocation);
+    allocations_defined := s.(allocations_defined);
+    allocations_disjoint := s.(allocations_disjoint);
+  |}.
+Proof.
+  reflexivity.
+Qed.
+
+Require Import Coq.Logic.FunctionalExtensionality.
+Require Import Coq.Logic.PropExtensionality.
+
+
+(* Since State is finite, we might be provable even without
 PropExtensionality or Functionalextensionality, but this will have to wait. *)
 Lemma State_extensionality : forall (s0 s1: State),
     s0.(terminated) = s1.(terminated)
@@ -205,16 +225,18 @@ Lemma State_extensionality : forall (s0 s1: State),
     -> s0.(allocation) = s1.(allocation)
     -> s0 = s1.
 Proof.
-Admitted. (* TODO *)
-
+  intros s0 s1.
+  intros e1 e2 e3 e4 e5 e6 e7.
+  rewrite (State_expanion s0).
+  rewrite e1, e2, e3, e4, e5.
+  clear e1 e2 e3 e4 e5.
+  (* TODO: The rest involves dependent types, but it should be within reach. *)
+Admitted.
 
 
 (**** Relational state monad *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
-
-Require Import Coq.Logic.FunctionalExtensionality.
-Require Import Coq.Logic.PropExtensionality.
 
 (* Extensionality is needed since A is an arbitrary type.
    This can be avoided if we define monads in terms of a setoid.
