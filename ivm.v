@@ -12,6 +12,7 @@ Set Implicit Arguments.
 Arguments Vector.cons : default implicits.
 Arguments Bcons : default implicits.
 Arguments Bneg : default implicits.
+Arguments Bsign : default implicits.
 
 
 (**** Monad basics *)
@@ -97,9 +98,14 @@ Equations toBits n (k: nat) : Bvector n :=
 
 (* Compute (fromBits (toBits 8 (213 + 65536))). *)
 
+Definition fromBits8 : Bits8 -> nat := fromBits. Coercion fromBits8 : Bits8 >-> nat.
+Definition fromBits16 : Bits16 -> nat := fromBits. Coercion fromBits16 : Bits16 >-> nat.
+Definition fromBits32 : Bits32 -> nat := fromBits. Coercion fromBits32 : Bits32 >-> nat.
+Definition fromBits64 : Bits64 -> nat := fromBits. Coercion fromBits64 : Bits64 >-> nat.
+
 Equations fromLittleEndian {n} (v: Vector.t Bits8 n): nat :=
   fromLittleEndian Vector.nil := 0;
-  fromLittleEndian (Vector.cons x r) := 256 * (fromLittleEndian r) + (fromBits x).
+  fromLittleEndian (Vector.cons x r) := 256 * (fromLittleEndian r) + x. (* Implicit coercion *)
 
 Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
   toLittleEndian 0 _ := Vector.nil Bits8;
@@ -107,10 +113,20 @@ Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
 
 (* Compute (fromLittleEndian (toLittleEndian 2 12345)). *)
 
-Definition addNat64 k (x: Bits64) : Bits64 := k + (fromBits x) |> toBits 64.
+Definition addNat64 k (x: Bits64) : Bits64 := k + x |> toBits 64. (* Implicit coercion *)
 Definition neg64 (x: Bits64) : Bits64 := Bneg x |> addNat64 1.
-Definition add64 (x y: Bits64) : Bits64 := (fromBits x) + (fromBits y) |> toBits 64.
+Definition add64 (x y: Bits64) : Bits64 := x + y |> toBits 64. (* Implicit coercion *)
 Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
+
+Definition signExtend {n} (v: Bvector (S n)) : Bits64.
+  refine (
+      let sign := Bsign v in
+      let extra := nat_rect Bvector Bnil (Bcons sign) (64 - n) in
+      let bits := Vector.append v extra in
+      Vector.take 64 _ bits). (* in case n > 64 *)
+  omega.
+Defined.
+
 
 
 (**** State *)
