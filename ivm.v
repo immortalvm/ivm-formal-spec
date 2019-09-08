@@ -137,9 +137,9 @@ Definition true64 : Bits64 := Bneg zero64.
 
 (**** State *)
 
-Equations addresses (start: Bits64) n : Vector.t Bits64 n :=
-  addresses _ 0 := Vector.nil Bits64;
-  addresses start (S n) := Vector.cons start (addresses (addNat64 1 start) n).
+Equations addresses n (start: Bits64) : Vector.t Bits64 n :=
+  addresses 0 _ := Vector.nil Bits64;
+  addresses (S n) start := Vector.cons start (addresses n (addNat64 1 start)).
 
 Definition Gray := Bits8.
 Definition Color := (Bits16 * Bits16 * Bits16)%type.
@@ -180,13 +180,13 @@ Record State :=
       allocations_defined:
         forall (a: Bits64),
           memory a <> None <->
-          exists start, Vector.Exists (eq a) (addresses start (allocation start));
+          exists start, Vector.Exists (eq a) (addresses (allocation start) start);
 
       allocations_disjoint:
         forall start0 start1,
           (Vector.Exists
-             (fun a => Vector.Exists (eq a) (addresses start0 (allocation start0)))
-             (addresses start1 (allocation start1))) ->
+             (fun a => Vector.Exists (eq a) (addresses (allocation start0) start0))
+             (addresses (allocation start1) start1)) ->
           start0 = start1;
     }.
 
@@ -339,7 +339,7 @@ Definition getSpST : ST Bits64 := extractST SP.
 
 (* Get the value at the n bytes starting at start. *)
 Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
-  extractST (fun s => addresses start n
+  extractST (fun s => addresses n start
                    |> traverse_vector s.(memory)
                    |> liftM fromLittleEndian).
 
@@ -361,13 +361,13 @@ Definition getST (n: nat) (start: Bits64) : ST nat :=
 
 Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
   fun s0 _ s1 =>
-    let other a := Vector.Forall (fun x => x <> a) (addresses start n) in
+    let other a := Vector.Forall (fun x => x <> a) (addresses n start) in
     forall a, other a -> s0.(memory) a = s1.(memory) a.
 
 (* Observe that if (setST n start value s0 x1 s1), then we know that the
    addresses were allocated because of s1.(allocations_defined).
    Formally:
-   Vector.Forall (fun a => s0.(memory) a <> None) (addresses start n)
+   Vector.Forall (fun a => s0.(memory) a <> None) (addresses n start)
  *)
 Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchangedST
@@ -696,12 +696,12 @@ Definition initialState (inputList: list InputFrame) : State.
   - firstorder.
     exfalso.
     revert_last.
-    funelim (addresses x 0).
+    funelim (addresses 0 x).
     simpl.
     intro H.
     depelim H.
   - intros x y.
-    funelim (addresses x 0).
+    funelim (addresses 0 x).
     simpl.
     intro H.
     exfalso.
