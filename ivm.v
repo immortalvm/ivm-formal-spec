@@ -327,14 +327,27 @@ Definition setST (start: Bits64) (n: nat) (value: nat) : ST unit :=
          s0.(allocation) = s1.(allocation)
          /\ getST start n s1 value s1).
 
+Definition setPcST (a: Bits64): ST unit :=
+  memoryUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ (fun s0 _ s1 =>
+         s0.(terminated) = s1.(terminated)
+         /\ s0.(SP) = s1.(SP)
+         /\ a = s1.(PC)).
+
 Definition setSpST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
     ⩀ (fun s0 _ s1 =>
-         (* Is this more readable than s0.(terminated) ...? *)
+         (* Is this more readable? *)
          terminated s0 = terminated s1
          /\ PC s0 = PC s1
          /\ a = SP s1).
+
+Definition nextST (n: nat) : ST nat :=
+  a ::= getPcST;
+  setSpST (addNat64 n a);;
+  getST a n.
 
 Definition popST: ST nat :=
   a ::= getSpST;
