@@ -310,7 +310,7 @@ Definition getPcST : ST Bits64 := extractST PC.
 Definition getSpST : ST Bits64 := extractST SP.
 
 (* Get the value at the n bytes starting at start. *)
-Definition tryGetST (start: Bits64) (n: nat) : ST (option nat) :=
+Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
   extractST (fun s => addresses start n
                    |> traverse_vector s.(memory)
                    |> liftM fromLittleEndian).
@@ -322,26 +322,26 @@ Definition valueOrUndefinedST {A} (oa: option A) : ST A :=
   match oa with Some a => ret a | _ => undefinedST end.
 
 (* NB: The behavior is completely undefined if there is an access violation! *)
-Definition getST (start: Bits64) (n: nat) : ST nat :=
-  tryGetST start n >>= valueOrUndefinedST.
+Definition getST (n: nat) (start: Bits64) : ST nat :=
+  tryGetST n start >>= valueOrUndefinedST.
 
 Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
   fun s0 _ s1 =>
     let other a := Vector.Forall (fun x => x <> a) (addresses start n) in
     forall a, other a -> s0.(memory) a = s1.(memory) a.
 
-(* Observe that if (setST start n value s0 x1 s1), then we know that the
+(* Observe that if (setST n start value s0 x1 s1), then we know that the
    addresses were allocated because of s1.(allocations_defined).
    Formally:
    Vector.Forall (fun a => s0.(memory) a <> None) (addresses start n)
  *)
-Definition setST (start: Bits64) (n: nat) (value: nat) : ST unit :=
+Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherMemoryUnchangedST start n
     ⩀ fun s0 _ s1 =>
         s0.(allocation) = s1.(allocation)
-        /\ getST start n s1 value s1.
+        /\ getST n start s1 value s1.
 
 Definition setPcST (a: Bits64): ST unit :=
   memoryUnchangedST
@@ -363,18 +363,20 @@ Definition setSpST (a: Bits64): ST unit :=
 Definition nextST (n: nat) : ST nat :=
   a ::= getPcST;
   setSpST (addNat64 n a);;
-  getST a n.
+  getST n a.
 
-Definition popST: ST nat :=
+Definition popST: ST Bits64 :=
   a ::= getSpST;
+  v ::= getST 8 a;
   setSpST (addNat64 8 a);;
-  getST a 8.
+  ret (toBits 64 v).
 
+(* Clips value at 64 bits! *)
 Definition pushST (value: nat): ST unit :=
   a0 ::= getSpST;
   let a1 := subNat64 8 a0 in
   setSpST a1;;
-  setST a1 8 value.
+  setST 8 a1 value.
 
 
 (**** Memory allocation *)
@@ -391,7 +393,7 @@ Definition allocateST (n: nat) : ST Bits64 :=
         /\ s1.(allocation) start = n
         /\ otherAllocationsUnchanged start s0 tt s1
         /\ otherMemoryUnchangedST start n s0 tt s1
-        /\ getST start n s1 0 s1. (* Memory initialized to 0. *)
+        /\ getST n start s1 0 s1. (* Memory initialized to 0. *)
 
 Definition deallocateST (start: Bits64) : ST unit :=
   registersUnchangedST
