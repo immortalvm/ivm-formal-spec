@@ -529,6 +529,9 @@ Definition exitST : ST unit :=
         /\ PC s0 = PC s1
         /\ SP s0 = SP s1.
 
+Definition stoppedST : ST unit :=
+  fun _ _ _ => False.
+
 Module Instructions.
   Notation "'EXIT'" := 0.
   Notation "'NOP'" := 1.
@@ -574,101 +577,107 @@ Section step_definition.
 Import Instructions.
 
 Definition stepST : ST unit :=
-  nextST 1 >>= fun op => match op with
-  | EXIT => exitST
-  | NOP => stateUnchangedST
+  t ::= extractST terminated;
+  if t
+  then
+    stoppedST
+  else
+    op ::= nextST 1;
+    match op with
+    | EXIT => exitST
+    | NOP => stateUnchangedST
 
-  | JUMP => popST >>= setPcST
-  | JUMP_ZERO =>
-      offset ::= nextST 1;
-      v ::= popST;
-      if v =? 0
-      then pc ::= getPcST;
-           setPcST (add64 pc (signExtend (toBits 8 offset)))
-      else stateUnchangedST
+    | JUMP => popST >>= setPcST
+    | JUMP_ZERO =>
+        offset ::= nextST 1;
+        v ::= popST;
+        if v =? 0
+        then pc ::= getPcST;
+             setPcST (add64 pc (signExtend (toBits 8 offset)))
+        else stateUnchangedST
 
-  | SET_SP => popST >>= setSpST
-  | GET_PC => getPcST >>= pushST
-  | GET_SP => getSpST >>= pushST
+    | SET_SP => popST >>= setSpST
+    | GET_PC => getPcST >>= pushST
+    | GET_SP => getSpST >>= pushST
 
-  | PUSH0 => pushST 0
-  | PUSH1 => nextST 1 >>= pushST
-  | PUSH2 => nextST 2 >>= pushST
-  | PUSH4 => nextST 4 >>= pushST
-  | PUSH8 => nextST 8 >>= pushST
+    | PUSH0 => pushST 0
+    | PUSH1 => nextST 1 >>= pushST
+    | PUSH2 => nextST 2 >>= pushST
+    | PUSH4 => nextST 4 >>= pushST
+    | PUSH8 => nextST 8 >>= pushST
 
-  | SIGX1 => v ::= popST; pushST (signExtend v)
-  | SIGX2 => v ::= popST; pushST (signExtend v)
-  | SIGX4 => v ::= popST; pushST (signExtend v)
+    | SIGX1 => v ::= popST; pushST (signExtend v)
+    | SIGX2 => v ::= popST; pushST (signExtend v)
+    | SIGX4 => v ::= popST; pushST (signExtend v)
 
-  | LOAD1 => popST >>= getST 1 >>= pushST
-  | LOAD2 => popST >>= getST 2 >>= pushST
-  | LOAD4 => popST >>= getST 4 >>= pushST
-  | LOAD8 => popST >>= getST 8 >>= pushST
+    | LOAD1 => popST >>= getST 1 >>= pushST
+    | LOAD2 => popST >>= getST 2 >>= pushST
+    | LOAD4 => popST >>= getST 4 >>= pushST
+    | LOAD8 => popST >>= getST 8 >>= pushST
 
-  | STORE1 => a ::= popST; v ::= popST; setST 1 a v
-  | STORE2 => a ::= popST; v ::= popST; setST 2 a v
-  | STORE4 => a ::= popST; v ::= popST; setST 4 a v
-  | STORE8 => a ::= popST; v ::= popST; setST 8 a v
+    | STORE1 => a ::= popST; v ::= popST; setST 1 a v
+    | STORE2 => a ::= popST; v ::= popST; setST 2 a v
+    | STORE4 => a ::= popST; v ::= popST; setST 4 a v
+    | STORE8 => a ::= popST; v ::= popST; setST 8 a v
 
-  | ALLOCATE => popST >>= allocateST >>= pushST
-  | DEALLOCATE => popST >>= deallocateST
+    | ALLOCATE => popST >>= allocateST >>= pushST
+    | DEALLOCATE => popST >>= deallocateST
 
-  (* Clip to 64 bits *)
-  | ADD => x ::= popST; y ::= popST; pushST (x + y)
-  | MULT => x ::= popST; y ::= popST; pushST (x * y)
-  | DIV =>
-      x ::= popST;
-      y ::= popST;
-      pushST (if x =? 0 then 0 else y / x)
-  | REM =>
-      x ::= popST;
-      y ::= popST;
-      pushST (if x =? 0 then 0 else modulo y x)
-  | LT =>
-      x ::= popST;
-      y ::= popST;
-      pushST (if y <? x then true64 else zero64) (* multiple coercions *)
-  | AND =>
-      x ::= popST;
-      y ::= popST;
-      pushST (BVand x y : Bits64)
-  | OR =>
-      x ::= popST;
-      y ::= popST;
-      pushST (BVor x y : Bits64)
-  | XOR =>
-      x ::= popST;
-      y ::= popST;
-      pushST (BVxor x y : Bits64)
-  | NOT =>
-      x ::= popST;
-      pushST (Bneg x : Bits64)
-  | POW2 =>
-      n ::= popST;
-      pushST (2 ^ n)
+    (* Clip to 64 bits *)
+    | ADD => x ::= popST; y ::= popST; pushST (x + y)
+    | MULT => x ::= popST; y ::= popST; pushST (x * y)
+    | DIV =>
+        x ::= popST;
+        y ::= popST;
+        pushST (if x =? 0 then 0 else y / x)
+    | REM =>
+        x ::= popST;
+        y ::= popST;
+        pushST (if x =? 0 then 0 else modulo y x)
+    | LT =>
+        x ::= popST;
+        y ::= popST;
+        pushST (if y <? x then true64 else zero64) (* multiple coercions *)
+    | AND =>
+        x ::= popST;
+        y ::= popST;
+        pushST (BVand x y : Bits64)
+    | OR =>
+        x ::= popST;
+        y ::= popST;
+        pushST (BVor x y : Bits64)
+    | XOR =>
+        x ::= popST;
+        y ::= popST;
+        pushST (BVxor x y : Bits64)
+    | NOT =>
+        x ::= popST;
+        pushST (Bneg x : Bits64)
+    | POW2 =>
+        n ::= popST;
+        pushST (2 ^ n)
 
-  | NEW_FRAME =>
-      rate ::= popST;
-      height ::= popST;
-      width ::= popST;
-      newFrameST width height rate
-  | SET_PIXEL =>
-      b ::= popST;
-      g ::= popST;
-      r ::= popST;
-      y ::= popST;
-      x ::= popST;
-      setPixelST x y r g b
-  | ADD_SAMPLE =>
-      right ::= popST;
-      left ::= popST;
-      addSampleST left right
+    | NEW_FRAME =>
+        rate ::= popST;
+        height ::= popST;
+        width ::= popST;
+        newFrameST width height rate
+    | SET_PIXEL =>
+        b ::= popST;
+        g ::= popST;
+        r ::= popST;
+        y ::= popST;
+        x ::= popST;
+        setPixelST x y r g b
+    | ADD_SAMPLE =>
+        right ::= popST;
+        left ::= popST;
+        addSampleST left right
 
-  (* TODO: Handle input instructions when they are ready. *)
+    (* TODO: Handle input instructions when they are ready. *)
 
-  | _ => undefinedST
-  end.
+    | _ => undefinedST
+    end.
 
 End step_definition. (* This limits the scope of the instruction notation. *)
 
