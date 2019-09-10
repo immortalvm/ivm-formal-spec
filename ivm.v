@@ -36,10 +36,10 @@ Class Monad (m: Type -> Type): Type :=
   ret: forall A, A -> m A;
   bind: forall A, m A -> forall B, (A -> m B) -> m B;
 
-  monad_right: forall A (a: m A), a = bind a (@ret A);
+  monad_right: forall A (ma: m A), ma = bind ma (@ret A);
   monad_left: forall A (a: A) B (f: A -> m B), f a = bind (ret a) f;
   monad_assoc: forall A (ma: m A) B f C (g: B -> m C),
-      bind ma (fun x => bind (f x) g) = bind (bind ma f) g
+      bind ma (fun a => bind (f a) g) = bind (bind ma f) g
 }.
 Notation "ma >>= f" := (bind ma _ f) (at level 98, left associativity).
 
@@ -242,7 +242,13 @@ Qed.
 
 (**** Relational state monad *)
 
-Definition ST (A: Type) := State -> A -> State -> Prop.
+Definition ST (A: Type) := State -> option (A * State) -> Prop.
+
+Definition definedST {A} (r: State -> A -> State -> Prop) : ST A :=
+  fun s0 xs1 => match xs1 with Some (x, s1) => r s0 x s1 | _ => False end.
+
+Notation "'def' s0 x1 s1 => p" := (definedST (fun s0 x1 s1 => p)) (at level 200, s0 ident, x1 ident, s1 ident, right associativity).
+
 
 Require Import Coq.Logic.FunctionalExtensionality.
 
@@ -250,7 +256,7 @@ Require Import Coq.Logic.FunctionalExtensionality.
    This can be avoided if we define monads in terms of a setoid.
  *)
 Lemma ST_extensionality {A} (st0 st1: ST A):
-  (forall s0 x1 s1, st0 s0 x1 s1 <-> st1 s0 x1 s1) -> st0 = st1.
+  (forall s0 xs1, st0 s0 xs1 <-> st1 s0 xs1) -> st0 = st1.
 Proof.
   intro H.
   repeat (intro || apply functional_extensionality).
@@ -258,65 +264,83 @@ Proof.
   apply H.
 Qed.
 
+Module st_tactics.
+  Ltac destr :=
+    match goal with
+    | H:_ /\ _ |- _ => destruct H
+    | H:_ * _ |- _ => destruct H
+    | H:_ \/ _ |- _ => destruct H
+    | H: exists _, _ |- _ => destruct H
+    | H: option _ |- _ => destruct H
+    | H: False |- _ => destruct H
+    end.
+  Ltac exS :=
+    match goal with
+    | [ |- exists xs: _, xs = ?t /\ _] => exists t
+    | [x:?X, s:State, _:context H[Some(?x,?s)] |- exists _: option (?X * State), _ ] => exists (Some (x, s))
+    | [ |- exists _: option (?X * State), _ ] => exists None
+    end.
+  Ltac exN :=
+    match goal with
+    | [ |- exists _: option (?X * State), _ ] => exists None
+    end.
+  Ltac eqx :=
+    match goal with
+    | [ e : Some(_,_) = Some(_,_) |- _ ] => injection e; clear e; intros
+    end.
+  Ltac crush := repeat (
+                    intro || split || assumption || discriminate || subst
+                    || apply State_extensionality
+                    || apply ST_extensionality
+                    || simpl in *
+                    || eqx || destr || exS).
+End st_tactics.
+
 Instance StateMonad: Monad ST :=
-{
-  ret A x0 s0 x1 s1 := x1 = x0 /\ s0 = s1;
-  bind A ma B f s0 b s2 := exists a s1, ma s0 a s1 /\ f a s1 b s2;
-}.
-Proof. (* TODO: Automate *)
-  - intros; apply ST_extensionality; intros; split.
-    + eauto.
-    + intros [? [? [? [? ?]]]].
-      subst.
-      assumption.
-  - intros; apply ST_extensionality; intros; split.
-    + eauto.
-    + intros [? [? [[? ?] ?]]].
-      subst.
-      assumption.
-  - intros; apply ST_extensionality; intros; split.
-    + intros [? [? [? [? [? [? ?]]]]]].
-      exists x2, x3; split.
-      * exists x, x0; split; assumption.
-      * assumption.
-    + intros [? [? [[? [? [? ?]]] ?]]].
-      exists x2, x3; split.
-      * assumption.
-      * exists x, x0; split; assumption.
+  {
+    ret A x0 s0 xs1 := xs1 = Some (x0, s0);
+    bind A st B f s0 xs2 := exists xs1, st s0 xs1 /\ match xs1 with
+                                               | None => xs2 = None
+                                               | Some (x, s1) => f x s1 xs2
+                                               end;
+  }.
+Proof.
+  - abstract (st_tactics.crush).
+  - abstract (st_tactics.crush).
+  - abstract (st_tactics.crush).
 Defined.
 
 
 (**** Change management *)
 
 Definition intersect {A} (st1 st2: ST A): ST A :=
-  fun s0 x1 s1 => st1 s0 x1 s1 /\ st2 s0 x1 s1.
+  fun s0 xs1 => st1 s0 xs1 /\ st2 s0 xs1.
 
 Notation "st1 ⩀ st2" := (intersect st1 st2) (at level 50, left associativity).
 
 Definition stateUnchangedST {A} : ST A :=
-  fun s0 _ s1 => s0 = s1.
+  def s0 _ s1 => s0 = s1.
 
 Lemma ret_characterized {A} (x: A) :
-  stateUnchangedST ⩀ (fun _ x1 _ => x = x1) = ret x.
+  stateUnchangedST ⩀ (fun _ xs1 => match xs1 with Some (x1, _) => x = x1 | _ => False end) = ret x.
 Proof.
   unfold stateUnchangedST, intersect.
-  apply ST_extensionality.
-  firstorder.
+  st_tactics.crush.
 Qed.
 
 Definition registersUnchangedST {A} : ST A :=
-  fun s0 _ s1 =>
+  def s0 _ s1 =>
     s0.(terminated) = s1.(terminated)
     /\ s0.(PC) = s1.(PC)
     /\ s0.(SP) = s1.(SP).
 
 Definition memoryUnchangedST {A} : ST A :=
-  fun s0 _ s1 =>
+  def s0 _ s1 =>
     s0.(allocation) = s1.(allocation)
     /\ s0.(memory) = s1.(memory).
 
 Definition ioUnchangedST {A} : ST A :=
-  fun s0 _ s1 =>
+  def s0 _ s1 =>
     s0.(input) = s1.(input)
     /\ s0.(output) = s1.(output).
 
@@ -324,20 +348,15 @@ Lemma stateUnchanged_characterized {A} :
   @registersUnchangedST A ⩀ memoryUnchangedST ⩀ ioUnchangedST = stateUnchangedST.
 Proof.
   unfold registersUnchangedST, memoryUnchangedST, ioUnchangedST, stateUnchangedST.
-  repeat (unfold intersect).
-  apply ST_extensionality.
-  intros; firstorder; subst; try (reflexivity || assumption).
-  apply State_extensionality; assumption.
+  repeat (unfold intersect, definedST).
+  st_tactics.crush.
 Qed.
 
 
 (**** Building blocks *)
 
-Definition valueST {A} (p: State -> A -> Prop): ST A :=
-  stateUnchangedST ⩀ (fun s0 x1 _ => p s0 x1).
-
 Definition extractST {A} (f: State -> A): ST A :=
-  valueST (fun s0 x1 => f s0 = x1).
+  stateUnchangedST ⩀ (def s0 x1 _ => f s0 = x1).
 
 Definition getPcST : ST Bits64 := extractST PC.
 
@@ -349,24 +368,18 @@ Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
                    |> traverse_vector s.(memory)
                    |> liftM fromLittleEndian).
 
-(* We assume that even undefined operations do not roll back IO. *)
 Definition undefinedST {A}: ST A :=
-  fun s0 _ s1 =>
-    (exists i, s0.(input) = i ++ s0.(input))
-    /\ match s1.(output) with
-      | [] => s0.(output) = []
-      | _ :: r => exists o, o ++ s1.(output) = s1.(output)
-      end.
+  fun _ xs1 => xs1 = None.
 
 Definition valueOrUndefinedST {A} (oa: option A) : ST A :=
   match oa with Some a => ret a | _ => undefinedST end.
 
-(* NB: The behavior is completely undefined if there is an access violation! *)
+(* Undefined if there is an access violation. *)
 Definition getST (n: nat) (start: Bits64) : ST nat :=
   tryGetST n start >>= valueOrUndefinedST.
 
 Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
-  fun s0 _ s1 =>
+  def s0 _ s1 =>
     let other a := Vector.Forall (fun x => x <> a) (addresses n start) in
     forall a, other a -> s0.(memory) a = s1.(memory) a.
 
@@ -379,22 +392,22 @@ Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherMemoryUnchangedST start n
-    ⩀ fun s0 _ s1 =>
+    ⩀ def s0 _ s1 =>
         s0.(allocation) = s1.(allocation)
-        /\ getST n start s1 value s1.
+        /\ getST n start s1 (Some (value, s1)).
 
 Definition setPcST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ fun s0 _ s1 =>
-        s0.(terminated) = s1.(terminated)
-        /\ s0.(SP) = s1.(SP)
-        /\ a = s1.(PC).
+    ⩀ def s0 _ s1 =>
+         s0.(terminated) = s1.(terminated)
+         /\ s0.(SP) = s1.(SP)
+         /\ a = s1.(PC).
 
 Definition setSpST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ fun s0 _ s1 =>
+    ⩀ def s0 _ s1 =>
         (* Is this more readable? *)
         terminated s0 = terminated s1
         /\ PC s0 = PC s1
@@ -411,7 +424,7 @@ Definition popST: ST Bits64 :=
   setSpST (addNat64 8 a);;
   ret (toBits 64 v).
 
-(* Clips value at 64 bits! *)
+(* Push lower 64 bits of value. *)
 Definition pushST (value: nat): ST unit :=
   a0 ::= getSpST;
   let a1 := subNat64 8 a0 in
@@ -421,27 +434,27 @@ Definition pushST (value: nat): ST unit :=
 
 (**** Memory allocation *)
 
-Definition otherAllocationsUnchanged (start: Bits64) : ST unit :=
-  fun s0 _ s1 =>
+Definition otherAllocationsUnchangedST (start: Bits64) : ST unit :=
+  def s0 _ s1 =>
     forall a, a <> start -> s0.(allocation) a = s1.(allocation) a.
 
 Definition allocateST (n: nat) : ST Bits64 :=
   registersUnchangedST
     ⩀ ioUnchangedST
-    ⩀ fun s0 start s1 =>
+    ⩀ def s0 start s1 =>
         s0.(allocation) start = 0
         /\ s1.(allocation) start = n
-        /\ otherAllocationsUnchanged start s0 tt s1
-        /\ otherMemoryUnchangedST start n s0 tt s1
-        /\ getST n start s1 0 s1. (* Memory initialized to 0. *)
+        /\ otherAllocationsUnchangedST start s0 (Some (tt, s1))
+        /\ otherMemoryUnchangedST start n s0 (Some (tt, s1))
+        /\ getST n start s1 (Some (0, s1)). (* Memory initialized to 0. *)
 
 Definition deallocateST (start: Bits64) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
-    ⩀ otherAllocationsUnchanged start
-    ⩀ fun s0 _ s1 =>
+    ⩀ otherAllocationsUnchangedST start
+    ⩀ def s0 _ s1 =>
         s1.(allocation) start = 0
-        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 tt s1.
+        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 (Some (tt, s1)).
 
 (* Observe that allocations_defined ensures that unallocated memory is
 None and that it makes sense to allocate 0 bytes or deallocate an address
@@ -453,7 +466,7 @@ which was never allocated! *)
 Definition newFrameST (width height sampleRate: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+    ⩀ def s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s1.(output) with
           | [] => False
@@ -469,7 +482,7 @@ Definition newFrameST (width height sampleRate: nat) : ST unit :=
 Definition trySetPixelST (x y r g b : nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+    ⩀ def s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
           | (i0, s0) :: r0, (i1, s1) :: r1 =>
@@ -499,7 +512,7 @@ Definition setPixelST (x y r g b : nat) : ST unit :=
 Definition tryAddSampleST (left right : nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+    ⩀ def s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
           | (i0, s0) :: r0, (i1, s1) :: r1 =>
@@ -524,13 +537,13 @@ Definition addSampleST (left right : nat) : ST unit :=
 Definition exitST : ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ fun s0 _ s1 =>
+    ⩀ def s0 _ s1 =>
         terminated s1 = true
         /\ PC s0 = PC s1
         /\ SP s0 = SP s1.
 
 Definition stoppedST : ST unit :=
-  fun _ _ _ => False.
+  fun _ _ => False.
 
 Module Instructions.
   Notation "'EXIT'" := 0.
@@ -687,11 +700,11 @@ Equations nStepsST (n: nat): ST unit :=
 
 (* Transitive closure *)
 Definition multiStepST: ST unit :=
-  fun s0 _ s1 => exists n, nStepsST n s0 tt s1.
+  fun s0 xs1 => exists n, nStepsST n s0 xs1.
 
 Definition runST: ST unit:=
-  fun s0 _ s1 =>
-    multiStepST s0 tt s1
+  def s0 _ s1 =>
+    multiStepST s0 (Some (tt, s1))
     /\ s1.(terminated) = true.
 
 (* Avoid complaints from Equations when using depelim. *)
@@ -747,7 +760,7 @@ Definition execution
       setSpST (addNat64 restSize arg_start) in
   let checkOutputST: ST unit :=
       (* Observe that we reverse the output list. *)
-      fun s0 _ s1 => s0 = s1 /\ s1.(output) = rev outputList in
+      def s0 _ s1 => s0 = s1 /\ s1.(output) = rev outputList in
   let st :=
       prepST ;; runST ;; checkOutputST in
-  exists s1, st s0 tt s1.
+  exists s1, st s0 (Some (tt, s1)).
