@@ -244,10 +244,16 @@ Qed.
 
 Definition ST (A: Type) := State -> option (A * State) -> Prop.
 
-Definition definedST {A} (r: State -> A -> State -> Prop) : ST A :=
-  fun s0 xs1 => match xs1 with Some (x, s1) => r s0 x s1 | _ => False end.
+Notation "'Undefined'" := None.
+Notation "(| x , s |)" := (Some (x, s)).
+Notation "(| s |)" := (Some (tt, s)).
 
-Notation "'def' s0 x1 s1 => p" := (definedST (fun s0 x1 s1 => p)) (at level 200, s0 ident, x1 ident, s1 ident, right associativity).
+Definition definedST {A} (r: State -> A -> State -> Prop) : ST A :=
+  fun s0 xs1 => match xs1 with (|x, s1|) => r s0 x s1 | _ => False end.
+
+Notation "'def' s0 x1 s1 => p" :=
+  (definedST (fun s0 x1 s1 => p))
+    (at level 200, s0 ident, x1 ident, s1 ident, right associativity).
 
 
 Require Import Coq.Logic.FunctionalExtensionality.
@@ -298,10 +304,10 @@ End st_tactics.
 
 Instance StateMonad: Monad ST :=
   {
-    ret A x0 s0 xs1 := xs1 = Some (x0, s0);
+    ret A x0 s0 xs1 := xs1 = (|x0, s0|);
     bind A st B f s0 xs2 := exists xs1, st s0 xs1 /\ match xs1 with
-                                               | None => xs2 = None
-                                               | Some (x, s1) => f x s1 xs2
+                                               | (|x, s1|) => f x s1 xs2
+                                               | Undefined => xs2 = Undefined
                                                end;
   }.
 Proof.
@@ -322,7 +328,7 @@ Definition stateUnchangedST {A} : ST A :=
   def s0 _ s1 => s0 = s1.
 
 Lemma ret_characterized {A} (x: A) :
-  stateUnchangedST ⩀ (fun _ xs1 => match xs1 with Some (x1, _) => x = x1 | _ => False end) = ret x.
+  stateUnchangedST ⩀ (def _ x1 _ => x = x1) = ret x.
 Proof.
   unfold stateUnchangedST, intersect.
   st_tactics.crush.
@@ -369,7 +375,7 @@ Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
                    |> liftM fromLittleEndian).
 
 Definition undefinedST {A}: ST A :=
-  fun _ xs1 => xs1 = None.
+  fun _ xs1 => xs1 = Undefined.
 
 Definition valueOrUndefinedST {A} (oa: option A) : ST A :=
   match oa with Some a => ret a | _ => undefinedST end.
@@ -394,7 +400,7 @@ Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
     ⩀ otherMemoryUnchangedST start n
     ⩀ def s0 _ s1 =>
         s0.(allocation) = s1.(allocation)
-        /\ getST n start s1 (Some (value, s1)).
+        /\ getST n start s1 (|value, s1|) .
 
 Definition setPcST (a: Bits64): ST unit :=
   memoryUnchangedST
@@ -444,9 +450,9 @@ Definition allocateST (n: nat) : ST Bits64 :=
     ⩀ def s0 start s1 =>
         s0.(allocation) start = 0
         /\ s1.(allocation) start = n
-        /\ otherAllocationsUnchangedST start s0 (Some (tt, s1))
-        /\ otherMemoryUnchangedST start n s0 (Some (tt, s1))
-        /\ getST n start s1 (Some (0, s1)). (* Memory initialized to 0. *)
+        /\ otherAllocationsUnchangedST start s0 (|s1|)
+        /\ otherMemoryUnchangedST start n s0 (|s1|)
+        /\ getST n start s1 (|0, s1|). (* Memory initialized to 0. *)
 
 Definition deallocateST (start: Bits64) : ST unit :=
   registersUnchangedST
@@ -454,7 +460,7 @@ Definition deallocateST (start: Bits64) : ST unit :=
     ⩀ otherAllocationsUnchangedST start
     ⩀ def s0 _ s1 =>
         s1.(allocation) start = 0
-        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 (Some (tt, s1)).
+        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 (|s1|).
 
 (* Observe that allocations_defined ensures that unallocated memory is
 None and that it makes sense to allocate 0 bytes or deallocate an address
@@ -704,7 +710,7 @@ Definition multiStepST: ST unit :=
 
 Definition runST: ST unit:=
   def s0 _ s1 =>
-    multiStepST s0 (Some (tt, s1))
+    multiStepST s0 (|s1|)
     /\ s1.(terminated) = true.
 
 (* Avoid complaints from Equations when using depelim. *)
@@ -763,4 +769,4 @@ Definition execution
       def s0 _ s1 => s0 = s1 /\ s1.(output) = rev outputList in
   let st :=
       prepST ;; runST ;; checkOutputST in
-  exists s1, st s0 (Some (tt, s1)).
+  exists s1, st s0 (|s1|).
