@@ -820,7 +820,7 @@ Definition runST: ST unit:=
 (* Avoid complaints from Equations when using depelim. *)
 Derive Signature for Vector.Exists.
 
-Definition initialState (inputList: list InputFrame) : State.
+Definition protoState (inputList: list InputFrame) : State.
   refine ({|
              terminated := false;
              PC := zero64;
@@ -851,26 +851,52 @@ Equations fillST (start: Bits64) (bytes: list Bits8) : ST unit :=
   fillST _ [] := stateUnchangedST;
   fillST a (x :: r) := setST 1 a x ;; fillST (addNat64 1 a) r.
 
+Definition preparationsST
+           (prog: list Bits8)
+           (arg: list Bits8) : ST unit :=
+  prog_start ::= allocateST (length prog);
+  fillST prog_start prog;;
+  setPcST prog_start;;
+  let restSize := length arg + 3 * 8 in
+  arg_start ::= allocateST restSize;
+  fillST arg_start arg;;
+  setSpST (addNat64 restSize arg_start).
+
 (* Because of non-determinism and Coq's lack of general recursion, this
    must be defined as a predicate rather than a (partial) function. *)
 Definition execution
-           (prog: list Bits8)
-           (arg: list Bits8)
+           prog arg
            (inputList: list InputFrame)
            (outputList: list (OutputImage * OutputSound)) : Prop :=
-  let s0 :=
-      initialState inputList in
-  let prepST: ST unit :=
-      prog_start ::= allocateST (length prog);
-      fillST prog_start prog;;
-      setPcST prog_start;;
-      let restSize := length arg + 3 * 8 in
-      arg_start ::= allocateST restSize;
-      fillST arg_start arg;;
-      setSpST (addNat64 restSize arg_start) in
+  let s0 := protoState inputList in
   let checkOutputST: ST unit :=
       (* Observe that we reverse the output list. *)
       def s0 _ s1 => s0 = s1 /\ s1.(output) = rev outputList in
-  let st :=
-      prepST ;; runST ;; checkOutputST in
+  let st := (preparationsST prog arg) ;; runST ;; checkOutputST in
   exists s1, st s0 (|s1|).
+
+
+(**** Certification *)
+
+Class CertifiedMachine {S: Type} (step: S -> option S): Type :=
+  {
+    cm_meaning: S -> option (unit * State);
+    cm_start: list Bits8 -> list Bits8 -> list InputFrame -> S;
+
+    cm_start_ok: forall prog arg inputList,
+        preparationsST prog arg
+                       (protoState inputList)
+                       (cm_meaning (cm_start prog arg inputList));
+
+    cm_partial_correctness: forall s, match cm_meaning s, step s with
+                                 | Undefined, _ | _, None => True
+                                 | (|s0|), Some s' => stepST s0 (cm_meaning s')
+                              end;
+
+    cm_liveness: forall s, match cm_meaning s with
+                      | Undefined => True
+                      | (|s0|) => (exists xs1, stepST s0 xs1)
+                                 -> (forall xs1, stepST s0 xs1 -> xs1 <> Undefined)
+                                 -> step s <> None
+                      end;
+  }.
