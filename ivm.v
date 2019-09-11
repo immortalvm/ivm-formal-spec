@@ -440,19 +440,38 @@ Definition pushST (value: nat): ST unit :=
 
 (**** Memory allocation *)
 
+Equations memoryAvailableAt (s: State) (n: nat) (start: Bits64): bool :=
+  memoryAvailableAt _ 0 _ := true;
+  memoryAvailableAt s (S n) start :=
+    (match s.(memory) start with None => true | _ => false end)
+      &&
+    (memoryAvailableAt s n (addNat64 1 start)).
+
+Equations existsLess (p: nat -> bool) (n: nat) : bool :=
+  existsLess _ 0 := false;
+  existsLess p (S n) := p n || existsLess p n.
+
+Definition memoryAvailableST (n: nat): ST bool :=
+  extractST (fun s => existsLess (fun a => memoryAvailableAt s n (toBits 64 a)) (2 ^ 64)).
+
 Definition otherAllocationsUnchangedST (start: Bits64) : ST unit :=
   def s0 _ s1 =>
     forall a, a <> start -> s0.(allocation) a = s1.(allocation) a.
 
 Definition allocateST (n: nat) : ST Bits64 :=
-  registersUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ def s0 start s1 =>
-        s0.(allocation) start = 0
-        /\ s1.(allocation) start = n
-        /\ otherAllocationsUnchangedST start s0 (|s1|)
-        /\ otherMemoryUnchangedST start n s0 (|s1|)
-        /\ getST n start s1 (|0, s1|). (* Memory initialized to 0. *)
+  available ::= memoryAvailableST n;
+  if available
+  then
+    registersUnchangedST
+      ⩀ ioUnchangedST
+      ⩀ def s0 start s1 =>
+    s0.(allocation) start = 0
+    /\ s1.(allocation) start = n
+    /\ otherAllocationsUnchangedST start s0 (|s1|)
+    /\ otherMemoryUnchangedST start n s0 (|s1|)
+    /\ getST n start s1 (|0, s1|)        (* memory initialized to 0 *)
+  else
+    undefinedST.
 
 Definition deallocateST (start: Bits64) : ST unit :=
   registersUnchangedST
