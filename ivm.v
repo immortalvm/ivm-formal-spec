@@ -644,9 +644,10 @@ Definition stepST : ST unit :=
     | PUSH4 => nextST 4 >>= pushST
     | PUSH8 => nextST 8 >>= pushST
 
-    | SIGX1 => v ::= popST; pushST (signExtend v)
-    | SIGX2 => v ::= popST; pushST (signExtend v)
-    | SIGX4 => v ::= popST; pushST (signExtend v)
+    (* Detour via nat. *)
+    | SIGX1 => v ::= popST; pushST (signExtend (toBits 8 v))
+    | SIGX2 => v ::= popST; pushST (signExtend (toBits 16 v))
+    | SIGX4 => v ::= popST; pushST (signExtend (toBits 32 v))
 
     | LOAD1 => popST >>= getST 1 >>= pushST
     | LOAD2 => popST >>= getST 2 >>= pushST
