@@ -718,6 +718,90 @@ Definition stepST : ST unit :=
     | _ => undefinedST
     end.
 
+(********)
+
+Theorem step_liveness: forall s0, s0.(terminated) = false <-> exists xs1, stepST s0 xs1.
+Proof. (* TODO: Finish and automate. *)
+  intro s0.
+  split.
+
+  - intro H_not_term.
+    unfold stepST.
+    match goal with
+      |- exists xs1, (t ::= _; (if t then _ else ?rest)) s0 xs1 =>
+      set (st := rest);
+      enough (exists xs1, st s0 xs1) as H
+    end.
+
+    + destruct H as [st1 H].
+      exists st1.
+      unfold bind.
+      simpl.
+      exists (|false, s0|).
+      unfold extractST, stateUnchangedST, intersect, definedST.
+      auto.
+
+    + unfold st; clear st.
+      match goal with
+        |- exists xs1, (_ >>= ?rest) _ _ => set (f := rest)
+      end.
+      remember (memory s0 (PC s0)) as oo eqn:H_oo.
+      destruct oo as [x|].
+
+      * (* Here comes the main sub-proof! *)
+        admit.
+
+      * exists Undefined.
+        unfold bind.
+        simpl.
+        exists Undefined.
+        split; [|reflexivity].
+        unfold nextST.
+        simpl.
+        exists (|PC s0, s0|).
+        unfold getPcST, extractST.
+        split.
+        -- unfold stateUnchangedST, intersect.
+           simpl.
+           auto.
+        -- set (s00 := {|
+                        terminated := s0.(terminated);
+                        PC := addNat64 1 s0.(PC);
+                        SP := s0.(SP);
+                        input := s0.(input);
+                        output := s0.(output);
+                        memory := s0.(memory);
+                        consistency := s0.(consistency);
+                      |}).
+           exists (|s00|).
+           unfold setPcST, intersect.
+           repeat split.
+           unfold getST, tryGetST, extractST, intersect.
+           simpl.
+           exists (| None, s00|).
+           simpl.
+           repeat split.
+           simp addresses.
+           simp traverse_vector.
+           rewrite <- H_oo.
+           reflexivity.
+
+  - (* The easy direction. *)
+    unfold stepST.
+    match goal with
+      |- (exists xs1, (t ::= _; if t then _ else ?rest) _ _) -> _ =>
+      generalize rest
+    end.
+    unfold bind, extractST, stateUnchangedST, intersect, definedST, stoppedST.
+    simpl.
+    intros ? [xs1 [xs2 [[H1 H2] H3]]].
+    remember (terminated s0) as t eqn:H_t.
+    destruct t; [|reflexivity].
+    exfalso.
+    destruct xs2 as [[[|] s2]|]; [assumption|congruence|assumption].
+Admitted.
+
+
 End step_definition. (* This limits the scope of the instruction notation. *)
 
 Equations nStepsST (n: nat): ST unit :=
