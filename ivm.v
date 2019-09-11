@@ -421,7 +421,7 @@ Definition setSpST (a: Bits64): ST unit :=
 
 Definition nextST (n: nat) : ST nat :=
   a ::= getPcST;
-  setSpST (addNat64 n a);;
+  setPcST (addNat64 n a);;
   getST n a.
 
 Definition popST: ST Bits64 :=
