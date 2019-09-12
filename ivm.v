@@ -319,10 +319,10 @@ Defined.
 
 (**** Change management *)
 
-Definition intersect {A} (st1 st2: ST A): ST A :=
+Definition intersectST {A} (st1 st2: ST A): ST A :=
   fun s0 xs1 => st1 s0 xs1 /\ st2 s0 xs1.
 
-Notation "st1 ⩀ st2" := (intersect st1 st2) (at level 50, left associativity).
+Notation "st1 ⩀ st2" := (intersectST st1 st2) (at level 50, left associativity).
 
 Definition stateUnchangedST {A} : ST A :=
   def s0 _ s1 => s0 = s1.
@@ -330,7 +330,7 @@ Definition stateUnchangedST {A} : ST A :=
 Lemma ret_characterized {A} (x: A) :
   stateUnchangedST ⩀ (def _ x1 _ => x = x1) = ret x.
 Proof.
-  unfold stateUnchangedST, intersect.
+  unfold stateUnchangedST, intersectST.
   st_tactics.crush.
 Qed.
 
@@ -354,7 +354,7 @@ Lemma stateUnchanged_characterized {A} :
   @registersUnchangedST A ⩀ memoryUnchangedST ⩀ ioUnchangedST = stateUnchangedST.
 Proof.
   unfold registersUnchangedST, memoryUnchangedST, ioUnchangedST, stateUnchangedST.
-  repeat (unfold intersect, definedST).
+  repeat (unfold intersectST, definedST).
   st_tactics.crush.
 Qed.
 
@@ -363,10 +363,6 @@ Qed.
 
 Definition extractST {A} (f: State -> A): ST A :=
   stateUnchangedST ⩀ (def s0 x1 _ => f s0 = x1).
-
-Definition getPcST : ST Bits64 := extractST PC.
-
-Definition getSpST : ST Bits64 := extractST SP.
 
 (* Get the value at the n bytes starting at start. *)
 Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
@@ -420,19 +416,19 @@ Definition setSpST (a: Bits64): ST unit :=
         /\ a = SP s1.
 
 Definition nextST (n: nat) : ST nat :=
-  a ::= getPcST;
+  a ::= extractST PC;
   setPcST (addNat64 n a);;
   getST n a.
 
 Definition popST: ST Bits64 :=
-  a ::= getSpST;
+  a ::= extractST SP;
   v ::= getST 8 a;
   setSpST (addNat64 8 a);;
   ret (toBits 64 v).
 
 (* Push lower 64 bits of value. *)
 Definition pushST (value: nat): ST unit :=
-  a0 ::= getSpST;
+  a0 ::= extractST SP;
   let a1 := subNat64 8 a0 in
   setSpST a1;;
   setST 8 a1 value.
@@ -630,13 +626,13 @@ Definition stepST : ST unit :=
         offset ::= nextST 1;
         v ::= popST;
         if v =? 0
-        then pc ::= getPcST;
+        then pc ::= extractST PC;
              setPcST (add64 pc (signExtend (toBits 8 offset)))
         else stateUnchangedST
 
     | SET_SP => popST >>= setSpST
-    | GET_PC => getPcST >>= pushST
-    | GET_SP => getSpST >>= pushST
+    | GET_PC => extractST PC >>= pushST
+    | GET_SP => extractST SP >>= pushST
 
     | PUSH0 => pushST 0
     | PUSH1 => nextST 1 >>= pushST
@@ -738,7 +734,7 @@ Proof. (* TODO: Finish and automate. *)
       unfold bind.
       simpl.
       exists (|false, s0|).
-      unfold extractST, stateUnchangedST, intersect, definedST.
+      unfold extractST, stateUnchangedST, intersectST, definedST.
       auto.
 
     + unfold st; clear st.
@@ -759,9 +755,9 @@ Proof. (* TODO: Finish and automate. *)
         unfold nextST.
         simpl.
         exists (|PC s0, s0|).
-        unfold getPcST, extractST.
+        unfold extractST.
         split.
-        -- unfold stateUnchangedST, intersect.
+        -- unfold stateUnchangedST, intersectST.
            simpl.
            auto.
         -- set (s00 := {|
@@ -774,9 +770,9 @@ Proof. (* TODO: Finish and automate. *)
                         consistency := s0.(consistency);
                       |}).
            exists (|s00|).
-           unfold setPcST, intersect.
+           unfold setPcST, intersectST.
            repeat split.
-           unfold getST, tryGetST, extractST, intersect.
+           unfold getST, tryGetST, extractST, intersectST.
            simpl.
            exists (| None, s00|).
            simpl.
@@ -792,7 +788,7 @@ Proof. (* TODO: Finish and automate. *)
       |- (exists xs1, (t ::= _; if t then _ else ?rest) _ _) -> _ =>
       generalize rest
     end.
-    unfold bind, extractST, stateUnchangedST, intersect, definedST, stoppedST.
+    unfold bind, extractST, stateUnchangedST, intersectST, definedST, stoppedST.
     simpl.
     intros ? [xs1 [xs2 [[H1 H2] H3]]].
     remember (terminated s0) as t eqn:H_t.
