@@ -465,11 +465,11 @@ Definition allocateST (n: nat) : ST Bits64 :=
     registersUnchangedST
       ⩀ ioUnchangedST
       ⩀ def s0 start s1 =>
-    s0.(allocation) start = 0
-    /\ s1.(allocation) start = n
-    /\ otherAllocationsUnchangedST start s0 (|s1|)
-    /\ otherMemoryUnchangedST start n s0 (|s1|)
-    /\ getST n start s1 (|0, s1|)        (* memory initialized to 0 *)
+          s0.(allocation) start = 0
+          /\ s1.(allocation) start = n
+          /\ otherAllocationsUnchangedST start s0 (|s1|)
+          /\ otherMemoryUnchangedST start n s0 (|s1|)
+          /\ getST n start s1 (|0, s1|)        (* memory initialized to 0 *)
   else
     undefinedST.
 
