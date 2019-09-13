@@ -168,6 +168,7 @@ Definition Color := (Bits16 * Bits16 * Bits16)%type.
 Set Primitive Projections.
 Global Unset Printing Primitive Projection Parameters.
 
+(* NB: iPixel can be anything outside width x height. *)
 Record InputFrame :=
   mkInputFrame {
       iWidth: Bits32;
@@ -191,6 +192,7 @@ Definition emptyInputFrame : InputFrame.
   apply Nat.nlt_0_r.
 Defined.
 
+(* NB: oPixel can be anything outside width x height. *)
 Record OutputImage :=
   mkOutputImage {
       oWidth: Bits32;
@@ -517,6 +519,31 @@ which was never allocated! *)
 
 (**** Input and output *)
 
+Definition readFrameST : ST (Bits32 * Bits32) :=
+  registersUnchangedST
+    ⩀ memoryUnchangedST
+    ⩀ def s0 wh s1 =>
+        s0.(output) = s1.(output)
+        /\ match s1.(input) with
+          | [] | [_] => wh = (zero32, zero32)
+          | _ :: hd :: tl =>
+            wh = (hd.(iWidth), hd.(iHeight))
+            /\ s1.(input) = hd :: tl
+          end.
+
+Definition tryReadPixelST (x y: nat) : ST (option Bits8) :=
+  extractST (fun s =>
+               match s.(input) with
+               | [] => None
+               | frame :: _ =>
+                 if (x <? frame.(iWidth)) && (y <? frame.(iHeight))
+                 then frame.(iPixel) x y
+                 else None
+               end).
+
+Definition readPixelST (x y: nat) : ST Bits8 :=
+  tryReadPixelST x y >>= valueOrUndefinedST.
+
 Definition newFrameST (width height sampleRate: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
@@ -638,6 +665,8 @@ Module Instructions.
   Notation "'NEW_FRAME'" := 48.
   Notation "'SET_PIXEL'" := 49.
   Notation "'ADD_SAMPLE'" := 50.
+  Notation "'READ_FRAME'" := 56.
+  Notation "'READ_PIXEL'" := 57.
 End Instructions.
 
 Section step_definition.
@@ -742,7 +771,16 @@ Definition stepST : ST unit :=
         left ::= popST;
         addSampleST left right
 
-    (* TODO: Handle input instructions when they are ready. *)
+    | READ_FRAME =>
+        wh ::= readFrameST;
+        pushST (fst wh);;
+        pushST (snd wh)
+
+    | READ_PIXEL =>
+        x ::= popST;
+        y ::= popST;
+        gray ::= readPixelST x y;
+        pushST gray
 
     | _ => undefinedST
     end.
