@@ -132,8 +132,26 @@ Definition signExtend {n} (v: Bvector (S n)) : Bits64.
   omega.
 Defined.
 
+Definition zero32 : Bits32 := toBits 32 0.
 Definition zero64 : Bits64 := toBits 64 0.
 Definition true64 : Bits64 := Bneg zero64.
+
+(* TODO: Generalize from 0 to x < 2^n. *)
+Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
+Proof.
+  intro n.
+  induction n as [|n IH].
+  simp toBits.
+  simp fromBits.
+  reflexivity.
+
+  simp toBits.
+  simpl.
+  simp fromBits.
+  rewrite IH.
+  simpl.
+  reflexivity.
+Qed.
 
 
 (**** State *)
@@ -157,6 +175,21 @@ Record InputFrame :=
       iPixel: nat -> nat -> option Gray;
       iDef: forall x y, x < iWidth -> y < iHeight -> iPixel x y <> None;
     }.
+
+Definition emptyInputFrame : InputFrame.
+  refine ({|
+             iWidth := zero32;
+             iHeight := zero32;
+             iPixel _ _ := None;
+             iDef := _;
+           |}).
+  intros x _ H _.
+  exfalso.
+  revert H.
+  unfold fromBits32.
+  rewrite zeroBits_zero.
+  apply Nat.nlt_0_r.
+Defined.
 
 Record OutputImage :=
   mkOutputImage {
@@ -821,7 +854,7 @@ Definition protoState (inputList: list InputFrame) : State.
              terminated := false;
              PC := zero64;
              SP := zero64;
-             input := inputList;
+             input := emptyInputFrame :: inputList;
              output := [];
              memory := fun _ => None;
              allocation := fun _ => 0;
