@@ -827,10 +827,16 @@ Definition execution
 
 (**** Certification *)
 
+Inductive Safe (s: State) : Prop :=
+| SafeEnd: s.(terminated) = true -> Safe s
+| SafeStep: (exists s1, stepST s tt s1) ->
+            (forall s1, stepST s tt s1 -> Safe s1) ->
+            Safe s.
+
 Definition valueOr {A: Type} (default: A) (o: option A) : A :=
   match o with Some a => a | _ => default end.
 
-Class CertifiedMachine {S: Type} (step: S -> option S): Type :=
+Class CertifiedMachine {S: Type} (step: S -> option S) :=
   {
     cm_meaning: S -> option State;
     cm_after_load: list Bits8 -> list Bits8 -> list (Image Gray) -> S;
@@ -841,11 +847,48 @@ Class CertifiedMachine {S: Type} (step: S -> option S): Type :=
         | Some s0 => loadProgramST prog arg (protoState inputList) tt s0
         end;
 
-    cm_partial_correctness: forall s, valueOr True (s0 ::= cm_meaning s;
-                                            s' ::= step s;
-                                            s1 ::= cm_meaning s';
-                                            ret (stepST s0 tt s1));
+    cm_partial_correctness: forall s s' (_: cm_meaning s = Some s')
+                              s1 (_: step s = Some s1)
+                              s1' (_: cm_meaning s1 = Some s1'), stepST s' tt s1';
 
-    cm_progress: forall s, valueOr True (s0 ::= cm_meaning s;
-                                 ret ((exists s1, stepST s0 tt s1) -> step s <> None));
+    cm_progress: forall s s', cm_meaning s = Some s'
+                         -> (exists s1', stepST s' tt s1')
+                         -> exists s1, step s = Some s1
+                                 /\ exists s1', cm_meaning s1 = Some s1';
+
+    cm_termination: forall s s', cm_meaning s = Some s'
+                            -> terminated s' = true
+                            -> step s = None;
+
   }.
+
+Definition cm_terminated {S} {step} `{cm: CertifiedMachine S step} (s: S) :=
+  valueOr false (s' ::= cm_meaning s; ret (terminated s')).
+
+Inductive CertSafe {S} {step} `{cm: CertifiedMachine S step} (s: S) : Prop :=
+  | CertSafeEnd: cm_terminated s = true -> CertSafe s
+  | CertSafeStep: forall s1, step s = Some s1 -> CertSafe s1 -> CertSafe s.
+
+Theorem safe_safe {S} {step} `{cm: CertifiedMachine S step} (s: S) s' :
+  cm_meaning s = Some s' -> Safe s' -> CertSafe s.
+Proof.
+  intros Hm H_safe.
+  revert s Hm.
+  induction H_safe as [s' H_term | s' [s1' H_step'] H_safe H_cs].
+
+  - intros s Hs.
+    apply CertSafeEnd.
+    unfold cm_terminated.
+    rewrite Hs.
+    exact H_term.
+
+  - intros s Hs.
+    set (H_prog := cm_progress s).
+    rewrite Hs in H_prog.
+    specialize (H_prog s' eq_refl (ex_intro _ s1' H_step')).
+    destruct H_prog as [s2 [H_step [s2' Hs2]]].
+
+    apply (CertSafeStep s H_step), (H_cs s2').
+    + exact (cm_partial_correctness s Hs H_step Hs2).
+    + exact Hs2.
+Qed.
