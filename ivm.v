@@ -168,16 +168,16 @@ Definition Color := (Bits16 * Bits16 * Bits16)%type.
 Set Primitive Projections.
 Global Unset Printing Primitive Projection Parameters.
 
-(* NB: iPixel can be anything outside width x height. *)
-Record InputFrame :=
-  mkInputFrame {
+(* NB: iPixel can be anything outside width*height. *)
+Record Image A :=
+  mkImage {
       iWidth: Bits32;
       iHeight: Bits32;
-      iPixel: nat -> nat -> option Gray;
+      iPixel: nat -> nat -> option A;
       iDef: forall x y, x < iWidth -> y < iHeight -> iPixel x y <> None;
     }.
 
-Definition emptyInputFrame : InputFrame.
+Definition noImage {A} : Image A.
   refine ({|
              iWidth := zero32;
              iHeight := zero32;
@@ -192,16 +192,23 @@ Definition emptyInputFrame : InputFrame.
   apply Nat.nlt_0_r.
 Defined.
 
-(* NB: oPixel can be anything outside width x height. *)
-Record OutputImage :=
-  mkOutputImage {
-      oWidth: Bits32;
-      oHeight: Bits32;
-      oPixel: nat -> nat -> option Color;
-      oDef: forall x y, x < oWidth -> y < oHeight -> oPixel x y <> None;
+Record Sound :=
+  mkSound {
+      sRate: Bits32;
+      sSamples: list (Bits16 * Bits16);
+      sDef: sRate = zero32 -> sSamples = [];
     }.
 
-Record OutputSound := mkOutputSound { oRate: Bits32; oSamples: list (Bits16 * Bits16) }.
+Definition noSound : Sound.
+  refine ({|
+             sRate := zero32;
+             sSamples := [];
+             sDef := _;
+           |}).
+  trivial.
+Defined.
+
+Definition OutputText := list Bits32.
 
 Definition consistent (memory: Bits64 -> option Bits8) (allocation: Bits64 -> nat) :=
   (forall (a: Bits64),
@@ -219,11 +226,12 @@ Record State :=
       terminated: bool;
       PC: Bits64; (* Program counter *)
       SP: Bits64; (* Stack pointer *)
-      input: list InputFrame;
-      output: list (OutputImage * OutputSound);
+      input: list (Image Gray);
+      output: list ((Image Color) * Sound * OutputText);
       memory: Bits64 -> option Bits8;
       allocation: Bits64 -> nat;
       consistency: consistent memory allocation;
+      always_output: output <> []
     }.
 
 Unset Primitive Projections.
@@ -237,6 +245,7 @@ Lemma State_expanion (s: State) :
     output := s.(output);
     memory := s.(memory);
     consistency := s.(consistency);
+    always_output := s.(always_output);
   |}.
 Proof.
   reflexivity.
@@ -247,14 +256,15 @@ Require Import Coq.Logic.PropExtensionality.
 (* Since State is finite, this might be provable even without
    PropExtensionality, but that will have to wait. *)
 Lemma State_injectivity
-      t0 p0 s0 i0 o0 m0 a0 (c0: consistent m0 a0)
-      t1 p1 s1 i1 o1 m1 a1 (c1: consistent m1 a1):
+      t0 p0 s0 i0 o0 m0 a0 (c0: consistent m0 a0) ao0
+      t1 p1 s1 i1 o1 m1 a1 (c1: consistent m1 a1) ao1:
   t0=t1 -> p0=p1 -> s0=s1 -> i0=i1 -> o0=o1 -> m0=m1 -> a0=a1
-  -> {|terminated:=t0; PC:=p0; SP:=s0; input:=i0; output:=o0; memory:=m0; consistency:=c0|}
-  = {|terminated:=t1; PC:=p1; SP:=s1; input:=i1; output:=o1; memory:=m1; consistency:=c1|}.
+  -> {|terminated:=t0; PC:=p0; SP:=s0; input:=i0; output:=o0; memory:=m0; consistency:=c0; always_output:=ao0|}
+  = {|terminated:=t1; PC:=p1; SP:=s1; input:=i1; output:=o1; memory:=m1; consistency:=c1; always_output:=ao1|}.
 Proof.
   repeat (intro e; destruct e).
   destruct (proof_irrelevance (consistent m0 a0) c0 c1).
+  destruct (proof_irrelevance (o0 <> []) ao0 ao1).
   reflexivity.
 Qed.
 
@@ -544,6 +554,7 @@ Definition tryReadPixelST (x y: nat) : ST (option Bits8) :=
 Definition readPixelST (x y: nat) : ST Bits8 :=
   tryReadPixelST x y >>= valueOrUndefinedST.
 
+(* Initial frame pixels: undefined. *)
 Definition newFrameST (width height sampleRate: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
@@ -551,12 +562,13 @@ Definition newFrameST (width height sampleRate: nat) : ST unit :=
         s0.(input) = s1.(input)
         /\ match s1.(output) with
           | [] => False
-          | (image, sound) :: rest =>
+          | (image, sound, text) :: rest =>
             s0.(output) = rest
-            /\ width = image.(oWidth)
-            /\ height = image.(oHeight)
-            /\ sampleRate = sound.(oRate)
-            /\ sound.(oSamples) = []
+            /\ width = image.(iWidth)
+            /\ height = image.(iHeight)
+            /\ sampleRate = sound.(sRate)
+            /\ sound.(sSamples) = []
+            /\ text = []
           end.
 
 (* Does not take into account that the operation may be undefined. *)
@@ -566,15 +578,16 @@ Definition trySetPixelST (x y r g b : nat) : ST unit :=
     ⩀ def s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
-          | (i0, s0) :: r0, (i1, s1) :: r1 =>
+          | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
             r0 = r1
+            /\ t0 = t1
             /\ s0 = s1
-            (* Redundant:
-            /\ i0.(oWidth) = i1.(oWidth)
-            /\ i0.(oHeight) = i1.(oHeight) *)
-            /\ forall xx yy, i1.(oPixel) xx yy = if (xx =? x) && (yy =? y)
+            (* Needed since iPixel is undefined outside width*height: *)
+            /\ i0.(iWidth) = i1.(iWidth)
+            /\ i0.(iHeight) = i1.(iHeight)
+            /\ forall xx yy, i1.(iPixel) xx yy = if (xx =? x) && (yy =? y)
                                            then Some (toBits 16 r, toBits 16 g, toBits 16 b)
-                                           else i0.(oPixel) xx yy
+                                           else i0.(iPixel) xx yy
           | _, _ => False
           end.
 
@@ -582,7 +595,7 @@ Definition setPixelST (x y r g b : nat) : ST unit :=
   let wd (s: State) :=
       match s.(output) with
       | [] => false
-      | (i, _) :: _ => (x <? i.(oWidth)) && (y <? i.(oHeight))
+      | (i, _, _) :: _ => (x <? i.(iWidth)) && (y <? i.(iHeight))
       end in
   wellDefined ::= extractST wd;
   if wellDefined
@@ -596,22 +609,43 @@ Definition tryAddSampleST (left right : nat) : ST unit :=
     ⩀ def s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
-          | (i0, s0) :: r0, (i1, s1) :: r1 =>
+          | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
             r0 = r1
+            /\ t0 = t1
             /\ i0 = i1
-            /\ s0.(oRate) = s1.(oRate)
-            /\ (toBits 16 left, toBits 16 right) :: s0.(oSamples) = s1.(oSamples)
+            /\ s0.(sRate) = s1.(sRate)
+            /\ (toBits 16 left, toBits 16 right) :: s0.(sSamples) = s1.(sSamples)
           | _, _ => False
           end.
 
 Definition addSampleST (left right : nat) : ST unit :=
-  let wd (s: State) := match s.(output) with [] => false | _ => true end in
+  let wd (s: State) := match s.(output) with
+                       | [] => false
+                       | (_, s, _) :: _ => negb (s.(sRate) =? 0) end in
   wellDefined ::= extractST wd;
   if wellDefined
   then tryAddSampleST left right
   else undefinedST.
 
+Definition tryPutCharST (c: nat) : ST unit :=
+  registersUnchangedST
+    ⩀ memoryUnchangedST
+    ⩀ def s0 _ s1 =>
+        s0.(input) = s1.(input)
+        /\ match s0.(output), s1.(output) with
+          | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
+            r0 = r1
+            /\ s0 = s1
+            /\ i0 = i1
+            /\ (toBits 32 c) :: t0 = t1
+          | _, _ => False
+          end.
 
+Definition putCharST (c: nat) : ST unit :=
+  wellDefined ::= extractST (fun s => match s.(output) with [] => false | _ => true end);
+  if wellDefined
+  then tryPutCharST c
+  else undefinedST.
 
 (**** Execution *)
 
@@ -665,6 +699,7 @@ Module Instructions.
   Notation "'NEW_FRAME'" := 48.
   Notation "'SET_PIXEL'" := 49.
   Notation "'ADD_SAMPLE'" := 50.
+  Notation "'PUT_CHAR'" := 52.
   Notation "'READ_FRAME'" := 56.
   Notation "'READ_PIXEL'" := 57.
 End Instructions.
@@ -770,17 +805,17 @@ Definition stepST : ST unit :=
         right ::= popST;
         left ::= popST;
         addSampleST left right
+    | PUT_CHAR =>
+        popST >>= putCharST
 
     | READ_FRAME =>
         wh ::= readFrameST;
         pushST (fst wh);;
         pushST (snd wh)
-
     | READ_PIXEL =>
         x ::= popST;
         y ::= popST;
-        gray ::= readPixelST x y;
-        pushST gray
+        readPixelST x y >>= pushST
 
     | _ => undefinedST
     end.
@@ -839,6 +874,7 @@ Proof. (* TODO: Finish and automate. *)
                         output := s0.(output);
                         memory := s0.(memory);
                         consistency := s0.(consistency);
+                        always_output := s0.(always_output);
                       |}).
            exists (|s00|).
            unfold setPcST, intersectST.
@@ -868,7 +904,6 @@ Proof. (* TODO: Finish and automate. *)
     destruct xs2 as [[[|] s2]|]; [assumption|congruence|assumption].
 Admitted.
 
-
 End step_definition. (* This limits the scope of the instruction notation. *)
 
 Equations nStepsST (n: nat): ST unit :=
@@ -887,31 +922,32 @@ Definition runST: ST unit:=
 (* Avoid complaints from Equations when using depelim. *)
 Derive Signature for Vector.Exists.
 
-Definition protoState (inputList: list InputFrame) : State.
+Definition protoState (inputList: list (Image Gray)) : State.
   refine ({|
              terminated := false;
              PC := zero64;
              SP := zero64;
-             input := emptyInputFrame :: inputList;
-             output := [];
+             input := noImage :: inputList;
+             output := [(noImage, noSound, [])];
              memory := fun _ => None;
              allocation := fun _ => 0;
            |}).
   (* TODO: Automate *)
-  split.
-  - firstorder.
-    exfalso.
-    revert_last.
-    funelim (addresses 0 x).
-    simpl.
-    intro H.
-    depelim H.
-  - intros x y.
-    funelim (addresses 0 x).
-    simpl.
-    intro H.
-    exfalso.
-    depelim H.
+  - split.
+    + firstorder.
+      exfalso.
+      revert_last.
+      funelim (addresses 0 x).
+      simpl.
+      intro H.
+      depelim H.
+    + intros x y.
+      funelim (addresses 0 x).
+      simpl.
+      intro H.
+      exfalso.
+      depelim H.
+  - congruence.
 Defined.
 
 Equations fillST (start: Bits64) (bytes: list Bits8) : ST unit :=
@@ -933,8 +969,8 @@ Definition preparationsST
    must be defined as a predicate rather than a (partial) function. *)
 Definition execution
            prog arg
-           (inputList: list InputFrame)
-           (outputList: list (OutputImage * OutputSound)) : Prop :=
+           (inputList: list (Image Gray))
+           (outputList: list ((Image Color) * Sound * OutputText)) : Prop :=
   let s0 := protoState inputList in
   let checkOutputST: ST unit :=
       (* Observe that we reverse the output list. *)
@@ -948,7 +984,7 @@ Definition execution
 Class CertifiedMachine {S: Type} (step: S -> option S): Type :=
   {
     cm_meaning: S -> option (unit * State);
-    cm_start: list Bits8 -> list Bits8 -> list InputFrame -> S;
+    cm_start: list Bits8 -> list Bits8 -> list (Image Gray) -> S;
 
     cm_start_ok: forall prog arg inputList,
         preparationsST prog arg
