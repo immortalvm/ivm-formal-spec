@@ -287,19 +287,7 @@ Qed.
 
 (**** Relational state monad *)
 
-Definition ST (A: Type) := State -> option (A * State) -> Prop.
-
-Notation "'Undefined'" := None.
-Notation "(| x , s |)" := (Some (x, s)).
-Notation "(| s |)" := (Some (tt, s)).
-
-Definition definedST {A} (r: State -> A -> State -> Prop) : ST A :=
-  fun s0 xs1 => match xs1 with (|x, s1|) => r s0 x s1 | _ => False end.
-
-Notation "'def' s0 x1 s1 => p" :=
-  (definedST (fun s0 x1 s1 => p))
-    (at level 200, s0 ident, x1 ident, s1 ident, right associativity).
-
+Definition ST (A: Type) := State -> A -> State -> Prop.
 
 Require Import Coq.Logic.FunctionalExtensionality.
 
@@ -307,13 +295,14 @@ Require Import Coq.Logic.FunctionalExtensionality.
    This can be avoided if we define monads in terms of a setoid.
  *)
 Lemma ST_extensionality {A} (st0 st1: ST A):
-  (forall s0 xs1, st0 s0 xs1 <-> st1 s0 xs1) -> st0 = st1.
+  (forall s0 x1 s1, st0 s0 x1 s1 <-> st1 s0 x1 s1) -> st0 = st1.
 Proof.
   intro H.
   repeat (intro || apply functional_extensionality).
   apply propositional_extensionality.
   apply H.
 Qed.
+
 
 Module st_tactics.
   Ltac destr :=
@@ -327,33 +316,21 @@ Module st_tactics.
     end.
   Ltac exS :=
     match goal with
-    | [ |- exists xs: _, xs = ?t /\ _] => exists t
-    | [x:?X, s:State, _:context H[Some(?x,?s)] |- exists _: option (?X * State), _ ] => exists (Some (x, s))
-    | [ |- exists _: option (?X * State), _ ] => exists None
-    end.
-  Ltac exN :=
-    match goal with
-    | [ |- exists _: option (?X * State), _ ] => exists None
-    end.
-  Ltac eqx :=
-    match goal with
-    | [ e : Some(_,_) = Some(_,_) |- _ ] => injection e; clear e; intros
+    | [ |- exists x s, x = ?x' /\ s = ?s' /\ _] => exists x; exists s
+    | [x:?X, s:State, _:context H[_ ?x ?s] |- exists _: ?X, exists _: State, _ ] => exists x; exists s
     end.
   Ltac crush := repeat (
                     intro || split || assumption || discriminate || subst
                     || apply State_extensionality
                     || apply ST_extensionality
                     || simpl in *
-                    || eqx || destr || exS).
+                    || destr || exS).
 End st_tactics.
 
 Instance StateMonad: Monad ST :=
   {
-    ret A x0 s0 xs1 := xs1 = (|x0, s0|);
-    bind A st B f s0 xs2 := exists xs1, st s0 xs1 /\ match xs1 with
-                                               | (|x, s1|) => f x s1 xs2
-                                               | Undefined => xs2 = Undefined
-                                               end;
+    ret A x0 s0 x1 s1 := x0 = x1 /\ s0 = s1;
+    bind A st B f s0 x2 s2 := exists x1 s1, st s0 x1 s1 /\ f x1 s1 x2 s2
   }.
 Proof.
   - abstract (st_tactics.crush).
@@ -365,33 +342,33 @@ Defined.
 (**** Change management *)
 
 Definition intersectST {A} (st1 st2: ST A): ST A :=
-  fun s0 xs1 => st1 s0 xs1 /\ st2 s0 xs1.
+  fun s0 x1 s1 => st1 s0 x1 s1 /\ st2 s0 x1 s1.
 
 Notation "st1 ⩀ st2" := (intersectST st1 st2) (at level 50, left associativity).
 
 Definition stateUnchangedST {A} : ST A :=
-  def s0 _ s1 => s0 = s1.
+  fun s0 _ s1 => s0 = s1.
 
 Lemma ret_characterized {A} (x: A) :
-  stateUnchangedST ⩀ (def _ x1 _ => x = x1) = ret x.
+  stateUnchangedST ⩀ (fun _ x1 _ => x = x1) = ret x.
 Proof.
   unfold stateUnchangedST, intersectST.
   st_tactics.crush.
 Qed.
 
 Definition registersUnchangedST {A} : ST A :=
-  def s0 _ s1 =>
+  fun s0 _ s1 =>
     s0.(terminated) = s1.(terminated)
     /\ s0.(PC) = s1.(PC)
     /\ s0.(SP) = s1.(SP).
 
 Definition memoryUnchangedST {A} : ST A :=
-  def s0 _ s1 =>
+  fun s0 _ s1 =>
     s0.(allocation) = s1.(allocation)
     /\ s0.(memory) = s1.(memory).
 
 Definition ioUnchangedST {A} : ST A :=
-  def s0 _ s1 =>
+  fun s0 _ s1 =>
     s0.(input) = s1.(input)
     /\ s0.(output) = s1.(output).
 
@@ -399,7 +376,7 @@ Lemma stateUnchanged_characterized {A} :
   @registersUnchangedST A ⩀ memoryUnchangedST ⩀ ioUnchangedST = stateUnchangedST.
 Proof.
   unfold registersUnchangedST, memoryUnchangedST, ioUnchangedST, stateUnchangedST.
-  repeat (unfold intersectST, definedST).
+  repeat (unfold intersectST).
   st_tactics.crush.
 Qed.
 
@@ -407,7 +384,7 @@ Qed.
 (**** Building blocks *)
 
 Definition extractST {A} (f: State -> A): ST A :=
-  stateUnchangedST ⩀ (def s0 x1 _ => f s0 = x1).
+  stateUnchangedST ⩀ (fun s0 x1 _ => f s0 = x1).
 
 (* Get the value at the n bytes starting at start. *)
 Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
@@ -415,18 +392,18 @@ Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
                    |> traverse_vector s.(memory)
                    |> liftM fromLittleEndian).
 
-Definition undefinedST {A}: ST A :=
-  fun _ xs1 => xs1 = Undefined.
+Definition failST {A}: ST A :=
+  fun _ _ _ => False.
 
-Definition valueOrUndefinedST {A} (oa: option A) : ST A :=
-  match oa with Some a => ret a | _ => undefinedST end.
+Definition valueOrFailST {A} (oa: option A) : ST A :=
+  match oa with Some a => ret a | _ => failST end.
 
 (* Undefined if there is an access violation. *)
 Definition getST (n: nat) (start: Bits64) : ST nat :=
-  tryGetST n start >>= valueOrUndefinedST.
+  tryGetST n start >>= valueOrFailST.
 
 Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
-  def s0 _ s1 =>
+  fun s0 _ s1 =>
     let other a := Vector.Forall (fun x => x <> a) (addresses n start) in
     forall a, other a -> s0.(memory) a = s1.(memory) a.
 
@@ -439,14 +416,14 @@ Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherMemoryUnchangedST start n
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         s0.(allocation) = s1.(allocation)
-        /\ getST n start s1 (|value, s1|) .
+        /\ getST n start s1 value s1.
 
 Definition setPcST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
          s0.(terminated) = s1.(terminated)
          /\ s0.(SP) = s1.(SP)
          /\ a = s1.(PC).
@@ -454,7 +431,7 @@ Definition setPcST (a: Bits64): ST unit :=
 Definition setSpST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         (* Is this more readable? *)
         terminated s0 = terminated s1
         /\ PC s0 = PC s1
@@ -481,50 +458,31 @@ Definition pushST (value: nat): ST unit :=
 
 (**** Memory allocation *)
 
-Equations memoryAvailableAt (s: State) (n: nat) (start: Bits64): bool :=
-  memoryAvailableAt _ 0 _ := true;
-  memoryAvailableAt s (S n) start :=
-    (match s.(memory) start with None => true | _ => false end)
-      &&
-    (memoryAvailableAt s n (addNat64 1 start)).
-
-Equations existsLess (p: nat -> bool) (n: nat) : bool :=
-  existsLess _ 0 := false;
-  existsLess p (S n) := p n || existsLess p n.
-
-Definition memoryAvailableST (n: nat): ST bool :=
-  extractST (fun s => existsLess (fun a => memoryAvailableAt s n (toBits 64 a)) (2 ^ 64)).
-
 Definition otherAllocationsUnchangedST (start: Bits64) : ST unit :=
-  def s0 _ s1 =>
+  fun s0 _ s1 =>
     forall a, a <> start -> s0.(allocation) a = s1.(allocation) a.
 
 Definition allocateST (n: nat) : ST Bits64 :=
-  available ::= memoryAvailableST n;
-  if available
-  then
-    registersUnchangedST
-      ⩀ ioUnchangedST
-      ⩀ def s0 start s1 =>
-          s0.(allocation) start = 0
-          /\ s1.(allocation) start = n
-          /\ otherAllocationsUnchangedST start s0 (|s1|)
-          /\ otherMemoryUnchangedST start n s0 (|s1|)
-          /\ getST n start s1 (|0, s1|)        (* memory initialized to 0 *)
-  else
-    undefinedST.
+  registersUnchangedST
+    ⩀ ioUnchangedST
+    ⩀ fun s0 start s1 =>
+        s0.(allocation) start = 0
+        /\ s1.(allocation) start = n
+        /\ otherAllocationsUnchangedST start s0 tt s1
+        /\ otherMemoryUnchangedST start n s0 tt s1
+        /\ getST n start s1 0 s1.        (* memory initialized to 0 *)
 
 Definition deallocateST (start: Bits64) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherAllocationsUnchangedST start
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         s1.(allocation) start = 0
-        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 (|s1|).
+        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 tt s1.
 
 (* Observe that allocations_defined ensures that unallocated memory is
-None and that it makes sense to allocate 0 bytes or deallocate an address
-which was never allocated! *)
+None, and that it makes sense to allocate 0 bytes or deallocate an address
+which was never allocated. *)
 
 
 (**** Input and output *)
@@ -532,7 +490,7 @@ which was never allocated! *)
 Definition readFrameST : ST (Bits32 * Bits32) :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ def s0 wh s1 =>
+    ⩀ fun s0 wh s1 =>
         s0.(output) = s1.(output)
         /\ match s1.(input) with
           | [] | [_] => wh = (zero32, zero32)
@@ -552,13 +510,13 @@ Definition tryReadPixelST (x y: nat) : ST (option Bits8) :=
                end).
 
 Definition readPixelST (x y: nat) : ST Bits8 :=
-  tryReadPixelST x y >>= valueOrUndefinedST.
+  tryReadPixelST x y >>= valueOrFailST.
 
 (* Initial frame pixels: undefined. *)
 Definition newFrameST (width height sampleRate: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s1.(output) with
           | [] => False
@@ -571,42 +529,35 @@ Definition newFrameST (width height sampleRate: nat) : ST unit :=
             /\ text = []
           end.
 
-(* Does not take into account that the operation may be undefined. *)
-Definition trySetPixelST (x y r g b : nat) : ST unit :=
+Definition setPixelST (x y r g b : nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
             r0 = r1
             /\ t0 = t1
             /\ s0 = s1
-            (* Needed since iPixel is undefined outside width*height: *)
+
+            (* Needed since iPixel is undefined outside width*height. *)
             /\ i0.(iWidth) = i1.(iWidth)
             /\ i0.(iHeight) = i1.(iHeight)
+
+            (* Otherwise undefined *)
+            /\ x < i0.(iWidth)
+            /\ y < i0.(iHeight)
+
             /\ forall xx yy, i1.(iPixel) xx yy = if (xx =? x) && (yy =? y)
                                            then Some (toBits 16 r, toBits 16 g, toBits 16 b)
                                            else i0.(iPixel) xx yy
           | _, _ => False
           end.
 
-Definition setPixelST (x y r g b : nat) : ST unit :=
-  let wd (s: State) :=
-      match s.(output) with
-      | [] => false
-      | (i, _, _) :: _ => (x <? i.(iWidth)) && (y <? i.(iHeight))
-      end in
-  wellDefined ::= extractST wd;
-  if wellDefined
-  then trySetPixelST x y r g b
-  else undefinedST.
-
-(* Does not take into account that the operation may be undefined. *)
-Definition tryAddSampleST (left right : nat) : ST unit :=
+Definition addSampleST (left right : nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
@@ -614,23 +565,15 @@ Definition tryAddSampleST (left right : nat) : ST unit :=
             /\ t0 = t1
             /\ i0 = i1
             /\ s0.(sRate) = s1.(sRate)
+            /\ s0.(sRate) <> zero32 (* Otherwise undefined *)
             /\ (toBits 16 left, toBits 16 right) :: s0.(sSamples) = s1.(sSamples)
           | _, _ => False
           end.
 
-Definition addSampleST (left right : nat) : ST unit :=
-  let wd (s: State) := match s.(output) with
-                       | [] => false
-                       | (_, s, _) :: _ => negb (s.(sRate) =? 0) end in
-  wellDefined ::= extractST wd;
-  if wellDefined
-  then tryAddSampleST left right
-  else undefinedST.
-
-Definition tryPutCharST (c: nat) : ST unit :=
+Definition putCharST (c: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         s0.(input) = s1.(input)
         /\ match s0.(output), s1.(output) with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
@@ -641,24 +584,15 @@ Definition tryPutCharST (c: nat) : ST unit :=
           | _, _ => False
           end.
 
-Definition putCharST (c: nat) : ST unit :=
-  wellDefined ::= extractST (fun s => match s.(output) with [] => false | _ => true end);
-  if wellDefined
-  then tryPutCharST c
-  else undefinedST.
-
 (**** Execution *)
 
 Definition exitST : ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
-    ⩀ def s0 _ s1 =>
+    ⩀ fun s0 _ s1 =>
         terminated s1 = true
         /\ PC s0 = PC s1
         /\ SP s0 = SP s1.
-
-Definition stoppedST : ST unit :=
-  fun _ _ => False.
 
 Module Instructions.
   Notation "'EXIT'" := 0.
@@ -709,9 +643,7 @@ Import Instructions.
 
 Definition stepST : ST unit :=
   t ::= extractST terminated;
-  if t
-  then
-    stoppedST
+  if t then failST
   else
     op ::= nextST 1;
     match op with
@@ -755,7 +687,7 @@ Definition stepST : ST unit :=
     | ALLOCATE => popST >>= allocateST >>= pushST
     | DEALLOCATE => popST >>= deallocateST
 
-    (* Clip to 64 bits *)
+    (* Only the lower 64 bits of the result ends up on the stack. *)
     | ADD => x ::= popST; y ::= popST; pushST (x + y)
     | MULT => x ::= popST; y ::= popST; pushST (x * y)
     | DIV =>
@@ -817,94 +749,10 @@ Definition stepST : ST unit :=
         y ::= popST;
         readPixelST x y >>= pushST
 
-    | _ => undefinedST
+    | _ => failST
     end.
 
-(********)
-
-Theorem step_liveness: forall s0, s0.(terminated) = false <-> exists xs1, stepST s0 xs1.
-Proof. (* TODO: Finish and automate. *)
-  intro s0.
-  split.
-
-  - intro H_not_term.
-    unfold stepST.
-    match goal with
-      |- exists xs1, (t ::= _; (if t then _ else ?rest)) s0 xs1 =>
-      set (st := rest);
-      enough (exists xs1, st s0 xs1) as H
-    end.
-
-    + destruct H as [st1 H].
-      exists st1.
-      unfold bind.
-      simpl.
-      exists (|false, s0|).
-      unfold extractST, stateUnchangedST, intersectST, definedST.
-      auto.
-
-    + unfold st; clear st.
-      match goal with
-        |- exists xs1, (_ >>= ?rest) _ _ => set (f := rest)
-      end.
-      remember (memory s0 (PC s0)) as oo eqn:H_oo.
-      destruct oo as [x|].
-
-      * (* Here comes the main sub-proof! *)
-        admit.
-
-      * exists Undefined.
-        unfold bind.
-        simpl.
-        exists Undefined.
-        split; [|reflexivity].
-        unfold nextST.
-        simpl.
-        exists (|PC s0, s0|).
-        unfold extractST.
-        split.
-        -- unfold stateUnchangedST, intersectST.
-           simpl.
-           auto.
-        -- set (s00 := {|
-                        terminated := s0.(terminated);
-                        PC := addNat64 1 s0.(PC);
-                        SP := s0.(SP);
-                        input := s0.(input);
-                        output := s0.(output);
-                        memory := s0.(memory);
-                        consistency := s0.(consistency);
-                        always_output := s0.(always_output);
-                      |}).
-           exists (|s00|).
-           unfold setPcST, intersectST.
-           repeat split.
-           unfold getST, tryGetST, extractST, intersectST.
-           simpl.
-           exists (| None, s00|).
-           simpl.
-           repeat split.
-           simp addresses.
-           simp traverse_vector.
-           rewrite <- H_oo.
-           reflexivity.
-
-  - (* The easy direction. *)
-    unfold stepST.
-    match goal with
-      |- (exists xs1, (t ::= _; if t then _ else ?rest) _ _) -> _ =>
-      generalize rest
-    end.
-    unfold bind, extractST, stateUnchangedST, intersectST, definedST, stoppedST.
-    simpl.
-    intros ? [xs1 [xs2 [[H1 H2] H3]]].
-    remember (terminated s0) as t eqn:H_t.
-    destruct t; [|reflexivity].
-    exfalso.
-    destruct xs2 as [[[|] s2]|]; [assumption|congruence|assumption].
-Admitted.
-
-End step_definition. (* This limits the scope of the instruction notation. *)
+End step_definition. (* This limits the scope of the instruction constants. *)
 
 Equations nStepsST (n: nat): ST unit :=
   nStepsST 0 := stateUnchangedST;
@@ -912,11 +760,11 @@ Equations nStepsST (n: nat): ST unit :=
 
 (* Transitive closure *)
 Definition multiStepST: ST unit :=
-  fun s0 xs1 => exists n, nStepsST n s0 xs1.
+  fun s0 _ s1 => exists n, nStepsST n s0 tt s1.
 
 Definition runST: ST unit:=
-  def s0 _ s1 =>
-    multiStepST s0 (|s1|)
+  fun s0 _ s1 =>
+    multiStepST s0 tt s1
     /\ s1.(terminated) = true.
 
 (* Avoid complaints from Equations when using depelim. *)
@@ -954,7 +802,7 @@ Equations fillST (start: Bits64) (bytes: list Bits8) : ST unit :=
   fillST _ [] := stateUnchangedST;
   fillST a (x :: r) := setST 1 a x ;; fillST (addNat64 1 a) r.
 
-Definition preparationsST
+Definition loadProgramST
            (prog: list Bits8)
            (arg: list Bits8) : ST unit :=
   prog_start ::= allocateST (length prog);
@@ -972,34 +820,32 @@ Definition execution
            (inputList: list (Image Gray))
            (outputList: list ((Image Color) * Sound * OutputText)) : Prop :=
   let s0 := protoState inputList in
-  let checkOutputST: ST unit :=
-      (* Observe that we reverse the output list. *)
-      def s0 _ s1 => s0 = s1 /\ s1.(output) = rev outputList in
-  let st := (preparationsST prog arg) ;; runST ;; checkOutputST in
-  exists s1, st s0 (|s1|).
+  let st := (loadProgramST prog arg) ;; runST ;; (extractST output) in
+  (* Observe that we reverse the output list. *)
+  exists s1, st s0 (rev outputList) s1.
 
 
 (**** Certification *)
 
+Definition valueOr {A: Type} (default: A) (o: option A) : A :=
+  match o with Some a => a | _ => default end.
+
 Class CertifiedMachine {S: Type} (step: S -> option S): Type :=
   {
-    cm_meaning: S -> option (unit * State);
-    cm_start: list Bits8 -> list Bits8 -> list (Image Gray) -> S;
+    cm_meaning: S -> option State;
+    cm_after_load: list Bits8 -> list Bits8 -> list (Image Gray) -> S;
 
-    cm_start_ok: forall prog arg inputList,
-        preparationsST prog arg
-                       (protoState inputList)
-                       (cm_meaning (cm_start prog arg inputList));
+    cm_after_load_ok: forall prog arg inputList,
+        match cm_meaning (cm_after_load prog arg inputList) with
+        | None => False
+        | Some s0 => loadProgramST prog arg (protoState inputList) tt s0
+        end;
 
-    cm_partial_correctness: forall s, match cm_meaning s, step s with
-                                 | Undefined, _ | _, None => True
-                                 | (|s0|), Some s' => stepST s0 (cm_meaning s')
-                              end;
+    cm_partial_correctness: forall s, valueOr True (s0 ::= cm_meaning s;
+                                            s' ::= step s;
+                                            s1 ::= cm_meaning s';
+                                            ret (stepST s0 tt s1));
 
-    cm_liveness: forall s, match cm_meaning s with
-                      | Undefined => True
-                      | (|s0|) => (exists xs1, stepST s0 xs1)
-                                 -> (forall xs1, stepST s0 xs1 -> xs1 <> Undefined)
-                                 -> step s <> None
-                      end;
+    cm_progress: forall s, valueOr True (s0 ::= cm_meaning s;
+                                 ret ((exists s1, stepST s0 tt s1) -> step s <> None));
   }.
