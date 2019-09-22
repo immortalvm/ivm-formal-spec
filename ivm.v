@@ -132,6 +132,7 @@ Definition signExtend {n} (v: Bvector (S n)) : Bits64.
   omega.
 Defined.
 
+Definition zero16 : Bits16 := toBits 16 0.
 Definition zero32 : Bits32 := toBits 32 0.
 Definition zero64 : Bits64 := toBits 64 0.
 Definition true64 : Bits64 := Bneg zero64.
@@ -168,28 +169,23 @@ Definition Color := (Bits16 * Bits16 * Bits16)%type.
 Set Primitive Projections.
 Global Unset Printing Primitive Projection Parameters.
 
-(* NB: iPixel can be anything outside width*height. *)
 Record Image A :=
   mkImage {
-      iWidth: Bits32;
-      iHeight: Bits32;
-      iPixel: nat -> nat -> option A;
-      iDef: forall x y, x < iWidth -> y < iHeight -> iPixel x y <> None;
+      iWidth: Bits16;
+      iHeight: Bits16;
+      iPixel: forall (x: nat) (Hx: x < iWidth) (y: nat) (Hy: y < iHeight), A;
     }.
 
 Definition noImage {A} : Image A.
   refine ({|
-             iWidth := zero32;
-             iHeight := zero32;
-             iPixel _ _ := None;
-             iDef := _;
+             iWidth := zero16;
+             iHeight := zero16;
+             iPixel := _;
            |}).
-  intros x _ H _.
-  exfalso.
-  revert H.
-  unfold fromBits32.
+  unfold fromBits16.
   rewrite zeroBits_zero.
-  apply Nat.nlt_0_r.
+  intros x Hx.
+  contradiction (Nat.nlt_0_r x Hx).
 Defined.
 
 Record Sound :=
@@ -487,30 +483,27 @@ which was never allocated. *)
 
 (**** Input and output *)
 
-Definition readFrameST : ST (Bits32 * Bits32) :=
+Definition readFrameST : ST (Bits16 * Bits16) :=
   registersUnchangedST
     ⩀ memoryUnchangedST
     ⩀ fun s0 wh s1 =>
         s0.(output) = s1.(output)
         /\ match s1.(input) with
-          | [] | [_] => wh = (zero32, zero32)
+          | [] | [_] => wh = (zero16, zero16)
           | _ :: hd :: tl =>
             wh = (hd.(iWidth), hd.(iHeight))
             /\ s1.(input) = hd :: tl
           end.
 
-Definition tryReadPixelST (x y: nat) : ST (option Bits8) :=
-  extractST (fun s =>
-               match s.(input) with
-               | [] => None
-               | frame :: _ =>
-                 if (x <? frame.(iWidth)) && (y <? frame.(iHeight))
-                 then frame.(iPixel) x y
-                 else None
-               end).
-
 Definition readPixelST (x y: nat) : ST Bits8 :=
-  tryReadPixelST x y >>= valueOrFailST.
+  stateUnchangedST
+    ⩀ fun s0 x1 _ =>
+        match s0.(input) with
+        | [] => False
+        | frame :: _ =>
+          exists (Hx: x < frame.(iWidth))
+            (Hy: y < frame.(iHeight)), x1 = frame.(iPixel) Hx Hy
+        end.
 
 (* Initial frame pixels: undefined. *)
 Definition newFrameST (width height sampleRate: nat) : ST unit :=
@@ -548,9 +541,10 @@ Definition setPixelST (x y r g b : nat) : ST unit :=
             /\ x < i0.(iWidth)
             /\ y < i0.(iHeight)
 
-            /\ forall xx yy, i1.(iPixel) xx yy = if (xx =? x) && (yy =? y)
-                                           then Some (toBits 16 r, toBits 16 g, toBits 16 b)
-                                           else i0.(iPixel) xx yy
+            /\ forall xx Hx0 Hx1 yy Hy0 Hy1, @iPixel _ i1 xx Hx0 yy Hy0 =
+                                       if (xx =? x) && (yy =? y)
+                                       then (toBits 16 r, toBits 16 g, toBits 16 b)
+                                       else @iPixel _ i0 xx Hx1 yy Hy1
           | _, _ => False
           end.
 
@@ -833,36 +827,64 @@ Inductive Safe (s: State) : Prop :=
             (forall s1, stepST s tt s1 -> Safe s1) ->
             Safe s.
 
+Definition memoryUsed (s: State): nat :=
+  (fix used_below (a: nat): nat :=
+     match a with
+     | 0 => 0
+     | S a' => match s.(memory) (toBits 64 a') with
+              | Some _ => 1
+              | None => 0
+              end + used_below a'
+     end)
+    (2^64).
+
+(* Rather trivial. *)
+Lemma max_memoryUsed (s: State): memoryUsed s <= 2^64.
+Proof.
+  unfold memoryUsed.
+  generalize (2^64).
+  induction n.
+  - trivial.
+  - destruct (memory s (toBits 64 n));
+      auto with arith.
+Qed.
+
+Definition small (s: State) := memoryUsed s <= 2 ^ 34. (* 16 GiB *)
+
 Definition valueOr {A: Type} (default: A) (o: option A) : A :=
   match o with Some a => a | _ => default end.
 
-Class CertifiedMachine {S: Type} (step: S -> option S) :=
+Class CertifiedMachine (S: Type) :=
   {
-    cm_meaning: S -> option State;
-    cm_after_load: list Bits8 -> list Bits8 -> list (Image Gray) -> S;
+    cm_step: S -> S -> Prop;
+    cm_meaning: S -> State -> Prop;
+    cm_unique_meaning: forall c s s', cm_meaning c s -> cm_meaning c s' -> s = s';
 
-    cm_after_load_ok: forall prog arg inputList,
-        match cm_meaning (cm_after_load prog arg inputList) with
-        | None => False
-        | Some s0 => loadProgramST prog arg (protoState inputList) tt s0
-        end;
+    cm_after_load: (list Bits8) -> (list Bits8) -> (list (Image Gray)) -> S -> Prop;
 
-    cm_partial_correctness: forall s s' (_: cm_meaning s = Some s')
-                              s1 (_: step s = Some s1)
-                              s1' (_: cm_meaning s1 = Some s1'), stepST s' tt s1';
+    cm_after_load_ok: forall prog arg inputList c (s: State),
+        cm_after_load prog arg inputList c ->
+        exists s, cm_meaning c s /\ loadProgramST prog arg (protoState inputList) tt s;
 
-    cm_progress: forall s s', cm_meaning s = Some s'
-                         -> (exists s1', stepST s' tt s1')
-                         -> exists s1, step s = Some s1
-                                 /\ exists s1', cm_meaning s1 = Some s1';
+    cm_after_load_exists: forall prog arg inputList,
+        (exists s, small s /\ loadProgramST prog arg (protoState inputList) tt s)
+        -> exists c s, cm_after_load prog arg inputList c /\ cm_meaning c s;
 
-    cm_termination: forall s s', cm_meaning s = Some s'
-                            -> terminated s' = true
-                            -> step s = None;
+    cm_correctness: forall c s (_: cm_meaning c s)
+                      c' (_: cm_step c c')
+                      s' (_: cm_meaning c' s'), stepST s tt s';
 
+    cm_progress: forall c s, cm_meaning c s
+                        -> (exists s', small s' /\ stepST s tt s')
+                        -> exists c' s', cm_step c c' /\ cm_meaning c' s';
+
+    cm_termination: forall c s c', cm_meaning c s -> cm_step c c' -> terminated s = false;
   }.
 
-Definition cm_terminated {S} {step} `{cm: CertifiedMachine S step} (s: S) :=
+
+(* TODO:
+
+Definition cm_terminated {S} {step} `{cm: CertifiedMachine S} (s: S) :=
   valueOr false (s' ::= cm_meaning s; ret (terminated s')).
 
 Inductive CertSafe {S} {step} `{cm: CertifiedMachine S step} (s: S) : Prop :=
@@ -892,3 +914,5 @@ Proof.
     + exact (cm_partial_correctness s Hs H_step Hs2).
     + exact Hs2.
 Qed.
+
+*)
