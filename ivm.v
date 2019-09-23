@@ -821,12 +821,6 @@ Definition execution
 
 (**** Certification *)
 
-Inductive Safe (s: State) : Prop :=
-| SafeEnd: s.(terminated) = true -> Safe s
-| SafeStep: (exists s1, stepST s tt s1) ->
-            (forall s1, stepST s tt s1 -> Safe s1) ->
-            Safe s.
-
 Definition memoryUsed (s: State): nat :=
   (fix used_below (a: nat): nat :=
      match a with
@@ -854,13 +848,13 @@ Definition small (s: State) := memoryUsed s <= 2 ^ 34. (* 16 GiB *)
 Definition valueOr {A: Type} (default: A) (o: option A) : A :=
   match o with Some a => a | _ => default end.
 
-Class CertifiedMachine (S: Type) :=
+Class CertifiedMachine (C: Type) :=
   {
-    cm_step: S -> S -> Prop;
-    cm_meaning: S -> State -> Prop;
+    cm_step: C -> C -> Prop;
+    cm_meaning: C -> State -> Prop;
     cm_unique_meaning: forall c s s', cm_meaning c s -> cm_meaning c s' -> s = s';
 
-    cm_after_load: (list Bits8) -> (list Bits8) -> (list (Image Gray)) -> S -> Prop;
+    cm_after_load: list Bits8 -> list Bits8 -> list (Image Gray) -> C -> Prop;
 
     cm_after_load_ok: forall prog arg inputList c (s: State),
         cm_after_load prog arg inputList c ->
@@ -870,9 +864,9 @@ Class CertifiedMachine (S: Type) :=
         (exists s, small s /\ loadProgramST prog arg (protoState inputList) tt s)
         -> exists c s, cm_after_load prog arg inputList c /\ cm_meaning c s;
 
-    cm_correctness: forall c s (_: cm_meaning c s)
-                      c' (_: cm_step c c')
-                      s' (_: cm_meaning c' s'), stepST s tt s';
+    cm_correctness: forall c s (_: cm_meaning c s) c' (_: cm_step c c'),
+                    (exists s', stepST s tt s')
+                    -> exists s', stepST s tt s' /\ cm_meaning c' s';
 
     cm_progress: forall c s, cm_meaning c s
                         -> (exists s', small s' /\ stepST s tt s')
@@ -881,38 +875,37 @@ Class CertifiedMachine (S: Type) :=
     cm_termination: forall c s c', cm_meaning c s -> cm_step c c' -> terminated s = false;
   }.
 
+Inductive Safe (s: State) : Prop :=
+| SafeEnd: s.(terminated) = true -> Safe s
+| SafeStep: (exists s', small s' /\ stepST s tt s') -> (* NB: small *)
+            (forall s', stepST s tt s' -> Safe s') ->
+            Safe s.
 
-(* TODO:
+Definition cm_terminated {C} `{CertifiedMachine C} (c: C) : Prop :=
+  exists s, cm_meaning c s /\ s.(terminated) = true.
 
-Definition cm_terminated {S} {step} `{cm: CertifiedMachine S} (s: S) :=
-  valueOr false (s' ::= cm_meaning s; ret (terminated s')).
+Inductive CertSafe {C} `{CertifiedMachine C} (c: C) : Prop :=
+  | CertSafeEnd: cm_terminated c -> CertSafe c
+  | CertSafeStep: (exists c', cm_step c c') -> (forall c', cm_step c c' -> CertSafe c') -> CertSafe c.
 
-Inductive CertSafe {S} {step} `{cm: CertifiedMachine S step} (s: S) : Prop :=
-  | CertSafeEnd: cm_terminated s = true -> CertSafe s
-  | CertSafeStep: forall s1, step s = Some s1 -> CertSafe s1 -> CertSafe s.
-
-Theorem safe_safe {S} {step} `{cm: CertifiedMachine S step} (s: S) s' :
-  cm_meaning s = Some s' -> Safe s' -> CertSafe s.
+Theorem safe_safe {C} `{CertifiedMachine C} (c: C) s :
+  cm_meaning c s -> Safe s -> CertSafe c.
 Proof.
   intros Hm H_safe.
-  revert s Hm.
-  induction H_safe as [s' H_term | s' [s1' H_step'] H_safe H_cs].
-
-  - intros s Hs.
-    apply CertSafeEnd.
+  revert c Hm.
+  induction H_safe as [s H_term | s H0 H_safe H_cs]; intros c Hc.
+  - apply CertSafeEnd.
     unfold cm_terminated.
-    rewrite Hs.
-    exact H_term.
-
-  - intros s Hs.
-    set (H_prog := cm_progress s).
-    rewrite Hs in H_prog.
-    specialize (H_prog s' eq_refl (ex_intro _ s1' H_step')).
-    destruct H_prog as [s2 [H_step [s2' Hs2]]].
-
-    apply (CertSafeStep s H_step), (H_cs s2').
-    + exact (cm_partial_correctness s Hs H_step Hs2).
-    + exact Hs2.
+    exists s.
+    auto.
+  - set (H_prog := cm_progress c Hc).
+    specialize (H_prog H0).
+    destruct H_prog as [c' [s' [H1 H2]]].
+    apply (CertSafeStep c (ex_intro _ c' H1)).
+    intros c'' H3.
+    set (H_corr := cm_correctness c Hc c'' H3).
+    destruct H0 as [s0 [_ H4]].
+    specialize (H_corr (ex_intro _ s0 H4)).
+    destruct H_corr as [s'' [H5 H6]].
+    apply (H_cs s'' H5 _ H6).
 Qed.
-
-*)
