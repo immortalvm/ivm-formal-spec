@@ -21,14 +21,7 @@ Arguments BVxor : default implicits.
 Import ListNotations.
 
 
-(**** Monad basics *)
-
-
-(* Special notation for the identity monad *)
-
-(* Bind *)
-Notation "x |> f" := (f x) (at level 98, left associativity, only parsing).
-
+(** * Monad basics *)
 
 (* Based on https://github.com/coq/coq/wiki/AUGER_Monad. *)
 Class Monad (m: Type -> Type): Type :=
@@ -85,7 +78,7 @@ Defined.
 
 
 
-(**** Bit vectors. TODO: Should we use BinNat instead of nat as well? *)
+(** * Bit vectors. *)
 
 Definition Bits8 := Bvector 8.
 Definition Bits16 := Bvector 16.
@@ -118,9 +111,9 @@ Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
 
 (* Compute (fromLittleEndian (toLittleEndian 2 12345)). *)
 
-Definition addNat64 k (x: Bits64) : Bits64 := k + x |> toBits 64. (* Implicit coercion *)
-Definition neg64 (x: Bits64) : Bits64 := Bneg x |> addNat64 1.
-Definition add64 (x y: Bits64) : Bits64 := x + y |> toBits 64. (* Implicit coercion *)
+Definition addNat64 k (x: Bits64) : Bits64 := toBits 64 (k + x). (* Implicit coercion *)
+Definition neg64 (x: Bits64) : Bits64 := addNat64 1 (Bneg x).
+Definition add64 (x y: Bits64) : Bits64 := toBits 64 (x + y). (* Implicit coercion *)
 Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
 
 Definition signExtend {n} (v: Bvector (S n)) : Bits64.
@@ -155,7 +148,7 @@ Proof.
 Qed.
 
 
-(**** State *)
+(** * State *)
 
 Equations addresses n (start: Bits64) : Vector.t Bits64 n :=
   addresses 0 _ := Vector.nil Bits64;
@@ -232,16 +225,16 @@ Record State :=
 
 Unset Primitive Projections.
 
-Lemma State_expanion (s: State) :
+Lemma State_expansion (s: State) :
   s = {|
-    terminated := s.(terminated);
-    PC := s.(PC);
-    SP := s.(SP);
-    input := s.(input);
-    output := s.(output);
-    memory := s.(memory);
-    consistency := s.(consistency);
-    always_output := s.(always_output);
+    terminated := terminated s;
+    PC := PC s;
+    SP := SP s;
+    input := input s;
+    output := output s;
+    memory := memory s;
+    consistency := consistency s;
+    always_output := always_output s;
   |}.
 Proof.
   reflexivity.
@@ -265,23 +258,23 @@ Proof.
 Qed.
 
 Lemma State_extensionality : forall (s0 s1: State),
-    s0.(terminated) = s1.(terminated)
-    -> s0.(PC) = s1.(PC)
-    -> s0.(SP) = s1.(SP)
-    -> s0.(input) = s1.(input)
-    -> s0.(output) = s1.(output)
-    -> s0.(memory) = s1.(memory)
-    -> s0.(allocation) = s1.(allocation)
+    terminated s0 = terminated s1
+    -> PC s0 = PC s1
+    -> SP s0 = SP s1
+    -> input s0 = input s1
+    -> output s0 = output s1
+    -> memory s0 = memory s1
+    -> allocation s0 = allocation s1
     -> s0 = s1.
 Proof.
   intros.
-  rewrite (State_expanion s0).
-  rewrite (State_expanion s1).
+  rewrite (State_expansion s0).
+  rewrite (State_expansion s1).
   apply State_injectivity; assumption.
 Qed.
 
 
-(**** Relational state monad *)
+(** * Relational state monad *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
 
@@ -335,7 +328,7 @@ Proof.
 Defined.
 
 
-(**** Change management *)
+(** * Change management *)
 
 Definition intersectST {A} (st1 st2: ST A): ST A :=
   fun s0 x1 s1 => st1 s0 x1 s1 /\ st2 s0 x1 s1.
@@ -354,22 +347,22 @@ Qed.
 
 Definition registersUnchangedST {A} : ST A :=
   fun s0 _ s1 =>
-    s0.(terminated) = s1.(terminated)
-    /\ s0.(PC) = s1.(PC)
-    /\ s0.(SP) = s1.(SP).
+    terminated s0 = terminated s1
+    /\ PC s0 = PC s1
+    /\ SP s0 = SP s1.
 
 Definition memoryUnchangedST {A} : ST A :=
   fun s0 _ s1 =>
-    s0.(allocation) = s1.(allocation)
-    /\ s0.(memory) = s1.(memory).
+    allocation s0 = allocation s1
+    /\ memory s0 = memory s1.
 
 Definition ioUnchangedST {A} : ST A :=
   fun s0 _ s1 =>
-    s0.(input) = s1.(input)
-    /\ s0.(output) = s1.(output).
+    input s0 = input s1
+    /\ output s0 = output s1.
 
 Lemma stateUnchanged_characterized {A} :
-  @registersUnchangedST A ⩀ memoryUnchangedST ⩀ ioUnchangedST = stateUnchangedST.
+  registersUnchangedST ⩀ memoryUnchangedST ⩀ ioUnchangedST = @stateUnchangedST A.
 Proof.
   unfold registersUnchangedST, memoryUnchangedST, ioUnchangedST, stateUnchangedST.
   repeat (unfold intersectST).
@@ -377,16 +370,16 @@ Proof.
 Qed.
 
 
-(**** Building blocks *)
+(** * Building blocks *)
 
 Definition extractST {A} (f: State -> A): ST A :=
   stateUnchangedST ⩀ (fun s0 x1 _ => f s0 = x1).
 
 (* Get the value at the n bytes starting at start. *)
 Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
-  extractST (fun s => addresses n start
-                   |> traverse_vector s.(memory)
-                   |> liftM fromLittleEndian).
+  extractST (fun s => liftM fromLittleEndian
+                         (traverse_vector (memory s)
+                                          (addresses n start))).
 
 Definition failST {A}: ST A :=
   fun _ _ _ => False.
@@ -401,28 +394,28 @@ Definition getST (n: nat) (start: Bits64) : ST nat :=
 Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
   fun s0 _ s1 =>
     let other a := Vector.Forall (fun x => x <> a) (addresses n start) in
-    forall a, other a -> s0.(memory) a = s1.(memory) a.
+    forall a, other a -> memory s0 a = memory s1 a.
 
 (* Observe that if (setST n start value s0 x1 s1), then we know that the
-   addresses were allocated because of s1.(allocations_defined).
+   addresses were allocated because of allocations_defined s1.
    Formally:
-   Vector.Forall (fun a => s0.(memory) a <> None) (addresses n start)
+   Vector.Forall (fun a => memory s0 a <> None) (addresses n start)
  *)
 Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ otherMemoryUnchangedST start n
     ⩀ fun s0 _ s1 =>
-        s0.(allocation) = s1.(allocation)
+        allocation s0 = allocation s1
         /\ getST n start s1 value s1.
 
 Definition setPcST (a: Bits64): ST unit :=
   memoryUnchangedST
     ⩀ ioUnchangedST
     ⩀ fun s0 _ s1 =>
-         s0.(terminated) = s1.(terminated)
-         /\ s0.(SP) = s1.(SP)
-         /\ a = s1.(PC).
+         terminated s0 = terminated s1
+         /\ SP s0 = SP s1
+         /\ a = PC s1.
 
 Definition setSpST (a: Bits64): ST unit :=
   memoryUnchangedST
@@ -452,18 +445,18 @@ Definition pushST (value: nat): ST unit :=
   setST 8 a1 value.
 
 
-(**** Memory allocation *)
+(** * Memory allocation *)
 
 Definition otherAllocationsUnchangedST (start: Bits64) : ST unit :=
   fun s0 _ s1 =>
-    forall a, a <> start -> s0.(allocation) a = s1.(allocation) a.
+    forall a, a <> start -> allocation s0 a = allocation s1 a.
 
 Definition allocateST (n: nat) : ST Bits64 :=
   registersUnchangedST
     ⩀ ioUnchangedST
     ⩀ fun s0 start s1 =>
-        s0.(allocation) start = 0
-        /\ s1.(allocation) start = n
+        allocation s0 start = 0
+        /\ allocation s1 start = n
         /\ otherAllocationsUnchangedST start s0 tt s1
         /\ otherMemoryUnchangedST start n s0 tt s1
         /\ getST n start s1 0 s1.        (* memory initialized to 0 *)
@@ -473,8 +466,8 @@ Definition deallocateST (start: Bits64) : ST unit :=
     ⩀ ioUnchangedST
     ⩀ otherAllocationsUnchangedST start
     ⩀ fun s0 _ s1 =>
-        s1.(allocation) start = 0
-        /\ otherMemoryUnchangedST start (s0.(allocation) start) s0 tt s1.
+        allocation s1 start = 0
+        /\ otherMemoryUnchangedST start (allocation s0 start) s0 tt s1.
 
 (* Observe that allocations_defined ensures that unallocated memory is
 None, and that it makes sense to allocate 0 bytes or deallocate an address
@@ -487,22 +480,22 @@ Definition readFrameST : ST (Bits16 * Bits16) :=
   registersUnchangedST
     ⩀ memoryUnchangedST
     ⩀ fun s0 wh s1 =>
-        s0.(output) = s1.(output)
-        /\ match s1.(input) with
+        output s0 = output s1
+        /\ match input s1 with
           | [] | [_] => wh = (zero16, zero16)
           | _ :: hd :: tl =>
-            wh = (hd.(iWidth), hd.(iHeight))
-            /\ s1.(input) = hd :: tl
+            wh = (iWidth hd, iHeight hd)
+            /\ input s1 = hd :: tl
           end.
 
 Definition readPixelST (x y: nat) : ST Bits8 :=
   stateUnchangedST
     ⩀ fun s0 x1 _ =>
-        match s0.(input) with
+        match input s0 with
         | [] => False
         | frame :: _ =>
-          exists (Hx: x < frame.(iWidth))
-            (Hy: y < frame.(iHeight)), x1 = frame.(iPixel) Hx Hy
+          exists (Hx: x < iWidth frame)
+            (Hy: y < iHeight frame), x1 = iPixel frame Hx Hy
         end.
 
 (* Initial frame pixels: undefined. *)
@@ -510,15 +503,15 @@ Definition newFrameST (width height sampleRate: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
     ⩀ fun s0 _ s1 =>
-        s0.(input) = s1.(input)
-        /\ match s1.(output) with
+        input s0 = input s1
+        /\ match output s1 with
           | [] => False
           | (image, sound, text) :: rest =>
-            s0.(output) = rest
-            /\ width = image.(iWidth)
-            /\ height = image.(iHeight)
-            /\ sampleRate = sound.(sRate)
-            /\ sound.(sSamples) = []
+            output s0 = rest
+            /\ width = iWidth image
+            /\ height = iHeight image
+            /\ sampleRate = sRate sound
+            /\ sSamples sound = []
             /\ text = []
           end.
 
@@ -526,20 +519,18 @@ Definition setPixelST (x y r g b : nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
     ⩀ fun s0 _ s1 =>
-        s0.(input) = s1.(input)
-        /\ match s0.(output), s1.(output) with
+        input s0 = input s1
+        /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
             r0 = r1
             /\ t0 = t1
             /\ s0 = s1
-
             (* Needed since iPixel is undefined outside width*height. *)
-            /\ i0.(iWidth) = i1.(iWidth)
-            /\ i0.(iHeight) = i1.(iHeight)
-
+            /\ iWidth i0 = iWidth i1
+            /\ iHeight i0 = iHeight i1
             (* Otherwise undefined *)
-            /\ x < i0.(iWidth)
-            /\ y < i0.(iHeight)
+            /\ x < iWidth i0
+            /\ y < iHeight i0
 
             /\ forall xx Hx0 Hx1 yy Hy0 Hy1, @iPixel _ i1 xx Hx0 yy Hy0 =
                                        if (xx =? x) && (yy =? y)
@@ -552,15 +543,15 @@ Definition addSampleST (left right : nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
     ⩀ fun s0 _ s1 =>
-        s0.(input) = s1.(input)
-        /\ match s0.(output), s1.(output) with
+        input s0 = input s1
+        /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
             r0 = r1
             /\ t0 = t1
             /\ i0 = i1
-            /\ s0.(sRate) = s1.(sRate)
-            /\ s0.(sRate) <> zero32 (* Otherwise undefined *)
-            /\ (toBits 16 left, toBits 16 right) :: s0.(sSamples) = s1.(sSamples)
+            /\ sRate s0 = sRate s1
+            /\ sRate s0 <> zero32 (* Otherwise undefined *)
+            /\ (toBits 16 left, toBits 16 right) :: sSamples s0 = sSamples s1
           | _, _ => False
           end.
 
@@ -568,8 +559,8 @@ Definition putCharST (c: nat) : ST unit :=
   registersUnchangedST
     ⩀ memoryUnchangedST
     ⩀ fun s0 _ s1 =>
-        s0.(input) = s1.(input)
-        /\ match s0.(output), s1.(output) with
+        input s0 = input s1
+        /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
             r0 = r1
             /\ s0 = s1
@@ -578,7 +569,7 @@ Definition putCharST (c: nat) : ST unit :=
           | _, _ => False
           end.
 
-(**** Execution *)
+(** * Execution *)
 
 Definition exitST : ST unit :=
   memoryUnchangedST
@@ -759,7 +750,7 @@ Definition multiStepST: ST unit :=
 Definition runST: ST unit:=
   fun s0 _ s1 =>
     multiStepST s0 tt s1
-    /\ s1.(terminated) = true.
+    /\ terminated s1 = true.
 
 (* Avoid complaints from Equations when using depelim. *)
 Derive Signature for Vector.Exists.
@@ -819,13 +810,13 @@ Definition execution
   exists s1, st s0 (rev outputList) s1.
 
 
-(**** Certification *)
+(** * Certification *)
 
 Definition memoryUsed (s: State): nat :=
   (fix used_below (a: nat): nat :=
      match a with
      | 0 => 0
-     | S a' => match s.(memory) (toBits 64 a') with
+     | S a' => match memory s (toBits 64 a') with
               | Some _ => 1
               | None => 0
               end + used_below a'
@@ -876,13 +867,13 @@ Class CertifiedMachine (C: Type) :=
   }.
 
 Inductive Safe (s: State) : Prop :=
-| SafeEnd: s.(terminated) = true -> Safe s
+| SafeEnd: terminated s = true -> Safe s
 | SafeStep: (exists s', small s' /\ stepST s tt s') -> (* NB: small *)
             (forall s', stepST s tt s' -> Safe s') ->
             Safe s.
 
 Definition cm_terminated {C} `{CertifiedMachine C} (c: C) : Prop :=
-  exists s, cm_meaning c s /\ s.(terminated) = true.
+  exists s, cm_meaning c s /\ terminated s = true.
 
 Inductive CertSafe {C} `{CertifiedMachine C} (c: C) : Prop :=
   | CertSafeEnd: cm_terminated c -> CertSafe c
