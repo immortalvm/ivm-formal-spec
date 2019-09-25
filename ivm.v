@@ -2,14 +2,17 @@ From Equations Require Import Equations.
 Set Equations With UIP.
 
 Require Import Coq.Bool.Bvector.
-Require Import Nat.
-Require Vector.
-Require Import Arith Omega List.
+Require Import Coq.Init.Nat.
+Require Coq.Vectors.Vector.
+Require Import Coq.Arith.Arith.
+Require Import Coq.omega.Omega.
+Require Import Coq.Lists.List.
 Require Import Coq.Program.Tactics.
 
 Set Implicit Arguments.
 
 
+Arguments Vector.nil {A}.
 Arguments Vector.cons : default implicits.
 Arguments Bcons : default implicits.
 Arguments Bneg : default implicits.
@@ -21,7 +24,190 @@ Arguments BVxor : default implicits.
 Import ListNotations.
 
 
-(** * Monad basics *)
+(** printing nat $\mathbb{N}$ #nat# *)
+(** printing bool $\mathbb{B}$ #bool# *)
+(** printing unit $\mathbbm{1}$ #unit# *)
+(** printing tt $\bullet$ #tt# *)
+
+
+(** * Formal virtual machine specification
+
+This section contains a formal specification of the virtual machine used
+to interpret the contents of this film. It does not describe how to
+implement this machine. Instead, this sections contains the requirements
+such an implementation must satisfy. The requirements have been formalized
+in a system for formal mathematics called Coq, which is based on
+higher-order type theory. The text below is based on this formalization.
+It involves some formal logic and type theory, where for simplicity we
+assume the principles of propositional and functional extensionality.
+However, we have not included the formal proofs here.
+*)
+
+
+(** ** Basic types
+
+We will be using some simple inductive types from the Coq library.
+
+%\begin{center}\begin{tabular}{p{13em}|p{13em}|p{13em}}%
+[[
+Inductive unit :=
+  | tt : unit.
+]]
+%\vspace{-3ex}&%
+[[
+Inductive bool :=
+  | true : bool
+  | false : bool.
+]]
+%\vspace{-3ex}&%
+[[
+Inductive nat :=
+  | O : nat
+  | S : nat -> nat.
+]]
+%\vspace{-3ex}\end{tabular}\end{center}%
+
+We use decimal numbers as shortcuts. For instance, [3] is an abbreviation
+for [S (S (S O))]. Furthermore, [if x then y else z] %\;\;%means%\;\;% [match x with
+true => y | false => z].
+
+We also need som "generic" types:
+
+%\begin{center}\begin{tabular}{p{17em}|p{20em}}%
+[[
+Inductive option A :=
+  | Some : A -> option A
+  | None : option A.
+]]
+%\vspace{-3ex}&%
+[[
+Inductive list A :=
+ | nil : list A
+ | cons : A -> list A -> list A.
+]]
+%\vspace{-3ex}\end{tabular}\end{center}%
+
+Here [A] is an arbitrary type. We use [ [] ] and [x::y] as shortcuts for
+[nil] and [cons x y], respectively.
+Finally, we will be using some "dependent" types, such as the lists of a
+fixed length -- called "vectors":
+
+[[
+Inductive Vector.t A : nat -> Type :=
+  | Vector.nil : Vector.t A 0
+  | Vector.cons : forall (h:A) (n:nat), Vector.t A n -> Vector.t A (S n).
+]]
+
+Here we have made explicit that we will use use "qualified names"
+(starting with [Vector.]) in order to avoid confusion with similarly named
+list operations.
+
+In this text we shall mainly be concerned with vectors of booleans
+(representing bits):
+[[
+Definition Bvector := Vector.t bool.
+]]
+In particular, vectors consisting of 8, 16, 32 and 64 bits:
+*)
+
+Definition Bits8 := Bvector 8.
+Definition Bits16 := Bvector 16.
+Definition Bits32 := Bvector 32.
+Definition Bits64 := Bvector 64.
+
+(** An element of [Bvector n] can represent a number between $0$ and
+$2^n$. *)
+
+Equations fromBits {n} (v: Bvector n) : nat :=
+  fromBits Vector.nil := 0 ;
+  fromBits (Vector.cons b r) := (if b then 1 else 0) + 2 * fromBits r.
+
+(** Observe that the least significant bit comes first. The definition is
+formulated using the Equations extension to Coq. The type of the argument
+[n] is not specified since it is clear from the context. Moreover, [n] is
+declared "implicit" since it occurrs in the type of [v].
+
+We also have a function in the opposite direction.
+*)
+
+Equations toBits n (k: nat) : Bvector n :=
+  toBits 0 _ := Vector.nil;
+  toBits (S n) k := Vector.cons (eqb 1 (modulo k 2)) (toBits n (div k 2)).
+
+Lemma toBits_retraction : forall {n} (v: Bvector n), toBits n (fromBits v) = v.
+Proof.
+  intro n.
+  induction n.
+  - intro v.
+    apply Vector.case0.
+    simp fromBits toBits.
+    reflexivity.
+  - (* apply Vector.caseS. *)
+Admitted.
+
+Lemma fromBits_modulo : forall n k, fromBits (toBits n k) = modulo k (2 ^ n).
+Proof.
+Admitted.
+
+(* Compute (fromBits (toBits 8 (213 + 65536))). *)
+
+(* begin hide *)
+Definition fromBits8 : Bits8 -> nat := fromBits. Coercion fromBits8 : Bits8 >-> nat.
+Definition fromBits16 : Bits16 -> nat := fromBits. Coercion fromBits16 : Bits16 >-> nat.
+Definition fromBits32 : Bits32 -> nat := fromBits. Coercion fromBits32 : Bits32 >-> nat.
+Definition fromBits64 : Bits64 -> nat := fromBits. Coercion fromBits64 : Bits64 >-> nat.
+(* end hide *)
+
+(* Implicit coercion *)
+Equations fromLittleEndian {n} (v: Vector.t Bits8 n): nat :=
+  fromLittleEndian Vector.nil := 0;
+  fromLittleEndian (Vector.cons x r) := 256 * (fromLittleEndian r) + x.
+
+Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
+  toLittleEndian 0 _ := Vector.nil;
+  toLittleEndian (S n) k := Vector.cons (toBits 8 k) (toLittleEndian n (k / 256)).
+
+(* Compute (fromLittleEndian (toLittleEndian 2 12345)). *)
+
+(* Beware of implicit coercions *)
+Definition addNat64 k (x: Bits64) : Bits64 := toBits 64 (k + x).
+Definition neg64 (x: Bits64) : Bits64 := addNat64 1 (Bneg x).
+Definition add64 (x y: Bits64) : Bits64 := toBits 64 (x + y).
+Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
+
+Definition signExtend {n} (v: Bvector (S n)) : Bits64.
+  refine (
+      let sign := Bsign v in
+      let extra := Vector.const sign (64 - n) in
+      let bits := Vector.append v extra in
+      Vector.take 64 _ bits). (* in case n > 64 *)
+  omega.
+Defined.
+
+Definition zero16 : Bits16 := toBits 16 0.
+Definition zero32 : Bits32 := toBits 32 0.
+Definition zero64 : Bits64 := toBits 64 0.
+Definition true64 : Bits64 := Bneg zero64.
+
+(* TODO: Generalize from 0 to x < 2^n. *)
+Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
+Proof.
+  intro n.
+  induction n as [|n IH].
+  simp toBits.
+  simp fromBits.
+  reflexivity.
+
+  simp toBits.
+  simpl.
+  simp fromBits.
+  rewrite IH.
+  simpl.
+  reflexivity.
+Qed.
+
+
+(** ** Monad basics *)
 
 (* Based on https://github.com/coq/coq/wiki/AUGER_Monad. *)
 Class Monad (m: Type -> Type): Type :=
@@ -55,7 +241,7 @@ Section monadic_functions.
     fold_right (liftM2 cons) (ret []) (map f lst).
 
   Equations traverse_vector {A B: Type} (f: A -> m B) {n} (vec: Vector.t A n) : m (Vector.t B n) :=
-    traverse_vector _ Vector.nil := ret (Vector.nil B);
+    traverse_vector _ Vector.nil := ret Vector.nil;
     traverse_vector f (Vector.cons x v) with f x, traverse_vector f v := {
       traverse_vector _ _ mb mvb := mb >>= (fun b => mvb >>= (fun vb => ret (Vector.cons b vb)))
     }.
@@ -77,81 +263,10 @@ Proof.
 Defined.
 
 
-
-(** * Bit vectors. *)
-
-Definition Bits8 := Bvector 8.
-Definition Bits16 := Bvector 16.
-Definition Bits32 := Bvector 32.
-Definition Bits64 := Bvector 64.
-
-Equations fromBits {n} (v: Bvector n) : nat :=
-  fromBits Vector.nil := 0 ;
-  fromBits (Vector.cons b r) := 2 * fromBits r + (if b then 1 else 0).
-
-Equations toBits n (k: nat) : Bvector n :=
-  toBits 0 _ := Bnil ;
-  toBits (S n) k :=
-    Bcons (eqb 1 (modulo k 2)) (toBits n (div k 2)).
-
-(* Compute (fromBits (toBits 8 (213 + 65536))). *)
-
-Definition fromBits8 : Bits8 -> nat := fromBits. Coercion fromBits8 : Bits8 >-> nat.
-Definition fromBits16 : Bits16 -> nat := fromBits. Coercion fromBits16 : Bits16 >-> nat.
-Definition fromBits32 : Bits32 -> nat := fromBits. Coercion fromBits32 : Bits32 >-> nat.
-Definition fromBits64 : Bits64 -> nat := fromBits. Coercion fromBits64 : Bits64 >-> nat.
-
-Equations fromLittleEndian {n} (v: Vector.t Bits8 n): nat :=
-  fromLittleEndian Vector.nil := 0;
-  fromLittleEndian (Vector.cons x r) := 256 * (fromLittleEndian r) + x. (* Implicit coercion *)
-
-Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
-  toLittleEndian 0 _ := Vector.nil Bits8;
-  toLittleEndian (S n) k := Vector.cons (toBits 8 k) (toLittleEndian n (k / 256)).
-
-(* Compute (fromLittleEndian (toLittleEndian 2 12345)). *)
-
-Definition addNat64 k (x: Bits64) : Bits64 := toBits 64 (k + x). (* Implicit coercion *)
-Definition neg64 (x: Bits64) : Bits64 := addNat64 1 (Bneg x).
-Definition add64 (x y: Bits64) : Bits64 := toBits 64 (x + y). (* Implicit coercion *)
-Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
-
-Definition signExtend {n} (v: Bvector (S n)) : Bits64.
-  refine (
-      let sign := Bsign v in
-      let extra := nat_rect Bvector Bnil (Bcons sign) (64 - n) in
-      let bits := Vector.append v extra in
-      Vector.take 64 _ bits). (* in case n > 64 *)
-  omega.
-Defined.
-
-Definition zero16 : Bits16 := toBits 16 0.
-Definition zero32 : Bits32 := toBits 32 0.
-Definition zero64 : Bits64 := toBits 64 0.
-Definition true64 : Bits64 := Bneg zero64.
-
-(* TODO: Generalize from 0 to x < 2^n. *)
-Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
-Proof.
-  intro n.
-  induction n as [|n IH].
-  simp toBits.
-  simp fromBits.
-  reflexivity.
-
-  simp toBits.
-  simpl.
-  simp fromBits.
-  rewrite IH.
-  simpl.
-  reflexivity.
-Qed.
-
-
-(** * State *)
+(** ** State *)
 
 Equations addresses n (start: Bits64) : Vector.t Bits64 n :=
-  addresses 0 _ := Vector.nil Bits64;
+  addresses 0 _ := Vector.nil;
   addresses (S n) start := Vector.cons start (addresses n (addNat64 1 start)).
 
 Definition Gray := Bits8.
@@ -274,7 +389,7 @@ Proof.
 Qed.
 
 
-(** * Relational state monad *)
+(** ** Relational state monad *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
 
@@ -328,7 +443,7 @@ Proof.
 Defined.
 
 
-(** * Change management *)
+(** ** Change management *)
 
 Definition intersectST {A} (st1 st2: ST A): ST A :=
   fun s0 x1 s1 => st1 s0 x1 s1 /\ st2 s0 x1 s1.
@@ -370,7 +485,7 @@ Proof.
 Qed.
 
 
-(** * Building blocks *)
+(** ** Building blocks *)
 
 Definition extractST {A} (f: State -> A): ST A :=
   stateUnchangedST ⩀ (fun s0 x1 _ => f s0 = x1).
@@ -445,7 +560,7 @@ Definition pushST (value: nat): ST unit :=
   setST 8 a1 value.
 
 
-(** * Memory allocation *)
+(** ** Memory allocation *)
 
 Definition otherAllocationsUnchangedST (start: Bits64) : ST unit :=
   fun s0 _ s1 =>
@@ -569,7 +684,7 @@ Definition putCharST (c: nat) : ST unit :=
           | _, _ => False
           end.
 
-(** * Execution *)
+(** ** Execution *)
 
 Definition exitST : ST unit :=
   memoryUnchangedST
@@ -810,7 +925,7 @@ Definition execution
   exists s1, st s0 (rev outputList) s1.
 
 
-(** * Certification *)
+(** ** Certification *)
 
 Definition memoryUsed (s: State): nat :=
   (fix used_below (a: nat): nat :=

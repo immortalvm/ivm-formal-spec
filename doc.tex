@@ -17,7 +17,16 @@
 \usepackage{amsmath,amssymb}
 \usepackage{url}
 \usepackage{graphicx}
+\usepackage{bbm}
 
+\usepackage[parfill]{parskip}
+\setlength{\coqdocbaseindent}{2em}
+
+\let\oldCoqdocemptyline\coqdocemptyline
+\let\oldCoqdoceol\coqdoceol
+\renewcommand{\coqdocemptyline}{\par}
+\renewcommand{\coqdoceol}{\oldCoqdoceol\let\coqdocemptyline\oldCoqdocemptyline}
+\renewenvironment{coqdoccode}{\ignorespaces}{}
 
 % Based on https://tex.stackexchange.com/a/110981
 % and https://tex.stackexchange.com/a/366180.
