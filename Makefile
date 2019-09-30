@@ -22,7 +22,7 @@ ivm.tex: ivm_expanded.v
 				ivm_expanded.v
 
 doc.pdf: doc.tex ivm.tex
-		 latexmk -quiet -pdf -pdflatex="pdflatex -interaction=nonstopmode" doc.tex
+		 latexmk -quiet -pdf doc.tex
 
 .PHONY: doc
 doc: doc.pdf

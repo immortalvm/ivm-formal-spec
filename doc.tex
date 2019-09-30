@@ -28,30 +28,10 @@
 \renewcommand{\coqdoceol}{\oldCoqdoceol\let\coqdocemptyline\oldCoqdocemptyline}
 \renewenvironment{coqdoccode}{\ignorespaces}{}
 
-% Based on https://tex.stackexchange.com/a/110981
-% and https://tex.stackexchange.com/a/366180.
-\makeatletter
-\providecommand*{\capdot}{%
-  \mathbin{%
-    \mathpalette\@capdot{}%
-  }%
-}
-\newcommand*{\@capdot}[2]{%
-  \ooalign{%
-    $\m@th#1\cap$\cr
-    \sbox0{$#1\cap$}%
-    \dimen@=\ht0 %
-    \sbox0{$\m@th#1\cdot$}%
-    \advance\dimen@ by -\ht0 %
-    \dimen@=.5\dimen@
-    \hidewidth\raise\dimen@\box0\hidewidth
-  }%
-}
-\makeatother
-\DeclareUnicodeCharacter{10816}{\ensuremath{\capdot{}}}
+% \renewcommand{\coqdocvar}[1]{\textit{#1}}
 
 
 \begin{document}
-\scrollmode
+\nonstopmode
 \include{ivm}
 \end{document}

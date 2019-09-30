@@ -1,34 +1,52 @@
 From Equations Require Import Equations.
 Set Equations With UIP.
 
-Require Import Coq.Bool.Bvector.
 Require Import Coq.Init.Nat.
-Require Coq.Vectors.Vector.
 Require Import Coq.Arith.Arith.
-Require Import Coq.omega.Omega.
+Require Import Coq.ZArith.ZArith.
+Require Import Coq.Vectors.Vector.
+Import VectorNotations.
 Require Import Coq.Lists.List.
+Import ListNotations.
+Require Import Coq.micromega.Psatz.
 Require Import Coq.Program.Tactics.
+
+Require Import Coq.Setoids.Setoid.
+
+Require Import Coq.Logic.PropExtensionality.
+Require Import Coq.Logic.FunctionalExtensionality.
 
 Set Implicit Arguments.
 
+(* Cf. the 'sigma' type of Equations. *)
+Set Primitive Projections.
+Global Unset Printing Primitive Projection Parameters.
 
-Arguments Vector.nil {A}.
-Arguments Vector.cons : default implicits.
-Arguments Bcons : default implicits.
-Arguments Bneg : default implicits.
-Arguments Bsign : default implicits.
-Arguments BVand : default implicits.
-Arguments BVor : default implicits.
-Arguments BVxor : default implicits.
+(** printing )-> $){\rightarrow}$ *)
+(** printing >>= $>\!\!>=$ *)
+(** printing not $\neg$ *)
 
-Import ListNotations.
-
-
+(** printing fun $\lambda$ #fun# *)
 (** printing nat $\mathbb{N}$ #nat# *)
 (** printing bool $\mathbb{B}$ #bool# *)
+(** printing Prop $\mathbb{P}$ #Prop# *)
 (** printing unit $\mathbbm{1}$ #unit# *)
 (** printing tt $\bullet$ #tt# *)
 
+(** printing Z $\mathbb{Z}$ #Z# *)
+(** printing True $\top$ #True# *)
+(** printing False $\bot$ #False# *)
+
+(** printing Bits8 $\mathbb{B}^8$ #Bits8# *)
+(** printing Bits16 $\mathbb{B}^{16}$ #Bits16# *)
+(** printing Bits32 $\mathbb{B}^{32}$ #Bits32# *)
+(** printing Bits64 $\mathbb{B}^{64}$ #Bits64# *)
+
+(** printing s0 $\coqdocvar{s}_0$ *)
+(** printing s1 $\coqdocvar{s}_1$ *)
+(** printing s2 $\coqdocvar{s}_2$ *)
+(** printing st1 $\coqdocvar{st}_1$ *)
+(** printing st2 $\coqdocvar{st}_2$ *)
 
 (** * Formal virtual machine specification
 
@@ -38,10 +56,9 @@ implement this machine. Instead, this sections contains the requirements
 such an implementation must satisfy. The requirements have been formalized
 in a system for formal mathematics called Coq, which is based on
 higher-order type theory. The text below is based on this formalization.
-It involves some formal logic and type theory, where for simplicity we
-assume the principles of propositional and functional extensionality.
-However, we have not included the formal proofs here.
-*)
+It involves some formal logic and type theory (where for simplicity we
+assume the principles of propositional and functional extensionality), but
+we have not included the formal proofs here. *)
 
 
 (** ** Basic types
@@ -68,10 +85,11 @@ Inductive nat :=
 %\vspace{-3ex}\end{tabular}\end{center}%
 
 We use decimal numbers as shortcuts. For instance, [3] is an abbreviation
-for [S (S (S O))]. Furthermore, [if x then y else z] %\;\;%means%\;\;% [match x with
-true => y | false => z].
+for [S (S (S O))]. [nat] is considered a subtype [Z], the type of (positive
+and negative) integers. Furthermore, [if x then y else z]
+%\;\;%means%\;\;% [match x with true => y | false => z].
 
-We also need som "generic" types:
+We also need some "generic" types:
 
 %\begin{center}\begin{tabular}{p{17em}|p{20em}}%
 [[
@@ -87,109 +105,208 @@ Inductive list A :=
 ]]
 %\vspace{-3ex}\end{tabular}\end{center}%
 
-Here [A] is an arbitrary type. We use [ [] ] and [x::y] as shortcuts for
+Here [A] is an arbitrary type. We use [ [ ] ] and [x :: y] as shortcuts for
 [nil] and [cons x y], respectively.
-Finally, we will be using some "dependent" types, such as the lists of a
-fixed length -- called "vectors":
+
+We will also be using some "dependent" types, such as lists with length
+$n$, known as _vectors_:
 
 [[
-Inductive Vector.t A : nat -> Type :=
-  | Vector.nil : Vector.t A 0
-  | Vector.cons : forall (h:A) (n:nat), Vector.t A n -> Vector.t A (S n).
+Definition vector A n := { u : list A | length u = n }.
 ]]
 
-Here we have made explicit that we will use use "qualified names"
-(starting with [Vector.]) in order to avoid confusion with similarly named
-list operations.
-
-In this text we shall mainly be concerned with vectors of booleans
-(representing bits):
-[[
-Definition Bvector := Vector.t bool.
-]]
-In particular, vectors consisting of 8, 16, 32 and 64 bits:
-*)
-
-Definition Bits8 := Bvector 8.
-Definition Bits16 := Bvector 16.
-Definition Bits32 := Bvector 32.
-Definition Bits64 := Bvector 64.
-
-(** An element of [Bvector n] can represent a number between $0$ and
-$2^n$. *)
-
-Equations fromBits {n} (v: Bvector n) : nat :=
-  fromBits Vector.nil := 0 ;
-  fromBits (Vector.cons b r) := (if b then 1 else 0) + 2 * fromBits r.
-
-(** Observe that the least significant bit comes first. The definition is
-formulated using the Equations extension to Coq. The type of the argument
-[n] is not specified since it is clear from the context. Moreover, [n] is
-declared "implicit" since it occurrs in the type of [v].
-
-We also have a function in the opposite direction.
-*)
-
-Equations toBits n (k: nat) : Bvector n :=
-  toBits 0 _ := Vector.nil;
-  toBits (S n) k := Vector.cons (eqb 1 (modulo k 2)) (toBits n (div k 2)).
-
-Lemma toBits_retraction : forall {n} (v: Bvector n), toBits n (fromBits v) = v.
-Proof.
-  intro n.
-  induction n.
-  - intro v.
-    apply Vector.case0.
-    simp fromBits toBits.
-    reflexivity.
-  - (* apply Vector.caseS. *)
-Admitted.
-
-Lemma fromBits_modulo : forall n k, fromBits (toBits n k) = modulo k (2 ^ n).
-Proof.
-Admitted.
-
-(* Compute (fromBits (toBits 8 (213 + 65536))). *)
+For technical reasons, [vector] is not actually defined like this, but we
+still have implicit inclusions [vector A n] $↪$ [list A], and for every
+[u: list A] there is a corresponding vector in [Vector A (length u)]. *)
 
 (* begin hide *)
-Definition fromBits8 : Bits8 -> nat := fromBits. Coercion fromBits8 : Bits8 >-> nat.
-Definition fromBits16 : Bits16 -> nat := fromBits. Coercion fromBits16 : Bits16 >-> nat.
-Definition fromBits32 : Bits32 -> nat := fromBits. Coercion fromBits32 : Bits32 >-> nat.
-Definition fromBits64 : Bits64 -> nat := fromBits. Coercion fromBits64 : Bits64 >-> nat.
+Open Scope Z_scope.
+Coercion Z.of_nat : nat >-> Z.
+Notation "'vector'" := t.
+Coercion to_list: t >-> list.
 (* end hide *)
 
-(* Implicit coercion *)
-Equations fromLittleEndian {n} (v: Vector.t Bits8 n): nat :=
-  fromLittleEndian Vector.nil := 0;
-  fromLittleEndian (Vector.cons x r) := 256 * (fromLittleEndian r) + x.
 
-Equations toLittleEndian n (k: nat) : Vector.t Bits8 n :=
-  toLittleEndian 0 _ := Vector.nil;
-  toLittleEndian (S n) k := Vector.cons (toBits 8 k) (toLittleEndian n (k / 256)).
+(** *** Binary numbers
 
-(* Compute (fromLittleEndian (toLittleEndian 2 12345)). *)
+A list or vector of Booleans can be seen as a binary number in the
+interval $[0, 2^n)$ when [n = length u]. *)
 
-(* Beware of implicit coercions *)
-Definition addNat64 k (x: Bits64) : Bits64 := toBits 64 (k + x).
-Definition neg64 (x: Bits64) : Bits64 := addNat64 1 (Bneg x).
-Definition add64 (x y: Bits64) : Bits64 := toBits 64 (x + y).
-Definition subNat64 k (x: Bits64) : Bits64 := add64 (neg64 (toBits 64 k)) x.
+(* begin hide *)
+Definition boolToNat (x: bool) : nat := if x then 1 else 0.
+Coercion boolToNat : bool >-> nat.
+(* end hide *)
 
-Definition signExtend {n} (v: Bvector (S n)) : Bits64.
-  refine (
-      let sign := Bsign v in
-      let extra := Vector.const sign (64 - n) in
-      let bits := Vector.append v extra in
-      Vector.take 64 _ bits). (* in case n > 64 *)
-  omega.
-Defined.
+Equations fromBits (_: list bool) : nat :=
+  fromBits [] := 0;
+  fromBits (x :: u) := 2 * fromBits u + x.
 
-Definition zero16 : Bits16 := toBits 16 0.
-Definition zero32 : Bits32 := toBits 32 0.
-Definition zero64 : Bits64 := toBits 64 0.
-Definition true64 : Bits64 := Bneg zero64.
+(** This definition is formulated using the Equations extension to Coq.
+Observe that we interpret [true] and [false] as 1 and 0, and that the
+least significant bit comes first. Below, we shall mostly leave [fromBits]
+implicit, using elements of [list bool] and [vector bool n] as if they were
+natural numbers.
 
-(* TODO: Generalize from 0 to x < 2^n. *)
+Conversely, we can extract the $n$ least significant bits of any integer:
+*)
+
+(* begin hide *)
+Section limit_scope.
+Open Scope vector_scope.
+(* end hide *)
+
+Equations toBits (n: nat) (_: Z) : vector bool n :=
+  toBits 0 _ := [] ;
+  toBits (S n) z := (z mod 2 =? 1) :: toBits n (z / 2).
+
+(* begin hide *)
+End limit_scope.
+(* end hide *)
+
+(* Compute (fromBits (toBits 8 (213 + 1024))). *)
+
+(** Here [z mod 2 =? 1] is [true] if the equality holds, otherwise
+[false]. Moreover, [/] and [mod] are defined so that [z mod 2] is either 0
+or 1 and [z = 2 * (z / 2) + z mod 2] for every [z]. In particular, all the
+bits in [toBits n -1] are [true]. [toBits n] is essentially the ring
+homomorphism from [Z] to $\mathbb{Z}/2^n\mathbb{Z}$.
+ *)
+
+(* begin hide *)
+
+Arguments Vector.nil {A}.
+Arguments Vector.cons : default implicits.
+
+Lemma toBits_equation_3: forall n z (x: bool), toBits (S n) (2 * z + x) = Vector.cons x (toBits n z).
+Proof.
+  intros n z x.
+  simp toBits.
+  f_equal.
+  - destruct x;
+      [apply Z.eqb_eq | apply Z.eqb_neq];
+      rewrite Z.add_comm, Z.mul_comm, Z_mod_plus_full;
+      [reflexivity | easy ].
+  - f_equal.
+    rewrite Z.add_comm, Z.mul_comm, Z_div_plus.
+    + destruct x; simpl; reflexivity.
+    + lia.
+Qed.
+
+(* end hide *)
+
+Lemma toBits_fromBits: forall {n} (u: vector bool n), toBits n (fromBits u) = u.
+Proof.
+  induction u as [|x n u IH].
+  - reflexivity.
+  - assert (to_list (Vector.cons x u) = (x :: u)) as H;
+      [reflexivity
+      |rewrite H; clear H].
+    rewrite fromBits_equation_2.
+    rewrite Nat2Z.inj_add.
+    rewrite Nat2Z.inj_mul.
+    rewrite toBits_equation_3 at 1.
+    rewrite IH.
+    reflexivity.
+Qed.
+
+
+
+(** In some situations, we want bit vectors to represent both positive and
+negative numbers:
+
+[[
+Equations signed (_: list bool) : Z :=
+  signed [] := 0;
+  signed [x] := -x;
+  signed (x :: u) := 2 * signed u + x.
+]]
+*)
+
+(* begin hide *)
+
+(* Presumably we can switch to the simpler definition above at some point. *)
+Equations signed (_: list bool) : Z :=
+  signed [] := 0;
+  signed (x :: u) := match u with
+                    | [] => -x
+                    | _ => 2 * signed u + x
+                    end.
+
+Lemma signed_equation_3: forall (x : bool) (u : list bool), u <> [] -> signed (x :: u) = 2 * signed u + x.
+Proof.
+  intros x [|y u] H; simp signed; [contradict H|]; reflexivity.
+Qed.
+
+Lemma toBits_signed: forall {n} (u: vector bool n), toBits n (signed u) = u.
+Proof.
+  induction u as [|x n u IH].
+  - reflexivity.
+  - destruct u as [|y n u].
+    + simp signed toBits.
+      destruct x; reflexivity.
+    + assert (to_list (Vector.cons x (Vector.cons y u)) = (x :: (Vector.cons y u))) as H;
+        [reflexivity
+        |rewrite H; clear H].
+      rewrite signed_equation_3; [|easy].
+      rewrite toBits_equation_3 at 1.
+      rewrite IH.
+      reflexivity.
+Qed.
+
+(* end hide *)
+
+(** The most significant bit determines if the [signed u] is negative, and
+[signed u] $\equiv$ [fromBits u] $\pmod{2^n}$ for every [u: vector bool n].
+*)
+
+
+
+(** *** Bytes and words
+
+In this text we shall mainly be concerned with bit vectors consisting of
+8, 16, 32 and 64 bits: *)
+
+Definition Bits8  := vector bool  8.
+Definition Bits16 := vector bool 16.
+Definition Bits32 := vector bool 32.
+Definition Bits64 := vector bool 64.
+
+(* begin hide *)
+(* The limitations of the Coq coercion mechanism means that it is not
+enough to define fromBits to be a coercion from [list bool] to [nat]. *)
+Definition fromBits8  (u: Bits8)  := fromBits (to_list u). Coercion fromBits8  : Bits8  >-> nat.
+Definition fromBits16 (u: Bits16) := fromBits (to_list u). Coercion fromBits16 : Bits16 >-> nat.
+Definition fromBits32 (u: Bits32) := fromBits (to_list u). Coercion fromBits32 : Bits32 >-> nat.
+Definition fromBits64 (u: Bits64) := fromBits (to_list u). Coercion fromBits64 : Bits64 >-> nat.
+(* end hide *)
+
+(** The elements of [Bits8] are called _bytes_. If we concatenate a list
+of bytes, we get a bit vector which represents a natural number. More
+precisely: *)
+
+Equations fromLittleEndian (_: list Bits8): nat :=
+  fromLittleEndian [] := 0;
+  fromLittleEndian (x :: r) := 256 * (fromLittleEndian r) + x.
+
+(* begin hide *)
+Section limit_scope.
+Open Scope vector_scope.
+(* end hide *)
+
+Equations toLittleEndian n (_: Z) : vector Bits8 n :=
+  toLittleEndian 0 _ := [];
+  toLittleEndian (S n) z := (toBits 8 z) :: (toLittleEndian n (z / 256)).
+
+(** Observe that the "least significant byte" comes first. *)
+
+(* begin hide *)
+End limit_scope.
+
+(* TODO: Is this a good idea to avoid switching between [nat_scope] and [Z_scope]? *)
+Notation "'0'" := O.
+Notation "x < y" := (Nat.lt x y).
+
+(* This could be generalized to all $x < 2^n$. *)
 Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
 Proof.
   intro n.
@@ -206,8 +323,13 @@ Proof.
   reflexivity.
 Qed.
 
+(* end hide *)
 
-(** ** Monad basics *)
+
+(** ** Monads
+
+A _monad_ consist of a generic type [m] and two operations that satisfy
+three axioms. In Coq this can be expressed as a "type class": *)
 
 (* Based on https://github.com/coq/coq/wiki/AUGER_Monad. *)
 Class Monad (m: Type -> Type): Type :=
@@ -218,42 +340,44 @@ Class Monad (m: Type -> Type): Type :=
   monad_right: forall A (ma: m A), ma = bind ma (@ret A);
   monad_left: forall A (a: A) B (f: A -> m B), f a = bind (ret a) f;
   monad_assoc: forall A (ma: m A) B f C (g: B -> m C),
-      bind ma (fun a => bind (f a) g) = bind (bind ma f) g
+      bind ma (fun a => bind (f a) g) = bind (bind ma f) g;
 }.
+
+(* begin hide *)
 Notation "ma >>= f" := (bind ma _ f) (at level 98, left associativity).
+Notation "a ::= ma ; mb" := (bind ma _ (fun a => mb)) (at level 60, right associativity, only parsing).
+Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativity).
+(* end hide *)
 
-Section monadic_functions.
-  Context {m: Type -> Type} `{M: Monad m}.
+(** Working with monads, we use the following notation:
+%
+\begin{center}
+\begin{tabular}{l@{$\qquad$ means $\qquad$}l}
+%
+[ma >>= f]      %&% [bind ma f] %\\%
+[a ::= ma ; mb] %&% [bind ma (fun a => mb)] %\\%
+[ma ;; mb]      %&% [bind ma (fun _ => mb)]
+%
+\end{tabular}
+\end{center}
+%
+The type arguments ([A] and [B]) are most of the time left implicit. *)
 
-  Definition wbind {A: Type} (ma: m A) {B: Type} (mb: m B) :=
-    ma >>= fun _ => mb.
+Definition lift {m} `{Monad m} {A B: Type} (f: A -> B) (ma: m A): m B :=
+  a ::= ma;
+  ret (f a).
 
-  Definition join {A: Type} (mma: m (m A)): m A :=
-    mma >>= id.
+Equations traverse {m} `{Monad m} {A B: Type} (_: A -> m B) (_: list A) : m (list B) :=
+  traverse _ [] := ret [];
+  traverse f (x :: u) := y ::= f x; v ::= traverse f u; ret (y :: v).
 
-  Definition liftM {A B: Type} (f: A -> B) (ma: m A): m B :=
-    ma >>= fun a => ret (f a).
-
-  Definition liftM2 {A B C: Type} (f: A -> B -> C) (ma: m A) (mb: m B): m C :=
-    ma >>= (fun a => mb >>= (fun b => ret (f a b))).
-
-  Definition traverse {A B: Type} (f: A -> m B) (lst: list A) : m (list B) :=
-    fold_right (liftM2 cons) (ret []) (map f lst).
-
-  Equations traverse_vector {A B: Type} (f: A -> m B) {n} (vec: Vector.t A n) : m (Vector.t B n) :=
-    traverse_vector _ Vector.nil := ret Vector.nil;
-    traverse_vector f (Vector.cons x v) with f x, traverse_vector f v := {
-      traverse_vector _ _ mb mvb := mb >>= (fun b => mvb >>= (fun vb => ret (Vector.cons b vb)))
-    }.
-
-End monadic_functions.
-
-Notation "ma ;; mb" := (wbind ma mb) (at level 60, right associativity).
-Notation "a ::= ma ; mb" := (ma >>= (fun a => mb)) (at level 60, right associativity, only parsing).
+(** Many generic types have operations that satisfy the monad axioms, but
+in this text we shall use only two. The simplest of these is the "Maybe
+monad": *)
 
 Instance Maybe: Monad option :=
 {
-  ret := @Some;
+  ret A x := Some x;
   bind A ma B f := match ma with None => None | Some a => f a end
 }.
 Proof.
@@ -262,32 +386,47 @@ Proof.
   - abstract (intros A x B f C g; case x; split).
 Defined.
 
+(** We leave the proofs of the monad axioms to the reader. *)
 
-(** ** State *)
 
-Equations addresses n (start: Bits64) : Vector.t Bits64 n :=
-  addresses 0 _ := Vector.nil;
-  addresses (S n) start := Vector.cons start (addresses n (addNat64 1 start)).
+(** ** State and the state monad
 
-Definition Gray := Bits8.
-Definition Color := (Bits16 * Bits16 * Bits16)%type.
+As discovered by Eugenio Moggi in 1989, monads can be used to represent
+computations with "side-effects" such as input and output; and below we
+shall specify the behaviour of our virtual machine in terms of a
+non-deterministic state monad. First we define types representing the
+state of the machine at a given moment. *)
 
-(* Record types inspired by the 'sigma' type of Equations. *)
-
-Set Primitive Projections.
-Global Unset Printing Primitive Projection Parameters.
-
-Record Image A :=
+Record Image (C: Type) :=
   mkImage {
       iWidth: Bits16;
       iHeight: Bits16;
-      iPixel: forall (x: nat) (Hx: x < iWidth) (y: nat) (Hy: y < iHeight), A;
+      iPixel: forall (x: nat) (Hx: x < iWidth) (y: nat) (Hy: y < iHeight), C;
     }.
 
-Definition noImage {A} : Image A.
+(** In Coq a record is an inductive type with a single constructor
+([mkImage]), where we projections "for free". For example, if [im: Image
+Bits8], then [iWidth im: Bits16]. The arguments to iWidth and iHeight are
+implicit in the type of iPixel. The type [C] represents the color of a
+single pixel.
+
+The simplest image consists of [0 * 0] pixels:
+
+[[
+Definition noImage {C} : Image C :=
+  {|
+     iWidth := toBits 16 0;
+     iHeight := toBits 16 0;
+     iPixel := _;
+  |}.
+]]
+*)
+
+(* begin hide *)
+Definition noImage {C} : Image C.
   refine ({|
-             iWidth := zero16;
-             iHeight := zero16;
+             iWidth := toBits 16 0;
+             iHeight := toBits 16 0;
              iPixel := _;
            |}).
   unfold fromBits16.
@@ -295,41 +434,93 @@ Definition noImage {A} : Image A.
   intros x Hx.
   contradiction (Nat.nlt_0_r x Hx).
 Defined.
+(* end hide *)
+
+(** The [Sound] type represents a clip of stereo sound in LPCM encoding.
+Both channels have the same sample rate, and each pair of 16-bit words
+[(left, right)] contains one sample for each channel. For convenience,
+[sSamples] contains samples in reverse order. *)
 
 Record Sound :=
   mkSound {
       sRate: Bits32;
       sSamples: list (Bits16 * Bits16);
-      sDef: sRate = zero32 -> sSamples = [];
+      sDef: 0 = sRate -> sSamples = [];
     }.
 
+(**
+[[
+Definition noSound : Sound :=
+  {|
+    sRate := toBits 32 0;
+    sSamples := [];
+    sDef := _;
+  |}.
+]]
+*)
+
+(* begin hide *)
 Definition noSound : Sound.
   refine ({|
-             sRate := zero32;
+             sRate := toBits 32 0;
              sSamples := [];
              sDef := _;
            |}).
   trivial.
 Defined.
+(* end hide *)
+
+(** Textual output from the machine uses the encoding UTF-32. Again, we
+use reverse ordering. *)
 
 Definition OutputText := list Bits32.
+
+(* begin hide *)
+Section limit_scope.
+Open Scope vector_scope.
+(* end hide *)
+
+(** The virtual machine uses 64-bit memory addresses. *)
+
+Equations addresses n (_: Bits64) : vector Bits64 n :=
+  addresses 0 _ := [];
+  addresses (S n) start := start :: (addresses n (toBits 64 (start + 1))).
+
+(** We keep track of all memory allocations and the contents of the
+allocated memory. The contents of unallocated memory is not relevant. *)
 
 Definition consistent (memory: Bits64 -> option Bits8) (allocation: Bits64 -> nat) :=
   (forall (a: Bits64),
       memory a <> None <->
-      exists start, Vector.Exists (eq a) (addresses (allocation start) start))
+      exists start, In a (addresses (allocation start) start))
   /\
   (forall start0 start1,
-      (Vector.Exists
-         (fun a => Vector.Exists (eq a) (addresses (allocation start0) start0))
+      (Exists
+         (fun a => In a (addresses (allocation start0) start0))
          (addresses (allocation start1) start1)) ->
       start0 = start1).
+
+(** In this definition [Exists: forall A, (A->Prop)->list A->Prop] as expected, and [In
+a = Exists (fun x => x=a)]. *)
+
+(* begin hide *)
+Open Scope type_scope.
+(* end hide *)
+Definition Gray := Bits8.
+Definition Color := Bits16 * Bits16 * Bits16.
+(* begin hide *)
+End limit_scope.
+(* end hide *)
+
+(** [Gray] represents the gray scale of the input images (where 0 is
+black), whereas [Color] represents the ACES encoded colors of the output
+images. The [State] type can now be formulated as follows: *)
 
 Record State :=
   mkState {
       terminated: bool;
-      PC: Bits64; (* Program counter *)
-      SP: Bits64; (* Stack pointer *)
+      PC: Bits64;
+      SP: Bits64;
       input: list (Image Gray);
       output: list ((Image Color) * Sound * OutputText);
       memory: Bits64 -> option Bits8;
@@ -338,7 +529,18 @@ Record State :=
       always_output: output <> []
     }.
 
-Unset Primitive Projections.
+(** [PC] and [SP] are known as the "program counter" and the "stack
+pointer", respectively. Each elements of [output] consists of an image,
+the sound clip to be played while this image is displayed, and an
+associated piece of text. Any of these elements may be empty; and the list
+is reversed in the sense that the first triple in the list should be
+rendered last. The list [input] will only be decreasing as the machine
+processes the input. Conversely, [output] will only be increasing, except
+that the first element in this list should be considered "in progress"
+until the machine terminates. *)
+
+
+(* begin hide *)
 
 Lemma State_expansion (s: State) :
   s = {|
@@ -354,8 +556,6 @@ Lemma State_expansion (s: State) :
 Proof.
   reflexivity.
 Qed.
-
-Require Import Coq.Logic.PropExtensionality.
 
 (* Since State is finite, this might be provable even without
    PropExtensionality, but that will have to wait. *)
@@ -388,25 +588,26 @@ Proof.
   apply State_injectivity; assumption.
 Qed.
 
+(* end hide *)
 
-(** ** Relational state monad *)
+
+(** The non-deterministic state monad can now be defined as follows: *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
 
-Require Import Coq.Logic.FunctionalExtensionality.
+(* begin hide *)
 
 (* Extensionality is needed since A is an arbitrary type.
    This can be avoided if we define monads in terms of a setoid.
  *)
 Lemma ST_extensionality {A} (st0 st1: ST A):
-  (forall s0 x1 s1, st0 s0 x1 s1 <-> st1 s0 x1 s1) -> st0 = st1.
+  (forall s0 x s1, st0 s0 x s1 <-> st1 s0 x s1) -> st0 = st1.
 Proof.
   intro H.
   repeat (intro || apply functional_extensionality).
   apply propositional_extensionality.
   apply H.
 Qed.
-
 
 Module st_tactics.
   Ltac destr :=
@@ -431,10 +632,12 @@ Module st_tactics.
                     || destr || exS).
 End st_tactics.
 
+(* end hide *)
+
 Instance StateMonad: Monad ST :=
   {
-    ret A x0 s0 x1 s1 := x0 = x1 /\ s0 = s1;
-    bind A st B f s0 x2 s2 := exists x1 s1, st s0 x1 s1 /\ f x1 s1 x2 s2
+    ret A x := fun s0 y s1 => x = y /\ s0 = s1;
+    bind A st B f := fun s0 y s2 => exists x s1, st s0 x s1 /\ f x s1 y s2
   }.
 Proof.
   - abstract (st_tactics.crush).
@@ -442,182 +645,263 @@ Proof.
   - abstract (st_tactics.crush).
 Defined.
 
+(** The proof of the monad axioms is straightforward using propositional
+and functional extensionality. An element [st: ST A] represents a
+computation with possible side-effect which produces a value of type [A].
+More precisely:
 
-(** ** Change management *)
+- [st s0 x s1] means that a result of executing [st] from state [s0] may
+  be that [x] is produced and that the machine transitions to state [s1].
 
-Definition intersectST {A} (st1 st2: ST A): ST A :=
-  fun s0 x1 s1 => st1 s0 x1 s1 /\ st2 s0 x1 s1.
+- If [terminated s0 = false] and [not exists s1 x, st s0 x s1], then the result
+  of executing [st] at [s0] is undefined.
 
-Notation "st1 ⩀ st2" := (intersectST st1 st2) (at level 50, left associativity).
+See also the definition of [ConformingTransitions] below. [ST unit]
+represents computations that do not produce any values. (They may,
+however, produce _output_.) *)
 
-Definition stateUnchangedST {A} : ST A :=
-  fun s0 _ s1 => s0 = s1.
 
-Lemma ret_characterized {A} (x: A) :
-  stateUnchangedST ⩀ (fun _ x1 _ => x = x1) = ret x.
+(** ** Building blocks
+
+Since [ST A] represents non-deterministic computations, it is closed under
+intersection. We mainly use this to express that computations leave most
+of the state unchanged. *)
+
+Definition intersect' {A} (st1 st2: ST A): ST A :=
+  fun s0 x s1 => st1 s0 x s1 /\ st2 s0 x s1.
+
+(** We use [st1 ∩ st2] as an abbreviation for [intersect' st1 st2]; and we
+follow the convention (that functions producing) computations have names
+ending with an apostrophe. *)
+
+(* begin hide *)
+Notation "st1 ∩ st2" := (intersect' st1 st2) (at level 50, left associativity).
+(* end hide *)
+
+Definition fail' {A}: ST A := fun _ _ _ => False.
+
+Lemma intersect_fail: forall {A} (st: ST A), st ∩ fail' = fail'.
 Proof.
-  unfold stateUnchangedST, intersectST.
+  intros.
+  unfold fail', intersect'.
   st_tactics.crush.
 Qed.
 
-Definition registersUnchangedST {A} : ST A :=
+
+(** *** Unchanged and mostly unchanged state *)
+
+Definition stateUnchanged' {A} : ST A :=
+  fun s0 _ s1 => s0 = s1.
+
+(* begin hide *)
+
+Lemma ret_characterized {A} (x: A) :
+  stateUnchanged' ∩ (fun _ y _ => x = y) = ret x.
+Proof.
+  unfold stateUnchanged', intersect'.
+  st_tactics.crush.
+Qed.
+
+(* end hide *)
+
+Definition registersUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
     terminated s0 = terminated s1
     /\ PC s0 = PC s1
     /\ SP s0 = SP s1.
 
-Definition memoryUnchangedST {A} : ST A :=
+Definition memoryUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
     allocation s0 = allocation s1
     /\ memory s0 = memory s1.
 
-Definition ioUnchangedST {A} : ST A :=
+Definition otherMemoryUnchanged' (n: nat) (start: Bits64): ST unit :=
+  fun s0 _ s1 =>
+    let other a := Forall (fun x => x <> a) (addresses n start) in
+    forall a, other a -> memory s0 a = memory s1 a.
+
+(** This expresses that the memory is unchanged except possibly for the
+[n] bytes starting at address [start]. Also, it does not specify
+allocation. *)
+
+Definition ioUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
     input s0 = input s1
     /\ output s0 = output s1.
 
+(* begin hide *)
+
 Lemma stateUnchanged_characterized {A} :
-  registersUnchangedST ⩀ memoryUnchangedST ⩀ ioUnchangedST = @stateUnchangedST A.
+  registersUnchanged' ∩ memoryUnchanged' ∩ ioUnchanged' = @stateUnchanged' A.
 Proof.
-  unfold registersUnchangedST, memoryUnchangedST, ioUnchangedST, stateUnchangedST.
-  repeat (unfold intersectST).
+  unfold registersUnchanged', memoryUnchanged', ioUnchanged', stateUnchanged'.
+  repeat (unfold intersect').
   st_tactics.crush.
 Qed.
 
+(* end hide *)
 
-(** ** Building blocks *)
+(** Now the [EXIT] instruction can be specified as follows. *)
 
-Definition extractST {A} (f: State -> A): ST A :=
-  stateUnchangedST ⩀ (fun s0 x1 _ => f s0 = x1).
+Definition exit' : ST unit :=
+  memoryUnchanged'
+    ∩ ioUnchanged'
+    ∩ fun s0 _ s1 =>
+        terminated s1 = true
+        /\ PC s0 = PC s1
+        /\ SP s0 = SP s1.
 
-(* Get the value at the n bytes starting at start. *)
-Definition tryGetST (n: nat) (start: Bits64) : ST (option nat) :=
-  extractST (fun s => liftM fromLittleEndian
-                         (traverse_vector (memory s)
-                                          (addresses n start))).
 
-Definition failST {A}: ST A :=
-  fun _ _ _ => False.
+(** *** Memory access *)
 
-Definition valueOrFailST {A} (oa: option A) : ST A :=
-  match oa with Some a => ret a | _ => failST end.
+(** Here is how we specify the [LOAD] instructions: *)
 
-(* Undefined if there is an access violation. *)
-Definition getST (n: nat) (start: Bits64) : ST nat :=
-  tryGetST n start >>= valueOrFailST.
+Definition load' (n: nat) (start: Bits64) : ST nat :=
+  stateUnchanged'
+    ∩ fun s x _ => lift fromLittleEndian
+                     (traverse (memory s) (addresses n start)) = Some x.
 
-Definition otherMemoryUnchangedST (start: Bits64) (n: nat): ST unit :=
-  fun s0 _ s1 =>
-    let other a := Vector.Forall (fun x => x <> a) (addresses n start) in
-    forall a, other a -> memory s0 a = memory s1 a.
+(** In words, [load' n a s0 x s1] means that [s0 = s1] and that the [n]
+bytes starting at [a] represents the natural number [x] $<2^n$. The
+computation fails unless the addresses [start], ..., [start+n-1] have all
+been allocated. *)
 
-(* Observe that if (setST n start value s0 x1 s1), then we know that the
-   addresses were allocated because of allocations_defined s1.
+(* Observe that if (store' n start value s0 x s1), then we know that the
+   addresses were allocated because of [consistency s1].
    Formally:
    Vector.Forall (fun a => memory s0 a <> None) (addresses n start)
  *)
-Definition setST (n: nat) (start: Bits64) (value: nat) : ST unit :=
-  registersUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ otherMemoryUnchangedST start n
-    ⩀ fun s0 _ s1 =>
+Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
+  registersUnchanged'
+    ∩ ioUnchanged'
+    ∩ otherMemoryUnchanged' n start
+    ∩ fun s0 _ s1 =>
         allocation s0 = allocation s1
-        /\ getST n start s1 value s1.
+        /\ load' n start s1 value s1.
 
-Definition setPcST (a: Bits64): ST unit :=
-  memoryUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ fun s0 _ s1 =>
+(**
+
+Therefore, we also have [load' n start s0 y s1] for every [y] such that
+[x] $\equiv$ [y] $\pmod{2^n}$.
+*)
+
+(** *** Stack and program counter *)
+
+Definition setPC' (a: Bits64): ST unit :=
+  memoryUnchanged'
+    ∩ ioUnchanged'
+    ∩ fun s0 _ s1 =>
          terminated s0 = terminated s1
          /\ SP s0 = SP s1
          /\ a = PC s1.
 
-Definition setSpST (a: Bits64): ST unit :=
-  memoryUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ fun s0 _ s1 =>
-        (* Is this more readable? *)
+Definition setSP' (a: Bits64): ST unit :=
+  memoryUnchanged'
+    ∩ ioUnchanged'
+    ∩ fun s0 _ s1 =>
         terminated s0 = terminated s1
         /\ PC s0 = PC s1
         /\ a = SP s1.
 
-Definition nextST (n: nat) : ST nat :=
-  a ::= extractST PC;
-  setPcST (addNat64 n a);;
-  getST n a.
+(** The corresponding "get" computations are simple instances of
+[extract']. *)
 
-Definition popST: ST Bits64 :=
-  a ::= extractST SP;
-  v ::= getST 8 a;
-  setSpST (addNat64 8 a);;
+Definition extract' {A} (f: State -> A): ST A :=
+  stateUnchanged' ∩ (fun s x _ => f s = x).
+
+Definition next' (n: nat) : ST nat :=
+  a ::= extract' PC;
+  setPC' (toBits 64 (a + n));;
+  load' n a.
+
+Definition pop': ST Bits64 :=
+  a ::= extract' SP;
+  v ::= load' 8 a;
+  setSP' (toBits 64 (a + 8));;
   ret (toBits 64 v).
 
-(* Push lower 64 bits of value. *)
-Definition pushST (value: nat): ST unit :=
-  a0 ::= extractST SP;
-  let a1 := subNat64 8 a0 in
-  setSpST a1;;
-  setST 8 a1 value.
+(* begin hide*)
+Definition push' (value: Z): ST unit :=
+  a0 ::= extract' SP;
+  let a1 := toBits 64 (a0 - 8) in
+  setSP' a1;;
+  store' 8 a1 (toBits 64 value : Bits64).
+(* end hide *)
+
+(**
+[[
+Definition push' (value: Z): ST unit :=
+  a0 ::= extract' SP;
+  let a1 := toBits 64 (a0 - 8) in
+  setSP' a1;;
+  store' 8 a1 (toBits 64 value).
+]]
+*)
 
 
-(** ** Memory allocation *)
+(** *** Memory allocation *)
 
-Definition otherAllocationsUnchangedST (start: Bits64) : ST unit :=
+Definition otherAllocationsUnchanged' (start: Bits64) : ST unit :=
   fun s0 _ s1 =>
     forall a, a <> start -> allocation s0 a = allocation s1 a.
 
-Definition allocateST (n: nat) : ST Bits64 :=
-  registersUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ fun s0 start s1 =>
+Definition allocate' (n: nat) : ST Bits64 :=
+  registersUnchanged'
+    ∩ ioUnchanged'
+    ∩ fun s0 start s1 =>
         allocation s0 start = 0
         /\ allocation s1 start = n
-        /\ otherAllocationsUnchangedST start s0 tt s1
-        /\ otherMemoryUnchangedST start n s0 tt s1
-        /\ getST n start s1 0 s1.        (* memory initialized to 0 *)
+        /\ otherAllocationsUnchanged' start s0 tt s1
+        /\ otherMemoryUnchanged' n start s0 tt s1
+        /\ load' n start s1 0 s1.
 
-Definition deallocateST (start: Bits64) : ST unit :=
-  registersUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ otherAllocationsUnchangedST start
-    ⩀ fun s0 _ s1 =>
+(** Observe that newly allocated memory will be initialized to zero.
+
+TODO: Do we have to disallow that [allocate'] returns (address) 0 to avoid
+confusion with C's NULL pointer? *)
+
+Definition deallocate' (start: Bits64) : ST unit :=
+  registersUnchanged'
+    ∩ ioUnchanged'
+    ∩ otherAllocationsUnchanged' start
+    ∩ fun s0 _ s1 =>
         allocation s1 start = 0
-        /\ otherMemoryUnchangedST start (allocation s0 start) s0 tt s1.
+        /\ otherMemoryUnchanged' (allocation s0 start) start s0 tt s1.
 
-(* Observe that allocations_defined ensures that unallocated memory is
-None, and that it makes sense to allocate 0 bytes or deallocate an address
-which was never allocated. *)
+(** Memory [consistency] ensures that deallocated memory is None.
+Moreover, it makes sense to allocate 0 bytes or deallocate an address
+which is not allocated. TODO: This is not simply a call to free() in C! *)
 
 
-(**** Input and output *)
+(** *** Input and output *)
 
-Definition readFrameST : ST (Bits16 * Bits16) :=
-  registersUnchangedST
-    ⩀ memoryUnchangedST
-    ⩀ fun s0 wh s1 =>
+Definition readFrame' : ST (Bits16 * Bits16) :=
+  registersUnchanged'
+    ∩ memoryUnchanged'
+    ∩ fun s0 wh s1 =>
         output s0 = output s1
         /\ match input s1 with
-          | [] | [_] => wh = (zero16, zero16)
+          | [] | [_] => wh = (toBits 16 0, toBits 16 0)
           | _ :: hd :: tl =>
             wh = (iWidth hd, iHeight hd)
             /\ input s1 = hd :: tl
           end.
 
-Definition readPixelST (x y: nat) : ST Bits8 :=
-  stateUnchangedST
-    ⩀ fun s0 x1 _ =>
+Definition readPixel' (x y: nat) : ST Bits8 :=
+  stateUnchanged'
+    ∩ fun s0 z _ =>
         match input s0 with
         | [] => False
         | frame :: _ =>
           exists (Hx: x < iWidth frame)
-            (Hy: y < iHeight frame), x1 = iPixel frame Hx Hy
+            (Hy: y < iHeight frame), z = iPixel frame Hx Hy
         end.
 
 (* Initial frame pixels: undefined. *)
-Definition newFrameST (width height sampleRate: nat) : ST unit :=
-  registersUnchangedST
-    ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+Definition newFrame' (width height sampleRate: nat) : ST unit :=
+  registersUnchanged'
+    ∩ memoryUnchanged'
+    ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s1 with
           | [] => False
@@ -630,10 +914,10 @@ Definition newFrameST (width height sampleRate: nat) : ST unit :=
             /\ text = []
           end.
 
-Definition setPixelST (x y r g b : nat) : ST unit :=
-  registersUnchangedST
-    ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+Definition setPixel' (x y r g b : nat) : ST unit :=
+  registersUnchanged'
+    ∩ memoryUnchanged'
+    ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
@@ -648,16 +932,16 @@ Definition setPixelST (x y r g b : nat) : ST unit :=
             /\ y < iHeight i0
 
             /\ forall xx Hx0 Hx1 yy Hy0 Hy1, @iPixel _ i1 xx Hx0 yy Hy0 =
-                                       if (xx =? x) && (yy =? y)
+                                       if (if xx =? x then yy =? y else false)
                                        then (toBits 16 r, toBits 16 g, toBits 16 b)
                                        else @iPixel _ i0 xx Hx1 yy Hy1
           | _, _ => False
           end.
 
-Definition addSampleST (left right : nat) : ST unit :=
-  registersUnchangedST
-    ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+Definition addSample' (left right : nat) : ST unit :=
+  registersUnchanged'
+    ∩ memoryUnchanged'
+    ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
@@ -665,15 +949,15 @@ Definition addSampleST (left right : nat) : ST unit :=
             /\ t0 = t1
             /\ i0 = i1
             /\ sRate s0 = sRate s1
-            /\ sRate s0 <> zero32 (* Otherwise undefined *)
+            /\ 0 <> sRate s0 (* Otherwise undefined *)
             /\ (toBits 16 left, toBits 16 right) :: sSamples s0 = sSamples s1
           | _, _ => False
           end.
 
-Definition putCharST (c: nat) : ST unit :=
-  registersUnchangedST
-    ⩀ memoryUnchangedST
-    ⩀ fun s0 _ s1 =>
+Definition putChar' (c: nat) : ST unit :=
+  registersUnchanged'
+    ∩ memoryUnchanged'
+    ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
@@ -684,17 +968,71 @@ Definition putCharST (c: nat) : ST unit :=
           | _, _ => False
           end.
 
-(** ** Execution *)
 
-Definition exitST : ST unit :=
-  memoryUnchangedST
-    ⩀ ioUnchangedST
-    ⩀ fun s0 _ s1 =>
-        terminated s1 = true
-        /\ PC s0 = PC s1
-        /\ SP s0 = SP s1.
+(** ** Single execution step
+
+The virtual machine has the following "opcodes":
+
+%
+\newcommand\col[1]{\begin{tabular}[t]{rl}#1\end{tabular}}
+\begin{center}
+\col{
+ 0 & \coqdocvar{EXIT}\\
+ 1 & \coqdocvar{NOP}\\
+ 2 & \coqdocvar{JUMP}\\
+ 3 & \coqdocvar{JUMP\_ZERO}\\
+ 4 & \coqdocvar{SET\_SP}\\
+ 5 & \coqdocvar{GET\_PC}\\
+ 6 & \coqdocvar{GET\_SP}\\
+ 7 & \coqdocvar{PUSH0}\\
+ 8 & \coqdocvar{PUSH1}\\
+ 9 & \coqdocvar{PUSH2}\\
+10 & \coqdocvar{PUSH4}\\
+11 & \coqdocvar{PUSH8}
+}
+\col{
+12 & \coqdocvar{SIGX1}\\
+13 & \coqdocvar{SIGX2}\\
+14 & \coqdocvar{SIGX4}\\
+16 & \coqdocvar{LOAD1}\\
+17 & \coqdocvar{LOAD2}\\
+18 & \coqdocvar{LOAD4}\\
+19 & \coqdocvar{LOAD8}\\
+20 & \coqdocvar{STORE1}\\
+21 & \coqdocvar{STORE2}\\
+22 & \coqdocvar{STORE4}\\
+23 & \coqdocvar{STORE8}\\
+24 & \coqdocvar{ALLOCATE}\\
+}
+\col{
+25 & \coqdocvar{DEALLOCATE}\\
+32 & \coqdocvar{ADD}\\
+33 & \coqdocvar{MULT}\\
+34 & \coqdocvar{DIV}\\
+35 & \coqdocvar{REM}\\
+36 & \coqdocvar{LT}\\
+40 & \coqdocvar{AND}\\
+41 & \coqdocvar{OR}\\
+42 & \coqdocvar{NOT}\\
+43 & \coqdocvar{XOR}\\
+44 & \coqdocvar{POW2}\\
+48 & \coqdocvar{NEW\_FRAME}\\
+}
+\col{
+49 & \coqdocvar{SET\_PIXEL}\\
+50 & \coqdocvar{ADD\_SAMPLE}\\
+52 & \coqdocvar{PUT\_CHAR}\\
+56 & \coqdocvar{READ\_FRAME}\\
+57 & \coqdocvar{READ\_PIXEL}\\
+}
+\end{center}
+%
+*)
+
+(* begin hide *)
 
 Module Instructions.
+  Open Scope nat_scope.
   Notation "'EXIT'" := 0.
   Notation "'NOP'" := 1.
   Notation "'JUMP'" := 2.
@@ -738,143 +1076,206 @@ Module Instructions.
   Notation "'READ_PIXEL'" := 57.
 End Instructions.
 
-Section step_definition.
+Section limit_scope.
 Import Instructions.
+Let map (f: bool->bool) (u: Bits64) : Bits64 := Vector.map f u.
+Let map2 (f: bool->bool->bool) (u: Bits64) (v: Bits64) : Bits64 := Vector.map2 f u v.
+(* end hide *)
 
-Definition stepST : ST unit :=
-  t ::= extractST terminated;
-  if t then failST
+(** %\vspace{1ex}% The following definition specifies what it means for
+the VM to perform a single execution step. We shall have more to say about
+this after the definition. *)
+
+Definition step' : ST unit :=
+  stopped ::= extract' terminated;
+  if stopped then fail'
   else
-    op ::= nextST 1;
-    match op with
-    | EXIT => exitST
-    | NOP => stateUnchangedST
+    opcode ::= next' 1;
+    match opcode with
+    | EXIT => exit'
+    | NOP => stateUnchanged'
 
-    | JUMP => popST >>= setPcST
+    | JUMP => pop' >>= setPC'
     | JUMP_ZERO =>
-        offset ::= nextST 1;
-        v ::= popST;
+        offset ::= next' 1;
+        v ::= pop';
         if v =? 0
-        then pc ::= extractST PC;
-             setPcST (add64 pc (signExtend (toBits 8 offset)))
-        else stateUnchangedST
+        then pc ::= extract' PC;
+             setPC' (toBits 64 (pc + (signed (toBits 8 offset))))
+        else stateUnchanged'
 
-    | SET_SP => popST >>= setSpST
-    | GET_PC => extractST PC >>= pushST
-    | GET_SP => extractST SP >>= pushST
+    | SET_SP => pop' >>= setSP'
+    | GET_PC => extract' PC >>= push'
+    | GET_SP => extract' SP >>= push'
 
-    | PUSH0 => pushST 0
-    | PUSH1 => nextST 1 >>= pushST
-    | PUSH2 => nextST 2 >>= pushST
-    | PUSH4 => nextST 4 >>= pushST
-    | PUSH8 => nextST 8 >>= pushST
+    | PUSH0 => push' 0
+    | PUSH1 => next' 1 >>= push'
+    | PUSH2 => next' 2 >>= push'
+    | PUSH4 => next' 4 >>= push'
+    | PUSH8 => next' 8 >>= push'
 
-    (* Detour via nat. *)
-    | SIGX1 => v ::= popST; pushST (signExtend (toBits 8 v))
-    | SIGX2 => v ::= popST; pushST (signExtend (toBits 16 v))
-    | SIGX4 => v ::= popST; pushST (signExtend (toBits 32 v))
+    | SIGX1 => v ::= pop'; push' (signed (toBits 8 v))
+    | SIGX2 => v ::= pop'; push' (signed (toBits 16 v))
+    | SIGX4 => v ::= pop'; push' (signed (toBits 32 v))
 
-    | LOAD1 => popST >>= getST 1 >>= pushST
-    | LOAD2 => popST >>= getST 2 >>= pushST
-    | LOAD4 => popST >>= getST 4 >>= pushST
-    | LOAD8 => popST >>= getST 8 >>= pushST
+    | LOAD1 => pop' >>= load' 1 >>= push'
+    | LOAD2 => pop' >>= load' 2 >>= push'
+    | LOAD4 => pop' >>= load' 4 >>= push'
+    | LOAD8 => pop' >>= load' 8 >>= push'
 
-    | STORE1 => a ::= popST; v ::= popST; setST 1 a v
-    | STORE2 => a ::= popST; v ::= popST; setST 2 a v
-    | STORE4 => a ::= popST; v ::= popST; setST 4 a v
-    | STORE8 => a ::= popST; v ::= popST; setST 8 a v
+    | STORE1 => a ::= pop'; v ::= pop'; store' 1 a v
+    | STORE2 => a ::= pop'; v ::= pop'; store' 2 a v
+    | STORE4 => a ::= pop'; v ::= pop'; store' 4 a v
+    | STORE8 => a ::= pop'; v ::= pop'; store' 8 a v
 
-    | ALLOCATE => popST >>= allocateST >>= pushST
-    | DEALLOCATE => popST >>= deallocateST
+    | ALLOCATE => pop' >>= allocate' >>= push'
+    | DEALLOCATE => pop' >>= deallocate'
 
-    (* Only the lower 64 bits of the result ends up on the stack. *)
-    | ADD => x ::= popST; y ::= popST; pushST (x + y)
-    | MULT => x ::= popST; y ::= popST; pushST (x * y)
+    | ADD => x ::= pop'; y ::= pop'; push' (x + y)
+    | MULT => x ::= pop'; y ::= pop'; push' (x * y)
     | DIV =>
-        x ::= popST;
-        y ::= popST;
-        pushST (if x =? 0 then 0 else y / x)
+        x ::= pop';
+        y ::= pop';
+        push' (if x =? 0 then 0 else y / x)
     | REM =>
-        x ::= popST;
-        y ::= popST;
-        pushST (if x =? 0 then 0 else modulo y x)
+        x ::= pop';
+        y ::= pop';
+        push' (if x =? 0 then 0 else y mod x)
     | LT =>
-        x ::= popST;
-        y ::= popST;
-        pushST (if y <? x then true64 else zero64) (* multiple coercions *)
+        x ::= pop';
+        y ::= pop';
+        push' (if y <? x then -1 else 0)
     | AND =>
-        x ::= popST;
-        y ::= popST;
-        pushST (BVand x y : Bits64)
+        u ::= pop';
+        v ::= pop';
+        push' (map2 (fun x y => if x then y else false) u v)
     | OR =>
-        x ::= popST;
-        y ::= popST;
-        pushST (BVor x y : Bits64)
+        u ::= pop';
+        v ::= pop';
+        push' (map2 (fun x y => if x then true else y) u v)
     | XOR =>
-        x ::= popST;
-        y ::= popST;
-        pushST (BVxor x y : Bits64)
+        u ::= pop';
+        v ::= pop';
+        push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
     | NOT =>
-        x ::= popST;
-        pushST (Bneg x : Bits64)
+        u ::= pop';
+        push' (map (fun x => if x then false else true) u)
     | POW2 =>
-        n ::= popST;
-        pushST (2 ^ n)
+        n ::= pop';
+        push' (2 ^ n)
 
     | NEW_FRAME =>
-        rate ::= popST;
-        height ::= popST;
-        width ::= popST;
-        newFrameST width height rate
+        rate ::= pop';
+        height ::= pop';
+        width ::= pop';
+        newFrame' width height rate
     | SET_PIXEL =>
-        b ::= popST;
-        g ::= popST;
-        r ::= popST;
-        y ::= popST;
-        x ::= popST;
-        setPixelST x y r g b
+        b ::= pop';
+        g ::= pop';
+        r ::= pop';
+        y ::= pop';
+        x ::= pop';
+        setPixel' x y r g b
     | ADD_SAMPLE =>
-        right ::= popST;
-        left ::= popST;
-        addSampleST left right
+        right ::= pop';
+        left ::= pop';
+        addSample' left right
     | PUT_CHAR =>
-        popST >>= putCharST
+        pop' >>= putChar'
 
     | READ_FRAME =>
-        wh ::= readFrameST;
-        pushST (fst wh);;
-        pushST (snd wh)
+        wh ::= readFrame';
+        push' (fst wh);;
+        push' (snd wh)
     | READ_PIXEL =>
-        x ::= popST;
-        y ::= popST;
-        readPixelST x y >>= pushST
+        x ::= pop';
+        y ::= pop';
+        readPixel' x y >>= push'
 
-    | _ => failST
+    | _ => fail'
     end.
 
-End step_definition. (* This limits the scope of the instruction constants. *)
+(* begin hide *)
+End limit_scope.
+(*end hide *)
+(** In this definition %\,%[map: (bool->bool)->Bits64->Bits64] and %\,%[map2:
+(bool->bool->bool)->Bits64->Bits64->Bits64] denote the obvious "bitwise"
+transformations. *)
 
-Equations nStepsST (n: nat): ST unit :=
-  nStepsST 0 := stateUnchangedST;
-  nStepsST (S n) := stepST ;; nStepsST n.
+Lemma no_progress_after_termination: forall s t, step' s tt t -> terminated s = false.
+Proof.
+  (* TODO: automate *)
+  intros s t H.
+  enough (terminated s = true -> False); [destruct (terminated s); easy | intro Ht].
+  revert H.
+  unfold step'.
+  Set Warnings "-variable-collision".
+  match goal with [ |- context [stopped ::= extract' terminated;
+                               if stopped then fail' else ?R]] => generalize R end.
+  Set Warnings "variable-collision".
+  intro st_else.
+  unfold extract', intersect'.
+  simpl.
+  rewrite Ht; clear Ht.
+  intros [x [s1 [[H1 H2] H3]]].
+  revert H3.
+  subst.
+  unfold fail'.
+  trivial.
+Qed.
 
-(* Transitive closure *)
-Definition multiStepST: ST unit :=
-  fun s0 _ s1 => exists n, nStepsST n s0 tt s1.
+(** A conforming implementation must have the following properties: *)
 
-Definition runST: ST unit:=
-  fun s0 _ s1 =>
-    multiStepST s0 tt s1
-    /\ terminated s1 = true.
+Class ConformingTransitions (trans: State -> State -> Prop) :=
+  {
+    ct_termination: forall s t, trans s t -> terminated s = false;
+    ct_progress: forall s, (exists t, step' s tt t) -> exists t, trans s t;
+    ct_correctness: forall s, (exists t, step' s tt t) -> forall t, (trans s t -> step' s tt t);
+  }.
 
-(* Avoid complaints from Equations when using depelim. *)
-Derive Signature for Vector.Exists.
+(** In other words, an implementation is a transition system [trans] with
+the following properties:
+
+- If [terminated s = true], then [not exists t, trans s t]%\,%.
+
+- If [terminated s = false] and [exists t, step' s tt t], then
+  [exists t, trans s t]%\:% and [step' s tt t]%\,% for all such [t].
+
+- If [terminated s = false] and [not exists t, step' s tt t],
+  then the behaviour is undefined.
+
+Observe that [trans] does not have to be completely deterministic e.g.%\ %
+with regards to the addresses of newly allocated memory.
+
+
+** The initial state
+
+Before the machine can start, we must put a program in the memory and set
+the program counter ([PC]) to its start position. We must also initialize
+the stack and stack pointer ([SP]). Moreover, the initial state should
+contain the full list of input frames and no output frames.
+
+[[
+Definition protoState (inputList: list (Image Gray)) : State :=
+  {|
+    terminated := false;
+    PC := toBits 64 0;
+    SP := toBits 64 0;
+    input := noImage :: inputList;
+    output := [(noImage, noSound, [])];
+    memory := fun _ => None;
+    allocation := fun _ => 0;
+  |}.
+]]
+*)
+
+(* begin hide *)
 
 Definition protoState (inputList: list (Image Gray)) : State.
   refine ({|
              terminated := false;
-             PC := zero64;
-             SP := zero64;
+             PC := toBits 64 0;
+             SP := toBits 64 0;
              input := noImage :: inputList;
              output := [(noImage, noSound, [])];
              memory := fun _ => None;
@@ -883,135 +1284,43 @@ Definition protoState (inputList: list (Image Gray)) : State.
   (* TODO: Automate *)
   - split.
     + firstorder.
-      exfalso.
-      revert_last.
-      funelim (addresses 0 x).
-      simpl.
-      intro H.
-      depelim H.
     + intros x y.
       funelim (addresses 0 x).
       simpl.
       intro H.
       exfalso.
-      depelim H.
+      induction H; assumption.
   - congruence.
 Defined.
 
-Equations fillST (start: Bits64) (bytes: list Bits8) : ST unit :=
-  fillST _ [] := stateUnchangedST;
-  fillST a (x :: r) := setST 1 a x ;; fillST (addNat64 1 a) r.
+Section limit_scope.
+Open Scope nat_scope.
 
-Definition loadProgramST
-           (prog: list Bits8)
-           (arg: list Bits8) : ST unit :=
-  prog_start ::= allocateST (length prog);
-  fillST prog_start prog;;
-  setPcST prog_start;;
-  let restSize := length arg + 3 * 8 in
-  arg_start ::= allocateST restSize;
-  fillST arg_start arg;;
-  setSpST (addNat64 restSize arg_start).
+(* end hide *)
 
-(* Because of non-determinism and Coq's lack of general recursion, this
-   must be defined as a predicate rather than a (partial) function. *)
-Definition execution
-           prog arg
-           (inputList: list (Image Gray))
-           (outputList: list ((Image Color) * Sound * OutputText)) : Prop :=
-  let s0 := protoState inputList in
-  let st := (loadProgramST prog arg) ;; runST ;; (extractST output) in
-  (* Observe that we reverse the output list. *)
-  exists s1, st s0 (rev outputList) s1.
+Equations fillMemory' (_: Bits64) (_: list Bits8) : ST unit :=
+  fillMemory' _ [] := stateUnchanged';
+  fillMemory' start (x :: u) := store' 1 start x ;; fillMemory' (toBits 64 (start + 1)) u.
 
+Definition loadProgram' (program: list Bits8) (argument: list Bits8) : ST unit :=
+  program_start ::= allocate' (length program);
+  fillMemory' program_start program;;
+  setPC' program_start;;
+  let len := length argument in
+  let restSize := len + 4 * 8 in
+  argument_start ::= allocate' restSize;
+  fillMemory' argument_start argument;;
+  store' 8 (toBits 64 (argument_start + len)) len;;
+  setSP' (toBits 64 (argument_start + restSize)).
 
-(** ** Certification *)
+(* begin hide *)
+End limit_scope.
+(* end hide *)
 
-Definition memoryUsed (s: State): nat :=
-  (fix used_below (a: nat): nat :=
-     match a with
-     | 0 => 0
-     | S a' => match memory s (toBits 64 a') with
-              | Some _ => 1
-              | None => 0
-              end + used_below a'
-     end)
-    (2^64).
+Definition conformingInitialState inputList program argument : State -> Prop :=
+  loadProgram' program argument (protoState inputList) tt.
 
-(* Rather trivial. *)
-Lemma max_memoryUsed (s: State): memoryUsed s <= 2^64.
-Proof.
-  unfold memoryUsed.
-  generalize (2^64).
-  induction n.
-  - trivial.
-  - destruct (memory s (toBits 64 n));
-      auto with arith.
-Qed.
-
-Definition small (s: State) := memoryUsed s <= 2 ^ 34. (* 16 GiB *)
-
-Definition valueOr {A: Type} (default: A) (o: option A) : A :=
-  match o with Some a => a | _ => default end.
-
-Class CertifiedMachine (C: Type) :=
-  {
-    cm_step: C -> C -> Prop;
-    cm_meaning: C -> State -> Prop;
-    cm_unique_meaning: forall c s s', cm_meaning c s -> cm_meaning c s' -> s = s';
-
-    cm_after_load: list Bits8 -> list Bits8 -> list (Image Gray) -> C -> Prop;
-
-    cm_after_load_ok: forall prog arg inputList c (s: State),
-        cm_after_load prog arg inputList c ->
-        exists s, cm_meaning c s /\ loadProgramST prog arg (protoState inputList) tt s;
-
-    cm_after_load_exists: forall prog arg inputList,
-        (exists s, small s /\ loadProgramST prog arg (protoState inputList) tt s)
-        -> exists c s, cm_after_load prog arg inputList c /\ cm_meaning c s;
-
-    cm_correctness: forall c s (_: cm_meaning c s) c' (_: cm_step c c'),
-                    (exists s', stepST s tt s')
-                    -> exists s', stepST s tt s' /\ cm_meaning c' s';
-
-    cm_progress: forall c s, cm_meaning c s
-                        -> (exists s', small s' /\ stepST s tt s')
-                        -> exists c' s', cm_step c c' /\ cm_meaning c' s';
-
-    cm_termination: forall c s c', cm_meaning c s -> cm_step c c' -> terminated s = false;
-  }.
-
-Inductive Safe (s: State) : Prop :=
-| SafeEnd: terminated s = true -> Safe s
-| SafeStep: (exists s', small s' /\ stepST s tt s') -> (* NB: small *)
-            (forall s', stepST s tt s' -> Safe s') ->
-            Safe s.
-
-Definition cm_terminated {C} `{CertifiedMachine C} (c: C) : Prop :=
-  exists s, cm_meaning c s /\ terminated s = true.
-
-Inductive CertSafe {C} `{CertifiedMachine C} (c: C) : Prop :=
-  | CertSafeEnd: cm_terminated c -> CertSafe c
-  | CertSafeStep: (exists c', cm_step c c') -> (forall c', cm_step c c' -> CertSafe c') -> CertSafe c.
-
-Theorem safe_safe {C} `{CertifiedMachine C} (c: C) s :
-  cm_meaning c s -> Safe s -> CertSafe c.
-Proof.
-  intros Hm H_safe.
-  revert c Hm.
-  induction H_safe as [s H_term | s H0 H_safe H_cs]; intros c Hc.
-  - apply CertSafeEnd.
-    unfold cm_terminated.
-    exists s.
-    auto.
-  - set (H_prog := cm_progress c Hc).
-    specialize (H_prog H0).
-    destruct H_prog as [c' [s' [H1 H2]]].
-    apply (CertSafeStep c (ex_intro _ c' H1)).
-    intros c'' H3.
-    set (H_corr := cm_correctness c Hc c'' H3).
-    destruct H0 as [s0 [_ H4]].
-    specialize (H_corr (ex_intro _ s0 H4)).
-    destruct H_corr as [s'' [H5 H6]].
-    apply (H_cs s'' H5 _ H6).
-Qed.
+(** In other words, a conforming implementation must start the machine in
+a state which satisfies this predicate. This completes our specification.
+It is somewhat idealized. For example, our programs never need more than
+$2^{34}$ bytes of allocated memory. *)
