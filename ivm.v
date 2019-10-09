@@ -711,18 +711,22 @@ Definition registersUnchanged' {A} : ST A :=
     /\ SP s0 = SP s1.
 
 Definition memoryUnchanged' {A} : ST A :=
-  fun s0 _ s1 =>
-    allocation s0 = allocation s1
-    /\ memory s0 = memory s1.
+  fun s0 _ s1 => memory s0 = memory s1.
+
+Definition allocationsUnchanged' {A} : ST A :=
+  fun s0 _ s1 => allocation s0 = allocation s1.
 
 Definition otherMemoryUnchanged' (n: nat) (start: Bits64): ST unit :=
   fun s0 _ s1 =>
     let other a := Forall (fun x => x <> a) (addresses n start) in
     forall a, other a -> memory s0 a = memory s1 a.
 
-(** This expresses that the memory is unchanged except possibly for the
-[n] bytes starting at address [start]. Also, it does not specify
-allocation. *)
+(** This means that the memory is unchanged except possibly for the [n]
+bytes starting at address [start]. *)
+
+Definition otherAllocationsUnchanged' (start: Bits64) : ST unit :=
+  fun s0 _ s1 =>
+    forall a, a <> start -> allocation s0 a = allocation s1 a.
 
 Definition ioUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
@@ -732,9 +736,9 @@ Definition ioUnchanged' {A} : ST A :=
 (* begin hide *)
 
 Lemma stateUnchanged_characterized {A} :
-  registersUnchanged' ∩ memoryUnchanged' ∩ ioUnchanged' = @stateUnchanged' A.
+  registersUnchanged' ∩ memoryUnchanged' ∩ allocationsUnchanged' ∩ ioUnchanged' = @stateUnchanged' A.
 Proof.
-  unfold registersUnchanged', memoryUnchanged', ioUnchanged', stateUnchanged'.
+  unfold registersUnchanged', memoryUnchanged', allocationsUnchanged', ioUnchanged', stateUnchanged'.
   repeat (unfold intersect').
   st_tactics.crush.
 Qed.
@@ -745,6 +749,7 @@ Qed.
 
 Definition exit' : ST unit :=
   memoryUnchanged'
+    ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
         terminated s1 = true
@@ -775,9 +780,8 @@ Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchanged'
     ∩ ioUnchanged'
     ∩ otherMemoryUnchanged' n start
-    ∩ fun s0 _ s1 =>
-        allocation s0 = allocation s1
-        /\ load' n start s1 value s1.
+    ∩ allocationsUnchanged'
+    ∩ fun s0 _ s1 => load' n start s1 value s1.
 
 (**
 
@@ -789,6 +793,7 @@ Therefore, we also have [load' n start s0 y s1] for every [y] such that
 
 Definition setPC' (a: Bits64): ST unit :=
   memoryUnchanged'
+    ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
          terminated s0 = terminated s1
@@ -797,6 +802,7 @@ Definition setPC' (a: Bits64): ST unit :=
 
 Definition setSP' (a: Bits64): ST unit :=
   memoryUnchanged'
+    ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
         terminated s0 = terminated s1
@@ -814,11 +820,20 @@ Definition next' (n: nat) : ST nat :=
   setPC' (toBits 64 (a + n));;
   load' n a.
 
+Definition possiblyModifyMemory' n a :=
+  registersUnchanged'
+    ∩ ioUnchanged'
+    ∩ otherMemoryUnchanged' n a
+    ∩ allocationsUnchanged'.
+
 Definition pop': ST Bits64 :=
   a ::= extract' SP;
   v ::= load' 8 a;
   setSP' (toBits 64 (a + 8));;
+  possiblyModifyMemory' 8 a;;
   ret (toBits 64 v).
+
+(** Observe that an implementation of 'pop' may modify the freed stack. *)
 
 (* begin hide*)
 Definition push' (value: Z): ST unit :=
@@ -840,10 +855,6 @@ Definition push' (value: Z): ST unit :=
 
 
 (** *** Memory allocation *)
-
-Definition otherAllocationsUnchanged' (start: Bits64) : ST unit :=
-  fun s0 _ s1 =>
-    forall a, a <> start -> allocation s0 a = allocation s1 a.
 
 Definition allocate' (n: nat) : ST Bits64 :=
   registersUnchanged'
@@ -868,16 +879,20 @@ Definition deallocate' (start: Bits64) : ST unit :=
         allocation s1 start = 0
         /\ otherMemoryUnchanged' (allocation s0 start) start s0 tt s1.
 
-(** Memory [consistency] ensures that deallocated memory is None.
-Moreover, it makes sense to allocate 0 bytes or deallocate an address
-which is not allocated. TODO: This is not simply a call to free() in C! *)
+(** Memory [consistency] ensures that deallocated memory is None. TODO: it
+makes sense to allocate 0 bytes or deallocate an address which is not
+allocated. This is not compatible with free() in C! *)
 
 
 (** *** Input and output *)
 
-Definition readFrame' : ST (Bits16 * Bits16) :=
+Definition nonIoUnchanged' {A} : ST A :=
   registersUnchanged'
     ∩ memoryUnchanged'
+    ∩ allocationsUnchanged'.
+
+Definition readFrame' : ST (Bits16 * Bits16) :=
+  nonIoUnchanged'
     ∩ fun s0 wh s1 =>
         output s0 = output s1
         /\ match input s1 with
@@ -899,8 +914,7 @@ Definition readPixel' (x y: nat) : ST Bits8 :=
 
 (* Initial frame pixels: undefined. *)
 Definition newFrame' (width height sampleRate: nat) : ST unit :=
-  registersUnchanged'
-    ∩ memoryUnchanged'
+  nonIoUnchanged'
     ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s1 with
@@ -915,8 +929,7 @@ Definition newFrame' (width height sampleRate: nat) : ST unit :=
           end.
 
 Definition setPixel' (x y r g b : nat) : ST unit :=
-  registersUnchanged'
-    ∩ memoryUnchanged'
+  nonIoUnchanged'
     ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s0, output s1 with
@@ -939,8 +952,7 @@ Definition setPixel' (x y r g b : nat) : ST unit :=
           end.
 
 Definition addSample' (left right : nat) : ST unit :=
-  registersUnchanged'
-    ∩ memoryUnchanged'
+  nonIoUnchanged'
     ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s0, output s1 with
@@ -955,8 +967,7 @@ Definition addSample' (left right : nat) : ST unit :=
           end.
 
 Definition putChar' (c: nat) : ST unit :=
-  registersUnchanged'
-    ∩ memoryUnchanged'
+  nonIoUnchanged'
     ∩ fun s0 _ s1 =>
         input s0 = input s1
         /\ match output s0, output s1 with
