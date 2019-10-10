@@ -45,8 +45,12 @@ Global Unset Printing Primitive Projection Parameters.
 (** printing s0 $\coqdocvar{s}_0$ *)
 (** printing s1 $\coqdocvar{s}_1$ *)
 (** printing s2 $\coqdocvar{s}_2$ *)
+(** printing sn $\coqdocvar{s}_n$ *)
 (** printing st1 $\coqdocvar{st}_1$ *)
 (** printing st2 $\coqdocvar{st}_2$ *)
+(** printing x1 $\coqdocvar{x}_1$ *)
+(** printing xn $\coqdocvar{x}_n$ *)
+
 
 (** * Formal virtual machine specification
 
@@ -619,17 +623,27 @@ Module st_tactics.
     | H: option _ |- _ => destruct H
     | H: False |- _ => destruct H
     end.
-  Ltac exS :=
-    match goal with
-    | [ |- exists x s, x = ?x' /\ s = ?s' /\ _] => exists x; exists s
-    | [x:?X, s:State, _:context H[_ ?x ?s] |- exists _: ?X, exists _: State, _ ] => exists x; exists s
-    end.
+
+  Ltac ex_tac := fail.
   Ltac crush := repeat (
                     intro || split || assumption || discriminate || subst
                     || apply State_extensionality
                     || apply ST_extensionality
-                    || simpl in *
-                    || destr || exS).
+                    || simpl in * || destr || ex_tac).
+  Ltac ex_tac ::=
+    match goal with
+    | [ |- exists x s, x = ?x' /\ s = ?s' /\ _] => exists x; exists s; solve[crush]
+    | [x:?X, s:State, _:context H[_ ?x ?s] |- exists _: ?X, exists _: State, _ ] => exists x; exists s; solve[crush]
+    end.
+
+  Ltac special :=
+    match goal with
+    | [ H1: forall x (s: State), ?st x s -> ?R, H2: ?st ?x ?s  |- _ ] =>
+      let h := fresh in
+      specialize (H1 _ _ H2) as h;
+      try exact h;
+      try destruct h as [? [? h]]
+    end.
 End st_tactics.
 
 (* end hide *)
@@ -637,66 +651,117 @@ End st_tactics.
 Instance StateMonad: Monad ST :=
   {
     ret A x := fun s0 y s1 => x = y /\ s0 = s1;
-    bind A st B f := fun s0 y s2 => exists x s1, st s0 x s1 /\ f x s1 y s2
+    bind A st B f := fun s0 y s2 => (exists x s1, st s0 x s1 /\ f x s1 y s2)
+                                 /\ (forall x s1, st s0 x s1 -> exists z s3, f x s1 z s3);
   }.
-Proof.
+Proof. (* TODO: clean up and/or automate *)
   - abstract (st_tactics.crush).
   - abstract (st_tactics.crush).
-  - abstract (st_tactics.crush).
+  - st_tactics.crush.
+    + exists x2, x3.
+      st_tactics.crush.
+      st_tactics.special.
+      firstorder.
+
+    + specialize (H2 _ _ H0).
+      st_tactics.crush.
+      st_tactics.special.
+
+    + exists x2, x3.
+      st_tactics.crush.
+      apply (H0 x4 s2).
+      st_tactics.crush.
+      apply H2; assumption.
+
+    + specialize (H3 _ _ H0) as H33.
+      destruct H33 as [? [? H33]].
+      destruct (H1 x5 x6) as [? [? ?]].
+      * firstorder.
+      * exists x7, x8.
+        st_tactics.crush.
+        destruct (H1 x9 s3);
+          st_tactics.crush;
+          firstorder.
 Defined.
 
-(** The proof of the monad axioms is straightforward using propositional
-and functional extensionality. An element [st: ST A] represents a
-computation with possible side-effect which produces a value of type [A].
-More precisely:
+(** The proof of the monad axioms is easy assuming propositional and
+functional extensionality.
 
-- [st s0 x s1] means that a result of executing [st] from state [s0] may
-  be that [x] is produced and that the machine transitions to state [s1].
+Informally, an element [st: ST A] specifies a computation with possible
+side-effects which should produce a value of type [A]. Suppose we execute
+an implementation of [st] starting in state [s0].
 
-- If [terminated s0 = false] and [not exists s1 x, st s0 x s1], then the result
-  of executing [st] at [s0] is undefined.
+- If [exists s1 x, st s0 x s1], then the implementation should produce an
+  element [x] and lead to a state [s1] such that [st s0 x s1].
 
-See also the definition of [ConformingTransitions] below. [ST unit]
-represents computations that do not produce any values. (They may,
-however, produce _output_.) *)
+- Otherwise, the result of executing the implementation is undefined.
+
+In other words, if [st s0 x s <-> (x = x1 /\ s = s1) \/ ... \/ (x = xn /\ s =
+sn)], then the implementation must produce one of [n] results if [n > 0].
+If [n = 0], the implementation is unconstrained since this should never
+happen in a correct program. Furthermore, our definition of [bind] ensures
+that if running [st] from state [s0] is undefined and [f: A -> ST B], then
+running [st >>= f] from [s0] is undefined as well. *)
 
 
-(** ** Building blocks
+(** ** Primitive computations
 
-Since [ST A] represents non-deterministic computations, it is closed under
-intersection. We mainly use this to express that computations leave most
-of the state unchanged. *)
+[ST unit] represents computations that do not produce any value. They may,
+however, produce output and have other side-effects. In the next section
+we shall specify one execution step of our virtual machine as a term
+[step': ST unit], but first we need some more building blocks.
+
+
+*** Lattice structure
+
+A specification [st: ST A] is often "non-deterministic" in the sense that
+[st s0 x1 s1] and [st s0 x2 s2] does not imply [x1 = x2]. It simply means
+that both [(x1, s1)] and [(x2, s2)] are possible outcomes. Thus, it makes
+sense to define the intersection of two such specifications as follows: *)
 
 Definition intersect' {A} (st1 st2: ST A): ST A :=
   fun s0 x s1 => st1 s0 x s1 /\ st2 s0 x s1.
-
-(** We use [st1 ∩ st2] as an abbreviation for [intersect' st1 st2]; and we
-follow the convention (that functions producing) computations have names
-ending with an apostrophe. *)
 
 (* begin hide *)
 Notation "st1 ∩ st2" := (intersect' st1 st2) (at level 50, left associativity).
 (* end hide *)
 
-Definition fail' {A}: ST A := fun _ _ _ => False.
+(** We use [st1 ∩ st2] as an abbreviation for [intersect' st1 st2]. [ST A]
+clearly inherits a full lattice structure from the type of propositions,
+but we shall only use [∩] and the least element: *)
 
-Lemma intersect_fail: forall {A} (st: ST A), st ∩ fail' = fail'.
+Definition undefined' {A}: ST A := fun _ _ _ => False.
+
+(* begin hide *)
+
+Lemma intersect_undefined: forall {A} (st: ST A), st ∩ undefined' = undefined'.
 Proof.
   intros.
-  unfold fail', intersect'.
+  unfold undefined', intersect'.
   st_tactics.crush.
 Qed.
 
+(* end hide *)
 
-(** *** Unchanged and mostly unchanged state *)
+(** We follow the convention that specifications (and functions returning
+specifications) have names ending with an apostrophe. For this reason we
+also define: *)
+
+Definition return' {A} (x: A) : ST A := ret x.
+
+
+(** *** Unchanged and mostly unchanged state
+
+Many computations leave the state unchanged or mostly unchanged. This can
+be expressed this using intersection and the following specifications. *)
 
 Definition stateUnchanged' {A} : ST A :=
-  fun s0 _ s1 => s0 = s1.
+  fun s0 _ s1 => s1 = s0.
 
 (* begin hide *)
 
 Lemma ret_characterized {A} (x: A) :
-  stateUnchanged' ∩ (fun _ y _ => x = y) = ret x.
+  stateUnchanged' ∩ (fun _ y _ => y = x) = ret x.
 Proof.
   unfold stateUnchanged', intersect'.
   st_tactics.crush.
@@ -706,32 +771,32 @@ Qed.
 
 Definition registersUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
-    terminated s0 = terminated s1
-    /\ PC s0 = PC s1
-    /\ SP s0 = SP s1.
+    terminated s1 = terminated s0
+    /\ PC s1 = PC s0
+    /\ SP s1 = SP s0.
 
 Definition memoryUnchanged' {A} : ST A :=
-  fun s0 _ s1 => memory s0 = memory s1.
+  fun s0 _ s1 => memory s1 = memory s0.
 
 Definition allocationsUnchanged' {A} : ST A :=
-  fun s0 _ s1 => allocation s0 = allocation s1.
+  fun s0 _ s1 => allocation s1 = allocation s0.
 
 Definition otherMemoryUnchanged' (n: nat) (start: Bits64): ST unit :=
   fun s0 _ s1 =>
     let other a := Forall (fun x => x <> a) (addresses n start) in
-    forall a, other a -> memory s0 a = memory s1 a.
+    forall a, other a -> memory s1 a = memory s0 a.
 
 (** This means that the memory is unchanged except possibly for the [n]
 bytes starting at address [start]. *)
 
 Definition otherAllocationsUnchanged' (start: Bits64) : ST unit :=
   fun s0 _ s1 =>
-    forall a, a <> start -> allocation s0 a = allocation s1 a.
+    forall a, a <> start -> allocation s1 a = allocation s0 a.
 
 Definition ioUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
-    input s0 = input s1
-    /\ output s0 = output s1.
+    input s1 = input s0
+    /\ output s1 = output s0.
 
 (* begin hide *)
 
@@ -745,6 +810,7 @@ Qed.
 
 (* end hide *)
 
+
 (** Now the [EXIT] instruction can be specified as follows. *)
 
 Definition exit' : ST unit :=
@@ -753,8 +819,8 @@ Definition exit' : ST unit :=
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
         terminated s1 = true
-        /\ PC s0 = PC s1
-        /\ SP s0 = SP s1.
+        /\ PC s1 = PC s0
+        /\ SP s1 = SP s0.
 
 
 (** *** Memory access *)
@@ -767,9 +833,9 @@ Definition load' (n: nat) (start: Bits64) : ST nat :=
                      (traverse (memory s) (addresses n start)) = Some x.
 
 (** In words, [load' n a s0 x s1] means that [s0 = s1] and that the [n]
-bytes starting at [a] represents the natural number [x] $<2^n$. The
-computation fails unless the addresses [start], ..., [start+n-1] have all
-been allocated. *)
+bytes starting at [a] represents the natural number [x] $<2^n$. The result
+is undefined if not all the addresses [start], ..., [start+n-1] have been
+allocated. *)
 
 (* Observe that if (store' n start value s0 x s1), then we know that the
    addresses were allocated because of [consistency s1].
@@ -783,11 +849,6 @@ Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
     ∩ allocationsUnchanged'
     ∩ fun s0 _ s1 => load' n start s1 value s1.
 
-(**
-
-Therefore, we also have [load' n start s0 y s1] for every [y] such that
-[x] $\equiv$ [y] $\pmod{2^n}$.
-*)
 
 (** *** Stack and program counter *)
 
@@ -796,18 +857,18 @@ Definition setPC' (a: Bits64): ST unit :=
     ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
-         terminated s0 = terminated s1
-         /\ SP s0 = SP s1
-         /\ a = PC s1.
+         terminated s1 = terminated s0
+         /\ SP s1 = SP s0
+         /\ PC s1 = a.
 
 Definition setSP' (a: Bits64): ST unit :=
   memoryUnchanged'
     ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
-        terminated s0 = terminated s1
-        /\ PC s0 = PC s1
-        /\ a = SP s1.
+        terminated s1 = terminated s0
+        /\ PC s1 = PC s0
+        /\ SP s1 = a.
 
 (** The corresponding "get" computations are simple instances of
 [extract']. *)
@@ -831,9 +892,10 @@ Definition pop': ST Bits64 :=
   v ::= load' 8 a;
   setSP' (toBits 64 (a + 8));;
   possiblyModifyMemory' 8 a;;
-  ret (toBits 64 v).
+  return' (toBits 64 v).
 
-(** Observe that an implementation of 'pop' may modify the freed stack. *)
+(** Observe that an implementation of [pop'] is allowed to modify the
+freed stack. *)
 
 (* begin hide*)
 Definition push' (value: Z): ST unit :=
@@ -894,7 +956,7 @@ Definition nonIoUnchanged' {A} : ST A :=
 Definition readFrame' : ST (Bits16 * Bits16) :=
   nonIoUnchanged'
     ∩ fun s0 wh s1 =>
-        output s0 = output s1
+        output s1 = output s0
         /\ match input s1 with
           | [] | [_] => wh = (toBits 16 0, toBits 16 0)
           | _ :: hd :: tl =>
@@ -916,7 +978,7 @@ Definition readPixel' (x y: nat) : ST Bits8 :=
 Definition newFrame' (width height sampleRate: nat) : ST unit :=
   nonIoUnchanged'
     ∩ fun s0 _ s1 =>
-        input s0 = input s1
+        input s1 = input s0
         /\ match output s1 with
           | [] => False
           | (image, sound, text) :: rest =>
@@ -934,12 +996,12 @@ Definition setPixel' (x y r g b : nat) : ST unit :=
         input s0 = input s1
         /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
-            r0 = r1
-            /\ t0 = t1
-            /\ s0 = s1
+            r1 = r0
+            /\ t1 = t0
+            /\ s1 = s0
             (* Needed since iPixel is undefined outside width*height. *)
-            /\ iWidth i0 = iWidth i1
-            /\ iHeight i0 = iHeight i1
+            /\ iWidth i1 = iWidth i0
+            /\ iHeight i1 = iHeight i0
             (* Otherwise undefined *)
             /\ x < iWidth i0
             /\ y < iHeight i0
@@ -957,12 +1019,12 @@ Definition addSample' (left right : nat) : ST unit :=
         input s0 = input s1
         /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
-            r0 = r1
-            /\ t0 = t1
-            /\ i0 = i1
-            /\ sRate s0 = sRate s1
+            r1 = r0
+            /\ t1 = t0
+            /\ i1 = i0
+            /\ sRate s1 = sRate s0
             /\ 0 <> sRate s0 (* Otherwise undefined *)
-            /\ (toBits 16 left, toBits 16 right) :: sSamples s0 = sSamples s1
+            /\ sSamples s1 = (toBits 16 left, toBits 16 right) :: sSamples s0
           | _, _ => False
           end.
 
@@ -972,10 +1034,10 @@ Definition putChar' (c: nat) : ST unit :=
         input s0 = input s1
         /\ match output s0, output s1 with
           | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
-            r0 = r1
-            /\ s0 = s1
-            /\ i0 = i1
-            /\ (toBits 32 c) :: t0 = t1
+            r1 = r0
+            /\ s1 = s0
+            /\ i1 = i0
+            /\ t1 = (toBits 32 c) :: t0
           | _, _ => False
           end.
 
@@ -1099,7 +1161,7 @@ this after the definition. *)
 
 Definition step' : ST unit :=
   stopped ::= extract' terminated;
-  if stopped then fail'
+  if stopped then return' tt
   else
     opcode ::= next' 1;
     match opcode with
@@ -1203,7 +1265,7 @@ Definition step' : ST unit :=
         y ::= pop';
         readPixel' x y >>= push'
 
-    | _ => fail'
+    | _ => undefined'
     end.
 
 (* begin hide *)
@@ -1213,33 +1275,14 @@ End limit_scope.
 (bool->bool->bool)->Bits64->Bits64->Bits64] denote the obvious "bitwise"
 transformations. *)
 
-Lemma no_progress_after_termination: forall s t, step' s tt t -> terminated s = false.
+Lemma no_progress_after_termination: forall s, terminated s = true -> forall t, step' s tt t -> s = t.
 Proof.
-  (* TODO: automate *)
-  intros s t H.
-  enough (terminated s = true -> False); [destruct (terminated s); easy | intro Ht].
-  revert H.
-  unfold step'.
-  Set Warnings "-variable-collision".
-  match goal with [ |- context [stopped ::= extract' terminated;
-                               if stopped then fail' else ?R]] => generalize R end.
-  Set Warnings "variable-collision".
-  intro st_else.
-  unfold extract', intersect'.
-  simpl.
-  rewrite Ht; clear Ht.
-  intros [x [s1 [[H1 H2] H3]]].
-  revert H3.
-  subst.
-  unfold fail'.
-  trivial.
-Qed.
+Admitted.
 
 (** A conforming implementation must have the following properties: *)
 
 Class ConformingTransitions (trans: State -> State -> Prop) :=
   {
-    ct_termination: forall s t, trans s t -> terminated s = false;
     ct_progress: forall s, (exists t, step' s tt t) -> exists t, trans s t;
     ct_correctness: forall s, (exists t, step' s tt t) -> forall t, (trans s t -> step' s tt t);
   }.
@@ -1247,13 +1290,10 @@ Class ConformingTransitions (trans: State -> State -> Prop) :=
 (** In other words, an implementation is a transition system [trans] with
 the following properties:
 
-- If [terminated s = true], then [not exists t, trans s t]%\,%.
+- If [exists t, step' s tt t], then [exists t, trans s t]%\:% and [step' s tt t]%\,%
+  for all such [t].
 
-- If [terminated s = false] and [exists t, step' s tt t], then
-  [exists t, trans s t]%\:% and [step' s tt t]%\,% for all such [t].
-
-- If [terminated s = false] and [not exists t, step' s tt t],
-  then the behaviour is undefined.
+- If [not exists t, step' s tt t], then the behaviour is undefined.
 
 Observe that [trans] does not have to be completely deterministic e.g.%\ %
 with regards to the addresses of newly allocated memory.
@@ -1262,9 +1302,9 @@ with regards to the addresses of newly allocated memory.
 ** The initial state
 
 Before the machine can start, we must put a program in the memory and set
-the program counter ([PC]) to its start position. We must also initialize
-the stack and stack pointer ([SP]). Moreover, the initial state should
-contain the full list of input frames and no output frames.
+the program counter to its start position. We must also initialize the
+stack and stack pointer; and the initial state should contain the full
+list of input frames and no output frames.
 
 [[
 Definition protoState (inputList: list (Image Gray)) : State :=
