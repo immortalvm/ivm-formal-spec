@@ -213,8 +213,6 @@ Proof.
     reflexivity.
 Qed.
 
-
-
 (** In some situations, we want bit vectors to represent both positive and
 negative numbers:
 
@@ -262,7 +260,6 @@ Qed.
 (** The most significant bit determines if the [signed u] is negative, and
 [signed u] $\equiv$ [fromBits u] $\pmod{2^n}$ for every [u: vector bool n].
 *)
-
 
 
 (** *** Bytes and words
@@ -393,13 +390,15 @@ Defined.
 (** We leave the proofs of the monad axioms to the reader. *)
 
 
-(** ** State and the state monad
+(** ** State and state monads
 
 As discovered by Eugenio Moggi in 1989, monads can be used to represent
-computations with "side-effects" such as input and output; and below we
-shall specify the behaviour of our virtual machine in terms of a
-non-deterministic state monad. First we define types representing the
-state of the machine at a given moment. *)
+computations with "side-effects" such as input and output. Below we shall
+specify the behaviour of our virtual machine in terms of a specification
+monad, but first we define types representing the state of the machine at
+a given moment.
+
+*** VM state *)
 
 Record Image (C: Type) :=
   mkImage {
@@ -543,7 +542,6 @@ processes the input. Conversely, [output] will only be increasing, except
 that the first element in this list should be considered "in progress"
 until the machine terminates. *)
 
-
 (* begin hide *)
 
 Lemma State_expansion (s: State) :
@@ -595,15 +593,17 @@ Qed.
 (* end hide *)
 
 
-(** The non-deterministic state monad can now be defined as follows: *)
+(** *** State monads *)
+
+(** A non-deterministic "computation specification monad" can now be
+defined as follows: *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
 
 (* begin hide *)
 
 (* Extensionality is needed since A is an arbitrary type.
-   This can be avoided if we define monads in terms of a setoid.
- *)
+   This can be avoided if we define monads in terms of setoids. *)
 Lemma ST_extensionality {A} (st0 st1: ST A):
   (forall s0 x s1, st0 s0 x s1 <-> st1 s0 x s1) -> st0 = st1.
 Proof.
@@ -648,7 +648,7 @@ End st_tactics.
 
 (* end hide *)
 
-Instance StateMonad: Monad ST :=
+Instance SpecificationMonad: Monad ST :=
   {
     ret A x := fun s0 y s1 => x = y /\ s0 = s1;
     bind A st B f := fun s0 y s2 => (exists x s1, st s0 x s1 /\ f x s1 y s2)
@@ -702,6 +702,51 @@ If [n = 0], the implementation is unconstrained since this should never
 happen in a correct program. Furthermore, our definition of [bind] ensures
 that if running [st] from state [s0] is undefined and [f: A -> ST B], then
 running [st >>= f] from [s0] is undefined as well. *)
+
+Definition Imp A := State -> A -> State -> Prop.
+
+Definition bindI {A} (ma: Imp A) {B} (f: A -> Imp B) : Imp B :=
+  fun s0 y s2 => exists x s1, ma s0 x s1 /\ f x s1 y s2.
+
+Definition conformingAt {A} (s0: State) (st: ST A) (stI: Imp A) :=
+  (exists x s1, st s0 x s1) -> (exists x s1, stI s0 x s1) /\ (forall x s1, stI s0 x s1 -> st s0 x s1).
+
+(* begin hide*)
+Notation "'exII' H" := (ex_intro _ _ (ex_intro _ _ H)) (at level 50).
+(* end hide *)
+
+Lemma conforming_bind : forall {A B} (s0: State)
+                          (st: ST A) (f: A -> ST B)
+                          {stI: Imp A} {fI: A -> Imp B},
+    (conformingAt s0 st stI)
+    -> (forall x s1, conformingAt s1 (f x) (fI x))
+    -> conformingAt s0 (st >>= f) (bindI stI fI).
+Proof.
+  intros A B s0 st f stI fI Hst Hf.
+  split.
+  - destruct H as [y [s2 [[x [s1 [H1 _]]] H2]]].
+    destruct (H2 _ _ H1) as [y' [s2' H2']].
+    destruct (Hst (exII H1)) as [[x' [s1' Hst1]] Hst2].
+    destruct (Hf _ _ (H2 _ _ (Hst2 _ _ Hst1))) as [[y'' [s2'' Hf1]] _].
+
+    exists y'', s2'', x', s1'.
+    split; [exact Hst1 | exact Hf1].
+
+  - destruct H as [y [s2 [[x [s1 [H1 _]]] H2]]].
+    specialize (Hst (exII H1)).
+    destruct Hst as [_ Hst].
+
+    intros y' s2' [x' [s1' [HstI HfI]]].
+    split.
+    +  exists x', s1'.
+       specialize (Hst _ _ HstI).
+       split; [exact Hst|].
+       destruct (Hf _ _ (H2 _ _ Hst)) as [_ Hf2].
+       exact (Hf2 _ _ HfI).
+
+    + intros x'' s1'' Hst''.
+      exact (H2 _ _ Hst'').
+Qed.
 
 
 (** ** Primitive computations
@@ -1296,10 +1341,21 @@ the following properties:
 - If [not exists t, step' s tt t], then the behaviour is undefined.
 
 Observe that [trans] does not have to be completely deterministic e.g.%\ %
-with regards to the addresses of newly allocated memory.
+with regards to the addresses of newly allocated memory. *)
+
+Instance conforming_impl_conforming (stepI: Imp unit) (H: forall s0, conformingAt s0 step' stepI) :
+  ConformingTransitions (fun s0 s1 => stepI s0 tt s1).
+Proof.
+  constructor; intros s0 H0; specialize (H s0 (ex_intro _ _ H0)).
+  - destruct H as [[[] H] _].
+    exact H.
+  - intros s1 H1.
+    destruct H as [_ H].
+    exact (H tt s1 H1).
+Qed.
 
 
-** The initial state
+(** ** The initial state
 
 Before the machine can start, we must put a program in the memory and set
 the program counter to its start position. We must also initialize the
