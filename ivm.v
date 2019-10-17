@@ -390,13 +390,13 @@ Defined.
 (** We leave the proofs of the monad axioms to the reader. *)
 
 
-(** ** State and state monads
+(** ** State and state monad
 
 As discovered by Eugenio Moggi in 1989, monads can be used to represent
 computations with "side-effects" such as input and output. Below we shall
-specify the behaviour of our virtual machine in terms of a specification
-monad, but first we define types representing the state of the machine at
-a given moment.
+specify the behaviour of our virtual machine in terms of a partial
+computational monad, but first we define types representing the state of
+the machine at a given moment.
 
 *** VM state *)
 
@@ -489,23 +489,6 @@ Equations addresses n (_: Bits64) : vector Bits64 n :=
   addresses 0 _ := [];
   addresses (S n) start := start :: (addresses n (toBits 64 (start + 1))).
 
-(** We keep track of all memory allocations and the contents of the
-allocated memory. The contents of unallocated memory is not relevant. *)
-
-Definition consistent (memory: Bits64 -> option Bits8) (allocation: Bits64 -> nat) :=
-  (forall (a: Bits64),
-      memory a <> None <->
-      exists start, In a (addresses (allocation start) start))
-  /\
-  (forall start0 start1,
-      (Exists
-         (fun a => In a (addresses (allocation start0) start0))
-         (addresses (allocation start1) start1)) ->
-      start0 = start1).
-
-(** In this definition [Exists: forall A, (A->Prop)->list A->Prop] as expected, and [In
-a = Exists (fun x => x=a)]. *)
-
 (* begin hide *)
 Open Scope type_scope.
 (* end hide *)
@@ -521,14 +504,11 @@ images. The [State] type can now be formulated as follows: *)
 
 Record State :=
   mkState {
-      terminated: bool;
       PC: Bits64;
       SP: Bits64;
       input: list (Image Gray);
       output: list ((Image Color) * Sound * OutputText);
       memory: Bits64 -> option Bits8;
-      allocation: Bits64 -> nat;
-      consistency: consistent memory allocation;
       always_output: output <> []
     }.
 
@@ -546,13 +526,11 @@ until the machine terminates. *)
 
 Lemma State_expansion (s: State) :
   s = {|
-    terminated := terminated s;
     PC := PC s;
     SP := SP s;
     input := input s;
     output := output s;
     memory := memory s;
-    consistency := consistency s;
     always_output := always_output s;
   |}.
 Proof.
@@ -562,26 +540,23 @@ Qed.
 (* Since State is finite, this might be provable even without
    PropExtensionality, but that will have to wait. *)
 Lemma State_injectivity
-      t0 p0 s0 i0 o0 m0 a0 (c0: consistent m0 a0) ao0
-      t1 p1 s1 i1 o1 m1 a1 (c1: consistent m1 a1) ao1:
-  t0=t1 -> p0=p1 -> s0=s1 -> i0=i1 -> o0=o1 -> m0=m1 -> a0=a1
-  -> {|terminated:=t0; PC:=p0; SP:=s0; input:=i0; output:=o0; memory:=m0; consistency:=c0; always_output:=ao0|}
-  = {|terminated:=t1; PC:=p1; SP:=s1; input:=i1; output:=o1; memory:=m1; consistency:=c1; always_output:=ao1|}.
+      p0 s0 i0 o0 m0 ao0
+      p1 s1 i1 o1 m1 ao1:
+  p0=p1 -> s0=s1 -> i0=i1 -> o0=o1 -> m0=m1
+  -> {|PC:=p0; SP:=s0; input:=i0; output:=o0; memory:=m0; always_output:=ao0|}
+  = {|PC:=p1; SP:=s1; input:=i1; output:=o1; memory:=m1; always_output:=ao1|}.
 Proof.
   repeat (intro e; destruct e).
-  destruct (proof_irrelevance (consistent m0 a0) c0 c1).
   destruct (proof_irrelevance (o0 <> []) ao0 ao1).
   reflexivity.
 Qed.
 
 Lemma State_extensionality : forall (s0 s1: State),
-    terminated s0 = terminated s1
-    -> PC s0 = PC s1
+    PC s0 = PC s1
     -> SP s0 = SP s1
     -> input s0 = input s1
     -> output s0 = output s1
     -> memory s0 = memory s1
-    -> allocation s0 = allocation s1
     -> s0 = s1.
 Proof.
   intros.
@@ -595,8 +570,7 @@ Qed.
 
 (** *** State monads *)
 
-(** A non-deterministic "computation specification monad" can now be
-defined as follows: *)
+(** A "computation specification monad" can now be defined as follows: *)
 
 Definition ST (A: Type) := State -> A -> State -> Prop.
 
@@ -651,40 +625,17 @@ End st_tactics.
 Instance SpecificationMonad: Monad ST :=
   {
     ret A x := fun s0 y s1 => x = y /\ s0 = s1;
-    bind A st B f := fun s0 y s2 => (exists x s1, st s0 x s1 /\ f x s1 y s2)
-                                 /\ (forall x s1, st s0 x s1 -> exists z s3, f x s1 z s3);
+    bind A st B f := fun s0 y s2 => exists x s1, st s0 x s1 /\ f x s1 y s2;
   }.
-Proof. (* TODO: clean up and/or automate *)
+Proof.
   - abstract (st_tactics.crush).
   - abstract (st_tactics.crush).
-  - st_tactics.crush.
-    + exists x2, x3.
-      st_tactics.crush.
-      st_tactics.special.
-      firstorder.
-
-    + specialize (H2 _ _ H0).
-      st_tactics.crush.
-      st_tactics.special.
-
-    + exists x2, x3.
-      st_tactics.crush.
-      apply (H0 x4 s2).
-      st_tactics.crush.
-      apply H2; assumption.
-
-    + specialize (H3 _ _ H0) as H33.
-      destruct H33 as [? [? H33]].
-      destruct (H1 x5 x6) as [? [? ?]].
-      * firstorder.
-      * exists x7, x8.
-        st_tactics.crush.
-        destruct (H1 x9 s3);
-          st_tactics.crush;
-          firstorder.
+  - abstract (st_tactics.crush).
 Defined.
 
-(** The proof of the monad axioms is easy assuming propositional and
+(** TODO: Rewrite
+
+The proof of the monad axioms is easy assuming propositional and
 functional extensionality.
 
 Informally, an element [st: ST A] specifies a computation with possible
@@ -703,51 +654,6 @@ happen in a correct program. Furthermore, our definition of [bind] ensures
 that if running [st] from state [s0] is undefined and [f: A -> ST B], then
 running [st >>= f] from [s0] is undefined as well. *)
 
-Definition Imp A := State -> A -> State -> Prop.
-
-Definition bindI {A} (ma: Imp A) {B} (f: A -> Imp B) : Imp B :=
-  fun s0 y s2 => exists x s1, ma s0 x s1 /\ f x s1 y s2.
-
-Definition conformingAt {A} (s0: State) (st: ST A) (stI: Imp A) :=
-  (exists x s1, st s0 x s1) -> (exists x s1, stI s0 x s1) /\ (forall x s1, stI s0 x s1 -> st s0 x s1).
-
-(* begin hide*)
-Notation "'exII' H" := (ex_intro _ _ (ex_intro _ _ H)) (at level 50).
-(* end hide *)
-
-Lemma conforming_bind : forall {A B} (s0: State)
-                          (st: ST A) (f: A -> ST B)
-                          {stI: Imp A} {fI: A -> Imp B},
-    (conformingAt s0 st stI)
-    -> (forall x s1, conformingAt s1 (f x) (fI x))
-    -> conformingAt s0 (st >>= f) (bindI stI fI).
-Proof.
-  intros A B s0 st f stI fI Hst Hf.
-  split.
-  - destruct H as [y [s2 [[x [s1 [H1 _]]] H2]]].
-    destruct (H2 _ _ H1) as [y' [s2' H2']].
-    destruct (Hst (exII H1)) as [[x' [s1' Hst1]] Hst2].
-    destruct (Hf _ _ (H2 _ _ (Hst2 _ _ Hst1))) as [[y'' [s2'' Hf1]] _].
-
-    exists y'', s2'', x', s1'.
-    split; [exact Hst1 | exact Hf1].
-
-  - destruct H as [y [s2 [[x [s1 [H1 _]]] H2]]].
-    specialize (Hst (exII H1)).
-    destruct Hst as [_ Hst].
-
-    intros y' s2' [x' [s1' [HstI HfI]]].
-    split.
-    +  exists x', s1'.
-       specialize (Hst _ _ HstI).
-       split; [exact Hst|].
-       destruct (Hf _ _ (H2 _ _ Hst)) as [_ Hf2].
-       exact (Hf2 _ _ HfI).
-
-    + intros x'' s1'' Hst''.
-      exact (H2 _ _ Hst'').
-Qed.
-
 
 (** ** Primitive computations
 
@@ -760,9 +666,10 @@ we shall specify one execution step of our virtual machine as a term
 *** Lattice structure
 
 A specification [st: ST A] is often "non-deterministic" in the sense that
-[st s0 x1 s1] and [st s0 x2 s2] does not imply [x1 = x2]. It simply means
-that both [(x1, s1)] and [(x2, s2)] are possible outcomes. Thus, it makes
-sense to define the intersection of two such specifications as follows: *)
+[st s0 x1 s1] and [st s0 x2 s2] does not imply [x1 = x2] or [s1 = s2]. It
+simply means that both [(x1, s1)] and [(x2, s2)] are possible outcomes.
+Thus, it makes sense to define the intersection of two such specifications
+as follows: *)
 
 Definition intersect' {A} (st1 st2: ST A): ST A :=
   fun s0 x s1 => st1 s0 x s1 /\ st2 s0 x s1.
@@ -775,14 +682,20 @@ Notation "st1 ∩ st2" := (intersect' st1 st2) (at level 50, left associativity)
 clearly inherits a full lattice structure from the type of propositions,
 but we shall only use [∩] and the least element: *)
 
-Definition undefined' {A}: ST A := fun _ _ _ => False.
+Definition stop' {A}: ST A := fun _ _ _ => False.
 
 (* begin hide *)
 
-Lemma intersect_undefined: forall {A} (st: ST A), st ∩ undefined' = undefined'.
+Lemma intersect_stop: forall {A} (st: ST A), st ∩ stop' = stop'.
 Proof.
   intros.
-  unfold undefined', intersect'.
+  unfold stop', intersect'.
+  st_tactics.crush.
+Qed.
+
+Lemma bind_stop: forall {A B} (st: ST A), (st ;; stop') = stop' :> ST B.
+Proof.
+  unfold stop'.
   st_tactics.crush.
 Qed.
 
@@ -816,15 +729,11 @@ Qed.
 
 Definition registersUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
-    terminated s1 = terminated s0
-    /\ PC s1 = PC s0
+    PC s1 = PC s0
     /\ SP s1 = SP s0.
 
 Definition memoryUnchanged' {A} : ST A :=
   fun s0 _ s1 => memory s1 = memory s0.
-
-Definition allocationsUnchanged' {A} : ST A :=
-  fun s0 _ s1 => allocation s1 = allocation s0.
 
 Definition otherMemoryUnchanged' (n: nat) (start: Bits64): ST unit :=
   fun s0 _ s1 =>
@@ -834,10 +743,6 @@ Definition otherMemoryUnchanged' (n: nat) (start: Bits64): ST unit :=
 (** This means that the memory is unchanged except possibly for the [n]
 bytes starting at address [start]. *)
 
-Definition otherAllocationsUnchanged' (start: Bits64) : ST unit :=
-  fun s0 _ s1 =>
-    forall a, a <> start -> allocation s1 a = allocation s0 a.
-
 Definition ioUnchanged' {A} : ST A :=
   fun s0 _ s1 =>
     input s1 = input s0
@@ -846,26 +751,14 @@ Definition ioUnchanged' {A} : ST A :=
 (* begin hide *)
 
 Lemma stateUnchanged_characterized {A} :
-  registersUnchanged' ∩ memoryUnchanged' ∩ allocationsUnchanged' ∩ ioUnchanged' = @stateUnchanged' A.
+  registersUnchanged' ∩ memoryUnchanged' ∩ ioUnchanged' = @stateUnchanged' A.
 Proof.
-  unfold registersUnchanged', memoryUnchanged', allocationsUnchanged', ioUnchanged', stateUnchanged'.
+  unfold registersUnchanged', memoryUnchanged', ioUnchanged', stateUnchanged'.
   repeat (unfold intersect').
   st_tactics.crush.
 Qed.
 
 (* end hide *)
-
-
-(** Now the [EXIT] instruction can be specified as follows. *)
-
-Definition exit' : ST unit :=
-  memoryUnchanged'
-    ∩ allocationsUnchanged'
-    ∩ ioUnchanged'
-    ∩ fun s0 _ s1 =>
-        terminated s1 = true
-        /\ PC s1 = PC s0
-        /\ SP s1 = SP s0.
 
 
 (** *** Memory access *)
@@ -874,24 +767,22 @@ Definition exit' : ST unit :=
 
 Definition load' (n: nat) (start: Bits64) : ST nat :=
   stateUnchanged'
-    ∩ fun s x _ => lift fromLittleEndian
-                     (traverse (memory s) (addresses n start)) = Some x.
+    ∩ fun s x _ => Some x = lift fromLittleEndian
+                              (traverse (memory s) (addresses n start)).
 
 (** In words, [load' n a s0 x s1] means that [s0 = s1] and that the [n]
-bytes starting at [a] represents the natural number [x] $<2^n$. The result
-is undefined if not all the addresses [start], ..., [start+n-1] have been
-allocated. *)
+bytes starting at [a] represents the natural number [x] $<2^n$. If not all
+the addresses [start], ..., [start+n-1] are available, the machine stops.
+*)
 
-(* Observe that if (store' n start value s0 x s1), then we know that the
-   addresses were allocated because of [consistency s1].
-   Formally:
-   Vector.Forall (fun a => memory s0 a <> None) (addresses n start)
- *)
+Definition memoryAvailable' {A} (n: nat) (start: Bits64): ST A :=
+  fun s0 _ _ => Forall (fun a => memory s0 a <> None) (addresses n start).
+
 Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
   registersUnchanged'
     ∩ ioUnchanged'
+    ∩ memoryAvailable' n start
     ∩ otherMemoryUnchanged' n start
-    ∩ allocationsUnchanged'
     ∩ fun s0 _ s1 => load' n start s1 value s1.
 
 
@@ -899,20 +790,16 @@ Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
 
 Definition setPC' (a: Bits64): ST unit :=
   memoryUnchanged'
-    ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
-         terminated s1 = terminated s0
-         /\ SP s1 = SP s0
+        SP s1 = SP s0
          /\ PC s1 = a.
 
 Definition setSP' (a: Bits64): ST unit :=
   memoryUnchanged'
-    ∩ allocationsUnchanged'
     ∩ ioUnchanged'
     ∩ fun s0 _ s1 =>
-        terminated s1 = terminated s0
-        /\ PC s1 = PC s0
+        PC s1 = PC s0
         /\ SP s1 = a.
 
 (** The corresponding "get" computations are simple instances of
@@ -926,21 +813,11 @@ Definition next' (n: nat) : ST nat :=
   setPC' (toBits 64 (a + n));;
   load' n a.
 
-Definition possiblyModifyMemory' n a :=
-  registersUnchanged'
-    ∩ ioUnchanged'
-    ∩ otherMemoryUnchanged' n a
-    ∩ allocationsUnchanged'.
-
 Definition pop': ST Bits64 :=
   a ::= extract' SP;
   v ::= load' 8 a;
   setSP' (toBits 64 (a + 8));;
-  possiblyModifyMemory' 8 a;;
   return' (toBits 64 v).
-
-(** Observe that an implementation of [pop'] is allowed to modify the
-freed stack. *)
 
 (* begin hide*)
 Definition push' (value: Z): ST unit :=
@@ -961,42 +838,10 @@ Definition push' (value: Z): ST unit :=
 *)
 
 
-(** *** Memory allocation *)
-
-Definition allocate' (n: nat) : ST Bits64 :=
-  registersUnchanged'
-    ∩ ioUnchanged'
-    ∩ fun s0 start s1 =>
-        allocation s0 start = 0
-        /\ allocation s1 start = n
-        /\ otherAllocationsUnchanged' start s0 tt s1
-        /\ otherMemoryUnchanged' n start s0 tt s1
-        /\ load' n start s1 0 s1.
-
-(** Observe that newly allocated memory will be initialized to zero.
-
-TODO: Do we have to disallow that [allocate'] returns (address) 0 to avoid
-confusion with C's NULL pointer? *)
-
-Definition deallocate' (start: Bits64) : ST unit :=
-  registersUnchanged'
-    ∩ ioUnchanged'
-    ∩ otherAllocationsUnchanged' start
-    ∩ fun s0 _ s1 =>
-        allocation s1 start = 0
-        /\ otherMemoryUnchanged' (allocation s0 start) start s0 tt s1.
-
-(** Memory [consistency] ensures that deallocated memory is None. TODO: it
-makes sense to allocate 0 bytes or deallocate an address which is not
-allocated. This is not compatible with free() in C! *)
-
-
 (** *** Input and output *)
 
 Definition nonIoUnchanged' {A} : ST A :=
-  registersUnchanged'
-    ∩ memoryUnchanged'
-    ∩ allocationsUnchanged'.
+  registersUnchanged' ∩ memoryUnchanged'.
 
 Definition readFrame' : ST (Bits16 * Bits16) :=
   nonIoUnchanged'
@@ -1120,10 +965,8 @@ The virtual machine has the following "opcodes":
 21 & \coqdocvar{STORE2}\\
 22 & \coqdocvar{STORE4}\\
 23 & \coqdocvar{STORE8}\\
-24 & \coqdocvar{ALLOCATE}\\
 }
 \col{
-25 & \coqdocvar{DEALLOCATE}\\
 32 & \coqdocvar{ADD}\\
 33 & \coqdocvar{MULT}\\
 34 & \coqdocvar{DIV}\\
@@ -1134,9 +977,9 @@ The virtual machine has the following "opcodes":
 42 & \coqdocvar{NOT}\\
 43 & \coqdocvar{XOR}\\
 44 & \coqdocvar{POW2}\\
-48 & \coqdocvar{NEW\_FRAME}\\
 }
 \col{
+48 & \coqdocvar{NEW\_FRAME}\\
 49 & \coqdocvar{SET\_PIXEL}\\
 50 & \coqdocvar{ADD\_SAMPLE}\\
 52 & \coqdocvar{PUT\_CHAR}\\
@@ -1174,8 +1017,6 @@ Module Instructions.
   Notation "'STORE2'" := 21.
   Notation "'STORE4'" := 22.
   Notation "'STORE8'" := 23.
-  Notation "'ALLOCATE'" := 24.
-  Notation "'DEALLOCATE'" := 25.
   Notation "'ADD'" := 32.
   Notation "'MULT'" := 33.
   Notation "'DIV'" := 34.
@@ -1205,113 +1046,107 @@ the VM to perform a single execution step. We shall have more to say about
 this after the definition. *)
 
 Definition step' : ST unit :=
-  stopped ::= extract' terminated;
-  if stopped then return' tt
-  else
-    opcode ::= next' 1;
-    match opcode with
-    | EXIT => exit'
-    | NOP => stateUnchanged'
+  opcode ::= next' 1;
+  match opcode with
+  | EXIT => stop'
+  | NOP => stateUnchanged'
 
-    | JUMP => pop' >>= setPC'
-    | JUMP_ZERO =>
-        offset ::= next' 1;
-        v ::= pop';
-        if v =? 0
-        then pc ::= extract' PC;
-             setPC' (toBits 64 (pc + (signed (toBits 8 offset))))
-        else stateUnchanged'
+  | JUMP => pop' >>= setPC'
+  | JUMP_ZERO =>
+      offset ::= next' 1;
+      v ::= pop';
+      if v =? 0
+      then pc ::= extract' PC;
+           setPC' (toBits 64 (pc + (signed (toBits 8 offset))))
+      else stateUnchanged'
 
-    | SET_SP => pop' >>= setSP'
-    | GET_PC => extract' PC >>= push'
-    | GET_SP => extract' SP >>= push'
+  | SET_SP => pop' >>= setSP'
+  | GET_PC => extract' PC >>= push'
+  | GET_SP => extract' SP >>= push'
 
-    | PUSH0 => push' 0
-    | PUSH1 => next' 1 >>= push'
-    | PUSH2 => next' 2 >>= push'
-    | PUSH4 => next' 4 >>= push'
-    | PUSH8 => next' 8 >>= push'
+  | PUSH0 => push' 0
+  | PUSH1 => next' 1 >>= push'
+  | PUSH2 => next' 2 >>= push'
+  | PUSH4 => next' 4 >>= push'
+  | PUSH8 => next' 8 >>= push'
 
-    | SIGX1 => v ::= pop'; push' (signed (toBits 8 v))
-    | SIGX2 => v ::= pop'; push' (signed (toBits 16 v))
-    | SIGX4 => v ::= pop'; push' (signed (toBits 32 v))
+  | SIGX1 => v ::= pop'; push' (signed (toBits 8 v))
+  | SIGX2 => v ::= pop'; push' (signed (toBits 16 v))
+  | SIGX4 => v ::= pop'; push' (signed (toBits 32 v))
 
-    | LOAD1 => pop' >>= load' 1 >>= push'
-    | LOAD2 => pop' >>= load' 2 >>= push'
-    | LOAD4 => pop' >>= load' 4 >>= push'
-    | LOAD8 => pop' >>= load' 8 >>= push'
+  | LOAD1 => pop' >>= load' 1 >>= push'
+  | LOAD2 => pop' >>= load' 2 >>= push'
+  | LOAD4 => pop' >>= load' 4 >>= push'
+  | LOAD8 => pop' >>= load' 8 >>= push'
 
-    | STORE1 => a ::= pop'; v ::= pop'; store' 1 a v
-    | STORE2 => a ::= pop'; v ::= pop'; store' 2 a v
-    | STORE4 => a ::= pop'; v ::= pop'; store' 4 a v
-    | STORE8 => a ::= pop'; v ::= pop'; store' 8 a v
+  | STORE1 => a ::= pop'; v ::= pop'; store' 1 a v
+  | STORE2 => a ::= pop'; v ::= pop'; store' 2 a v
+  | STORE4 => a ::= pop'; v ::= pop'; store' 4 a v
+  | STORE8 => a ::= pop'; v ::= pop'; store' 8 a v
 
-    | ALLOCATE => pop' >>= allocate' >>= push'
-    | DEALLOCATE => pop' >>= deallocate'
+  | ADD => x ::= pop'; y ::= pop'; push' (x + y)
+  | MULT => x ::= pop'; y ::= pop'; push' (x * y)
+  | DIV =>
+      x ::= pop';
+      y ::= pop';
+      push' (if x =? 0 then 0 else y / x)
+  | REM =>
+      x ::= pop';
+      y ::= pop';
+      push' (if x =? 0 then 0 else y mod x)
+  | LT =>
+      x ::= pop';
+      y ::= pop';
+      push' (if y <? x then -1 else 0)
+  | AND =>
+      u ::= pop';
+      v ::= pop';
+      push' (map2 (fun x y => if x then y else false) u v)
+  | OR =>
+      u ::= pop';
+      v ::= pop';
+      push' (map2 (fun x y => if x then true else y) u v)
+  | XOR =>
+      u ::= pop';
+      v ::= pop';
+      push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
+  | NOT =>
+      u ::= pop';
+      push' (map (fun x => if x then false else true) u)
+  | POW2 =>
+      n ::= pop';
+      push' (2 ^ n)
 
-    | ADD => x ::= pop'; y ::= pop'; push' (x + y)
-    | MULT => x ::= pop'; y ::= pop'; push' (x * y)
-    | DIV =>
-        x ::= pop';
-        y ::= pop';
-        push' (if x =? 0 then 0 else y / x)
-    | REM =>
-        x ::= pop';
-        y ::= pop';
-        push' (if x =? 0 then 0 else y mod x)
-    | LT =>
-        x ::= pop';
-        y ::= pop';
-        push' (if y <? x then -1 else 0)
-    | AND =>
-        u ::= pop';
-        v ::= pop';
-        push' (map2 (fun x y => if x then y else false) u v)
-    | OR =>
-        u ::= pop';
-        v ::= pop';
-        push' (map2 (fun x y => if x then true else y) u v)
-    | XOR =>
-        u ::= pop';
-        v ::= pop';
-        push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
-    | NOT =>
-        u ::= pop';
-        push' (map (fun x => if x then false else true) u)
-    | POW2 =>
-        n ::= pop';
-        push' (2 ^ n)
+  | NEW_FRAME =>
+      rate ::= pop';
+      height ::= pop';
+      width ::= pop';
+      newFrame' width height rate
+  | SET_PIXEL =>
+      b ::= pop';
+      g ::= pop';
+      r ::= pop';
+      y ::= pop';
+      x ::= pop';
+      setPixel' x y r g b
+  | ADD_SAMPLE =>
+      right ::= pop';
+      left ::= pop';
+      addSample' left right
+  | PUT_CHAR =>
+      pop' >>= putChar'
 
-    | NEW_FRAME =>
-        rate ::= pop';
-        height ::= pop';
-        width ::= pop';
-        newFrame' width height rate
-    | SET_PIXEL =>
-        b ::= pop';
-        g ::= pop';
-        r ::= pop';
-        y ::= pop';
-        x ::= pop';
-        setPixel' x y r g b
-    | ADD_SAMPLE =>
-        right ::= pop';
-        left ::= pop';
-        addSample' left right
-    | PUT_CHAR =>
-        pop' >>= putChar'
+  | READ_FRAME =>
+      wh ::= readFrame';
+      push' (fst wh);;
+      push' (snd wh)
+  | READ_PIXEL =>
+      x ::= pop';
+      y ::= pop';
+      readPixel' x y >>= push'
 
-    | READ_FRAME =>
-        wh ::= readFrame';
-        push' (fst wh);;
-        push' (snd wh)
-    | READ_PIXEL =>
-        x ::= pop';
-        y ::= pop';
-        readPixel' x y >>= push'
-
-    | _ => undefined'
-    end.
+  | _ => stop'
+  end.
 
 (* begin hide *)
 End limit_scope.
@@ -1319,40 +1154,6 @@ End limit_scope.
 (** In this definition %\,%[map: (bool->bool)->Bits64->Bits64] and %\,%[map2:
 (bool->bool->bool)->Bits64->Bits64->Bits64] denote the obvious "bitwise"
 transformations. *)
-
-Lemma no_progress_after_termination: forall s, terminated s = true -> forall t, step' s tt t -> s = t.
-Proof.
-Admitted.
-
-(** A conforming implementation must have the following properties: *)
-
-Class ConformingTransitions (trans: State -> State -> Prop) :=
-  {
-    ct_progress: forall s, (exists t, step' s tt t) -> exists t, trans s t;
-    ct_correctness: forall s, (exists t, step' s tt t) -> forall t, (trans s t -> step' s tt t);
-  }.
-
-(** In other words, an implementation is a transition system [trans] with
-the following properties:
-
-- If [exists t, step' s tt t], then [exists t, trans s t]%\:% and [step' s tt t]%\,%
-  for all such [t].
-
-- If [not exists t, step' s tt t], then the behaviour is undefined.
-
-Observe that [trans] does not have to be completely deterministic e.g.%\ %
-with regards to the addresses of newly allocated memory. *)
-
-Instance conforming_impl_conforming (stepI: Imp unit) (H: forall s0, conformingAt s0 step' stepI) :
-  ConformingTransitions (fun s0 s1 => stepI s0 tt s1).
-Proof.
-  constructor; intros s0 H0; specialize (H s0 (ex_intro _ _ H0)).
-  - destruct H as [[[] H] _].
-    exact H.
-  - intros s1 H1.
-    destruct H as [_ H].
-    exact (H tt s1 H1).
-Qed.
 
 
 (** ** The initial state
@@ -1365,39 +1166,26 @@ list of input frames and no output frames.
 [[
 Definition protoState (inputList: list (Image Gray)) : State :=
   {|
-    terminated := false;
     PC := toBits 64 0;
     SP := toBits 64 0;
     input := noImage :: inputList;
     output := [(noImage, noSound, [])];
-    memory := fun _ => None;
-    allocation := fun _ => 0;
+    memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
   |}.
 ]]
 *)
 
 (* begin hide *)
 
-Definition protoState (inputList: list (Image Gray)) : State.
+Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State.
   refine ({|
-             terminated := false;
              PC := toBits 64 0;
              SP := toBits 64 0;
              input := noImage :: inputList;
              output := [(noImage, noSound, [])];
-             memory := fun _ => None;
-             allocation := fun _ => 0;
+             memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
            |}).
-  (* TODO: Automate *)
-  - split.
-    + firstorder.
-    + intros x y.
-      funelim (addresses 0 x).
-      simpl.
-      intro H.
-      exfalso.
-      induction H; assumption.
-  - congruence.
+  discriminate.
 Defined.
 
 Section limit_scope.
@@ -1410,24 +1198,71 @@ Equations fillMemory' (_: Bits64) (_: list Bits8) : ST unit :=
   fillMemory' start (x :: u) := store' 1 start x ;; fillMemory' (toBits 64 (start + 1)) u.
 
 Definition loadProgram' (program: list Bits8) (argument: list Bits8) : ST unit :=
-  program_start ::= allocate' (length program);
+  let program_start := toBits 64 0 in
+  let argument_start := toBits 64 (length program) in
   fillMemory' program_start program;;
-  setPC' program_start;;
-  let len := length argument in
-  let restSize := len + 4 * 8 in
-  argument_start ::= allocate' restSize;
   fillMemory' argument_start argument;;
-  store' 8 (toBits 64 (argument_start + len)) len;;
-  setSP' (toBits 64 (argument_start + restSize)).
+  setPC' program_start.
 
 (* begin hide *)
 End limit_scope.
 (* end hide *)
 
-Definition conformingInitialState inputList program argument : State -> Prop :=
-  loadProgram' program argument (protoState inputList) tt.
+Definition conformingInitialState memorySize inputList program argument : State -> Prop :=
+  loadProgram' program argument (protoState memorySize inputList) tt.
 
 (** In other words, a conforming implementation must start the machine in
 a state which satisfies this predicate. This completes our specification.
-It is somewhat idealized. For example, our programs never need more than
-$2^{34}$ bytes of allocated memory. *)
+*)
+
+Definition terminalState s : Prop := not (exists s1, step' s tt s1).
+
+Lemma terminalState_decidable: forall s, terminalState s \/ not (terminalState s).
+Proof.
+Admitted.
+
+Lemma step_deterministic: forall s0 s1 s2, step' s0 tt s1 -> step' s0 tt s2 -> s1 = s2.
+Proof.
+Admitted.
+
+Equations stepN' (_: nat) : ST unit :=
+  stepN' 0 := stateUnchanged';
+  stepN' (S n) := step';; stepN' n.
+
+Definition run (s0: State) (s: State) : Prop :=
+  terminalState s /\ exists n, stepN' n s0 tt s.
+
+Corollary run_deterministic: forall s0 s1 s2, run s0 s1 -> run s0 s2 -> s1 = s2.
+Proof.
+  unfold run.
+  intros s0 s1 s2 [H11 [n1 H12]] [H21 H22].
+  revert s0 H12 s2 H21 H22.
+  induction n1 as [|n1 IH];
+    simp stepN';
+    intros s0 H12 s2 H21 [n2 H22];
+    destruct n2.
+
+  - congruence.
+  - unfold stateUnchanged' in H12.
+    subst.
+    simp stepN' in H22.
+    destruct H22 as [[] [s [H221 H222]]].
+    exfalso.
+    apply H11.
+    exact (ex_intro _ _ H221).
+
+  - simp stepN' in H22.
+    unfold stateUnchanged' in H22.
+    subst.
+    destruct H12 as [[] [s [H121 H122]]].
+    exfalso.
+    apply H21.
+    exact (ex_intro _ _ H121).
+
+  - destruct H12 as [[] [s [H121 H122]]].
+    simp stepN' in H22.
+    destruct H22 as [[] [s' [H221 H222]]].
+    assert (s' = s); [exact (step_deterministic H221 H121) |].
+    subst.
+    exact (IH s H122 _ H21 (ex_intro _ n2 H222)).
+Qed.
