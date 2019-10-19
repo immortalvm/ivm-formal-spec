@@ -1,6 +1,9 @@
 From Equations Require Import Equations.
 Set Equations With UIP.
 
+From RecordUpdate Require Import RecordSet.
+Import RecordSetNotations.
+
 Require Import Coq.Init.Nat.
 Require Import Coq.Arith.Arith.
 Require Import Coq.ZArith.ZArith.
@@ -124,6 +127,7 @@ still have implicit inclusions [vector A n] $↪$ [list A], and for every
 [u: list A] there is a corresponding vector in [Vector A (length u)]. *)
 
 (* begin hide *)
+Open Scope bool_scope.
 Open Scope Z_scope.
 Coercion Z.of_nat : nat >-> Z.
 Notation "'vector'" := t.
@@ -306,6 +310,8 @@ End limit_scope.
 (* TODO: Is this a good idea to avoid switching between [nat_scope] and [Z_scope]? *)
 Notation "'0'" := O.
 Notation "x < y" := (Nat.lt x y).
+Notation "x <? y" := (Nat.ltb x y).
+Notation "x =? y" := (Nat.eqb x y).
 
 (* This could be generalized to all $x < 2^n$. *)
 Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
@@ -325,6 +331,7 @@ Proof.
 Qed.
 
 (* end hide *)
+
 
 
 (** ** Monads
@@ -404,7 +411,8 @@ Record Image (C: Type) :=
   mkImage {
       iWidth: Bits16;
       iHeight: Bits16;
-      iPixel: forall (x: nat) (Hx: x < iWidth) (y: nat) (Hy: y < iHeight), C;
+      iPixel: nat -> nat -> option C;
+      iDef: forall x y, iPixel x y <> None <-> x < iWidth /\ y < iHeight;
     }.
 
 (** In Coq a record is an inductive type with a single constructor
@@ -420,7 +428,8 @@ Definition noImage {C} : Image C :=
   {|
      iWidth := toBits 16 0;
      iHeight := toBits 16 0;
-     iPixel := _;
+     iPixel := fun _ _ => None;
+     iDef := _;
   |}.
 ]]
 *)
@@ -430,12 +439,16 @@ Definition noImage {C} : Image C.
   refine ({|
              iWidth := toBits 16 0;
              iHeight := toBits 16 0;
-             iPixel := _;
+             iPixel := fun _ _ => None;
+             iDef := _;
            |}).
   unfold fromBits16.
   rewrite zeroBits_zero.
-  intros x Hx.
-  contradiction (Nat.nlt_0_r x Hx).
+  intros x y.
+  split.
+  - congruence.
+  - intros [Hx Hy].
+    contradiction (Nat.nlt_0_r x Hx).
 Defined.
 (* end hide *)
 
@@ -457,21 +470,29 @@ Definition noSound : Sound :=
   {|
     sRate := toBits 32 0;
     sSamples := [];
-    sDef := _;
   |}.
 ]]
 *)
 
 (* begin hide *)
-Definition noSound : Sound.
+Definition emptySound (rate: Bits32) : Sound.
   refine ({|
-             sRate := toBits 32 0;
+             sRate := rate;
              sSamples := [];
-             sDef := _;
            |}).
   trivial.
 Defined.
+
 (* end hide *)
+
+Definition noSound := emptySound (toBits 32 0).
+
+Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
+  {|
+    sRate := sRate s;
+    sSamples := (l, r) :: (sSamples s);
+    sDef := fun H0 => False_ind _ (H H0);
+  |}.
 
 (** Textual output from the machine uses the encoding UTF-32. Again, we
 use reverse ordering. *)
@@ -494,6 +515,7 @@ Open Scope type_scope.
 (* end hide *)
 Definition Gray := Bits8.
 Definition Color := Bits16 * Bits16 * Bits16.
+Definition Black : Color := (toBits 16 0, toBits 16 0, toBits 16 0).
 (* begin hide *)
 End limit_scope.
 (* end hide *)
@@ -502,14 +524,60 @@ End limit_scope.
 black), whereas [Color] represents the ACES encoded colors of the output
 images. The [State] type can now be formulated as follows: *)
 
+Ltac derive name term :=
+  let H := fresh in
+  let A := type of term in
+  assert A as H;
+  [ exact term | ];
+  clear name;
+  rename H into name.
+
+Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
+Proof.
+  intros [Ht|Hf]; easy.
+Qed.
+
+Definition blackImage (width: Bits16) (height: Bits16): Image Color.
+  refine (
+      {|
+        iWidth := width;
+        iHeight := height;
+        iPixel x y := if (x <? width) && (y <? height) then Some Black else None;
+        iDef := _;
+      |}
+    ).
+  intros x y.
+  split.
+  - intro H.
+    remember ((x <? width) && (y <? height)) as H_lt eqn:Hxy.
+    destruct H_lt; [|congruence].
+    clear H.
+    derive Hxy (Bool.Is_true_eq_right _ Hxy).
+    derive Hxy (Bool.andb_prop_elim _ _ Hxy).
+    split;
+      [ destruct Hxy as [H _]
+      | destruct Hxy as [_ H] ];
+      derive H (proj1 (reflect_it (Nat.ltb_spec0 _ _)) H);
+      exact H.
+  - intros [Hx Hy].
+    derive Hx (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hx).
+    derive Hy (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hy).
+    set (H := Bool.andb_prop_intro _ _ (conj Hx Hy)).
+    derive H (Bool.Is_true_eq_true _ H).
+    rewrite H.
+    discriminate.
+Defined.
+
+Definition Output : Type := (Image Color) * Sound * OutputText.
+
 Record State :=
   mkState {
       PC: Bits64;
       SP: Bits64;
-      input: list (Image Gray);
-      output: list ((Image Color) * Sound * OutputText);
       memory: Bits64 -> option Bits8;
-      always_output: output <> []
+      input: list (Image Gray);
+      output: list Output;
+      always_output: [] <> output;
     }.
 
 (** [PC] and [SP] are known as the "program counter" and the "stack
@@ -520,7 +588,12 @@ is reversed in the sense that the first triple in the list should be
 rendered last. The list [input] will only be decreasing as the machine
 processes the input. Conversely, [output] will only be increasing, except
 that the first element in this list should be considered "in progress"
-until the machine terminates. *)
+until the machine terminates.
+
+TODO: Mention output <> []
+*)
+
+Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output; always_output >.
 
 (* begin hide *)
 
@@ -528,9 +601,9 @@ Lemma State_expansion (s: State) :
   s = {|
     PC := PC s;
     SP := SP s;
+    memory := memory s;
     input := input s;
     output := output s;
-    memory := memory s;
     always_output := always_output s;
   |}.
 Proof.
@@ -540,14 +613,14 @@ Qed.
 (* Since State is finite, this might be provable even without
    PropExtensionality, but that will have to wait. *)
 Lemma State_injectivity
-      p0 s0 i0 o0 m0 ao0
-      p1 s1 i1 o1 m1 ao1:
-  p0=p1 -> s0=s1 -> i0=i1 -> o0=o1 -> m0=m1
-  -> {|PC:=p0; SP:=s0; input:=i0; output:=o0; memory:=m0; always_output:=ao0|}
-  = {|PC:=p1; SP:=s1; input:=i1; output:=o1; memory:=m1; always_output:=ao1|}.
+      p0 s0 m0 i0 o0 ao0
+      p1 s1 m1 i1 o1 ao1:
+  p0=p1 -> s0=s1 -> m0=m1 -> i0=i1 -> o0=o1
+  -> {|PC:=p0; SP:=s0; memory:=m0; input:=i0; output:=o0; always_output:=ao0|}
+  = {|PC:=p1; SP:=s1; memory:=m1; input:=i1; output:=o1; always_output:=ao1|}.
 Proof.
   repeat (intro e; destruct e).
-  destruct (proof_irrelevance (o0 <> []) ao0 ao1).
+  destruct (proof_irrelevance ([] <> o0) ao0 ao1).
   reflexivity.
 Qed.
 
@@ -572,12 +645,13 @@ Qed.
 
 (** A "computation specification monad" can now be defined as follows: *)
 
-Definition ST (A: Type) := State -> A -> State -> Prop.
+Definition ST (A: Type) := State -> option (A * State).
 
 (* begin hide *)
 
 (* Extensionality is needed since A is an arbitrary type.
    This can be avoided if we define monads in terms of setoids. *)
+(*
 Lemma ST_extensionality {A} (st0 st1: ST A):
   (forall s0 x s1, st0 s0 x s1 <-> st1 s0 x s1) -> st0 = st1.
 Proof.
@@ -586,6 +660,7 @@ Proof.
   apply propositional_extensionality.
   apply H.
 Qed.
+ *)
 
 Module st_tactics.
   Ltac destr :=
@@ -602,7 +677,8 @@ Module st_tactics.
   Ltac crush := repeat (
                     intro || split || assumption || discriminate || subst
                     || apply State_extensionality
-                    || apply ST_extensionality
+                    || apply functional_extensionality
+                    || f_equal
                     || simpl in * || destr || ex_tac).
   Ltac ex_tac ::=
     match goal with
@@ -624,13 +700,15 @@ End st_tactics.
 
 Instance SpecificationMonad: Monad ST :=
   {
-    ret A x := fun s0 y s1 => x = y /\ s0 = s1;
-    bind A st B f := fun s0 y s2 => exists x s1, st s0 x s1 /\ f x s1 y s2;
+    ret A x := fun s => Some (x, s);
+    bind A st B f := fun s => st s >>= (fun pair => f (fst pair) (snd pair));
   }.
 Proof.
-  - abstract (st_tactics.crush).
-  - abstract (st_tactics.crush).
-  - abstract (st_tactics.crush).
+  - st_tactics.crush.
+    destruct (ma x) as [[? ?]|]; reflexivity.
+  - st_tactics.crush.
+  - st_tactics.crush.
+    destruct (ma x) as [[? ?]|]; reflexivity.
 Defined.
 
 (** TODO: Rewrite
@@ -671,21 +749,24 @@ simply means that both [(x1, s1)] and [(x2, s2)] are possible outcomes.
 Thus, it makes sense to define the intersection of two such specifications
 as follows: *)
 
+(*
 Definition intersect' {A} (st1 st2: ST A): ST A :=
   fun s0 x s1 => st1 s0 x s1 /\ st2 s0 x s1.
+*)
 
 (* begin hide *)
-Notation "st1 ∩ st2" := (intersect' st1 st2) (at level 50, left associativity).
+(* Notation "st1 ∩ st2" := (intersect' st1 st2) (at level 50, left associativity). *)
 (* end hide *)
 
 (** We use [st1 ∩ st2] as an abbreviation for [intersect' st1 st2]. [ST A]
 clearly inherits a full lattice structure from the type of propositions,
 but we shall only use [∩] and the least element: *)
 
-Definition stop' {A}: ST A := fun _ _ _ => False.
+Definition stop' {A}: ST A := fun _ => None.
 
 (* begin hide *)
 
+(*
 Lemma intersect_stop: forall {A} (st: ST A), st ∩ stop' = stop'.
 Proof.
   intros.
@@ -698,6 +779,7 @@ Proof.
   unfold stop'.
   st_tactics.crush.
 Qed.
+*)
 
 (* end hide *)
 
@@ -713,6 +795,7 @@ Definition return' {A} (x: A) : ST A := ret x.
 Many computations leave the state unchanged or mostly unchanged. This can
 be expressed this using intersection and the following specifications. *)
 
+(*
 Definition stateUnchanged' {A} : ST A :=
   fun s0 _ s1 => s1 = s0.
 
@@ -760,53 +843,59 @@ Qed.
 
 (* end hide *)
 
+ *)
+
 
 (** *** Memory access *)
+
+Definition tryExtract' {A} (f: State -> option A) : ST A :=
+  fun s => match f s with
+        | Some x => Some (x, s)
+        | None => None
+        end.
 
 (** Here is how we specify the [LOAD] instructions: *)
 
 Definition load' (n: nat) (start: Bits64) : ST nat :=
-  stateUnchanged'
-    ∩ fun s x _ => Some x = lift fromLittleEndian
-                              (traverse (memory s) (addresses n start)).
+  tryExtract'
+    (fun s => lift fromLittleEndian
+                (traverse (memory s) (addresses n start))).
 
 (** In words, [load' n a s0 x s1] means that [s0 = s1] and that the [n]
 bytes starting at [a] represents the natural number [x] $<2^n$. If not all
 the addresses [start], ..., [start+n-1] are available, the machine stops.
 *)
 
-Definition memoryAvailable' {A} (n: nat) (start: Bits64): ST A :=
-  fun s0 _ _ => Forall (fun a => memory s0 a <> None) (addresses n start).
+Definition store1' (a: Bits64) (value: Bits8) : ST unit :=
+  fun s =>
+    match memory s a with
+    | None => None
+    | Some _ =>
+      let m (a': Bits64) := if a' =? a then Some value else memory s a' in
+      Some (tt, s <| memory := m |>)
+    end.
+
+Equations fillMemory' (_: Bits64) (_: list Bits8) : ST unit :=
+  fillMemory' _ [] := return' tt;
+  fillMemory' start (x :: u) := store1' start x;; fillMemory' (toBits 64 (start + 1)) u.
 
 Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
-  registersUnchanged'
-    ∩ ioUnchanged'
-    ∩ memoryAvailable' n start
-    ∩ otherMemoryUnchanged' n start
-    ∩ fun s0 _ s1 => load' n start s1 value s1.
+  fillMemory' start (toLittleEndian n value).
 
 
 (** *** Stack and program counter *)
 
 Definition setPC' (a: Bits64): ST unit :=
-  memoryUnchanged'
-    ∩ ioUnchanged'
-    ∩ fun s0 _ s1 =>
-        SP s1 = SP s0
-         /\ PC s1 = a.
+  fun s => Some (tt, s <| PC := a |>).
 
 Definition setSP' (a: Bits64): ST unit :=
-  memoryUnchanged'
-    ∩ ioUnchanged'
-    ∩ fun s0 _ s1 =>
-        PC s1 = PC s0
-        /\ SP s1 = a.
+  fun s => Some (tt, s <| SP := a |>).
 
 (** The corresponding "get" computations are simple instances of
 [extract']. *)
 
 Definition extract' {A} (f: State -> A): ST A :=
-  stateUnchanged' ∩ (fun s x _ => f s = x).
+  fun s => Some (f s, s).
 
 Definition next' (n: nat) : ST nat :=
   a ::= extract' PC;
@@ -840,96 +929,118 @@ Definition push' (value: Z): ST unit :=
 
 (** *** Input and output *)
 
-Definition nonIoUnchanged' {A} : ST A :=
-  registersUnchanged' ∩ memoryUnchanged'.
-
 Definition readFrame' : ST (Bits16 * Bits16) :=
-  nonIoUnchanged'
-    ∩ fun s0 wh s1 =>
-        output s1 = output s0
-        /\ match input s1 with
-          | [] | [_] => wh = (toBits 16 0, toBits 16 0)
-          | _ :: hd :: tl =>
-            wh = (iWidth hd, iHeight hd)
-            /\ input s1 = hd :: tl
-          end.
+  fun s =>
+    let s' := set input (@tail _) s in
+    let x := match input s' with
+             | hd :: tl => (iWidth hd, iHeight hd)
+             | _ => (toBits 16 0, toBits 16 0)
+             end in
+    Some (x, s').
 
 Definition readPixel' (x y: nat) : ST Bits8 :=
-  stateUnchanged'
-    ∩ fun s0 z _ =>
-        match input s0 with
-        | [] => False
-        | frame :: _ =>
-          exists (Hx: x < iWidth frame)
-            (Hy: y < iHeight frame), z = iPixel frame Hx Hy
+  tryExtract'
+    (fun s =>
+       match input s with
+       | frame :: _ => iPixel frame x y
+       | [] => None
+       end).
+
+(* TODO: Hide *)
+Definition addOutput s o : State :=
+  ({|
+      PC := PC s;
+      SP := SP s;
+      memory := memory s;
+      input := input s;
+      output := o :: output s;
+      always_output:= fun H => nil_cons H
+    |}).
+
+(* TODO: Hide *)
+Definition replaceOutput s o : State :=
+  ({|
+      PC := PC s;
+      SP := SP s;
+      memory := memory s;
+      input := input s;
+      output := o :: tail (output s);
+      always_output:= fun H => nil_cons H
+    |}).
+
+Definition newFrame' (width height sampleRate: nat) : ST unit :=
+  fun s =>
+    let o := (blackImage (toBits 16 width) (toBits 16 height), emptySound (toBits 32 sampleRate), []) in
+    Some (tt, addOutput s o).
+
+(* TODO: Simplify presentation *)
+Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
+  refine (if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
+          then Some
+                 {|
+                   iWidth := iWidth image;
+                   iHeight := iHeight image;
+                   iPixel := fun xx yy => if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy;
+                   iDef := _
+                 |}
+          else None).
+  intros xx yy.
+  split;
+    remember ((xx =? x) && (yy =? y)) as exy eqn:H;
+    destruct exy.
+  - intros _.
+    derive e (Bool.Is_true_eq_left _ e).
+    derive e (Bool.andb_prop_elim _ _ e).
+    derive H (Bool.Is_true_eq_right _ H).
+    derive H (Bool.andb_prop_elim _ _ H).
+    split;
+      [ destruct e as [e _] | destruct e as [_ e] ];
+      [ destruct H as [H _] | destruct H as [_ H] ];
+      derive e (proj1 (reflect_it (Nat.ltb_spec0 _ _)) e);
+      derive H (proj1 (reflect_it (Nat.eqb_spec _ _)) H);
+      subst;
+      exact e.
+  - apply (iDef image).
+  - discriminate.
+  - apply (iDef image).
+Defined.
+
+Definition getCurrentOutput' : ST Output :=
+  fun s => match output s with
+        | o :: _ => Some (o, s)
+        | [] => None
         end.
 
-(* Initial frame pixels: undefined. *)
-Definition newFrame' (width height sampleRate: nat) : ST unit :=
-  nonIoUnchanged'
-    ∩ fun s0 _ s1 =>
-        input s1 = input s0
-        /\ match output s1 with
-          | [] => False
-          | (image, sound, text) :: rest =>
-            output s0 = rest
-            /\ width = iWidth image
-            /\ height = iHeight image
-            /\ sampleRate = sRate sound
-            /\ sSamples sound = []
-            /\ text = []
-          end.
+(** TODO: Mention impossible case? *)
 
 Definition setPixel' (x y r g b : nat) : ST unit :=
-  nonIoUnchanged'
-    ∩ fun s0 _ s1 =>
-        input s0 = input s1
-        /\ match output s0, output s1 with
-          | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
-            r1 = r0
-            /\ t1 = t0
-            /\ s1 = s0
-            (* Needed since iPixel is undefined outside width*height. *)
-            /\ iWidth i1 = iWidth i0
-            /\ iHeight i1 = iHeight i0
-            (* Otherwise undefined *)
-            /\ x < iWidth i0
-            /\ y < iHeight i0
+  o ::= getCurrentOutput';
+  match o with
+  | (image, sound, text) =>
+    match trySetPixel image x y (toBits 16 r, toBits 16 g, toBits 16 b) with
+    | None => stop'
+    | Some updatedImage => fun s => Some (tt, replaceOutput s (updatedImage, sound, text))
+    end
+  end.
 
-            /\ forall xx Hx0 Hx1 yy Hy0 Hy1, @iPixel _ i1 xx Hx0 yy Hy0 =
-                                       if (if xx =? x then yy =? y else false)
-                                       then (toBits 16 r, toBits 16 g, toBits 16 b)
-                                       else @iPixel _ i0 xx Hx1 yy Hy1
-          | _, _ => False
-          end.
-
-Definition addSample' (left right : nat) : ST unit :=
-  nonIoUnchanged'
-    ∩ fun s0 _ s1 =>
-        input s0 = input s1
-        /\ match output s0, output s1 with
-          | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
-            r1 = r0
-            /\ t1 = t0
-            /\ i1 = i0
-            /\ sRate s1 = sRate s0
-            /\ 0 <> sRate s0 (* Otherwise undefined *)
-            /\ sSamples s1 = (toBits 16 left, toBits 16 right) :: sSamples s0
-          | _, _ => False
-          end.
+Definition addSample' (l r : nat) : ST unit :=
+  o ::= getCurrentOutput';
+  match o with
+  | (image, sound, text) =>
+    match Sumbool.sumbool_of_bool (0 =? sRate sound) with
+    | right H =>
+      let updatedSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
+      fun s => Some (tt, replaceOutput s (image, updatedSound, text))
+    | _ => stop'
+    end
+  end.
 
 Definition putChar' (c: nat) : ST unit :=
-  nonIoUnchanged'
-    ∩ fun s0 _ s1 =>
-        input s0 = input s1
-        /\ match output s0, output s1 with
-          | (i0, s0, t0) :: r0, (i1, s1, t1) :: r1 =>
-            r1 = r0
-            /\ s1 = s0
-            /\ i1 = i0
-            /\ t1 = (toBits 32 c) :: t0
-          | _, _ => False
-          end.
+  o ::= getCurrentOutput';
+  match o with
+  | (image, sound, text) =>
+    fun s => Some (tt, replaceOutput s (image, sound, (toBits 32 c) :: text))
+  end.
 
 
 (** ** Single execution step
@@ -1049,7 +1160,7 @@ Definition step' : ST unit :=
   opcode ::= next' 1;
   match opcode with
   | EXIT => stop'
-  | NOP => stateUnchanged'
+  | NOP => return' tt
 
   | JUMP => pop' >>= setPC'
   | JUMP_ZERO =>
@@ -1058,7 +1169,7 @@ Definition step' : ST unit :=
       if v =? 0
       then pc ::= extract' PC;
            setPC' (toBits 64 (pc + (signed (toBits 8 offset))))
-      else stateUnchanged'
+      else return' tt
 
   | SET_SP => pop' >>= setSP'
   | GET_PC => extract' PC >>= push'
@@ -1168,9 +1279,9 @@ Definition protoState (inputList: list (Image Gray)) : State :=
   {|
     PC := toBits 64 0;
     SP := toBits 64 0;
+    memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
     input := noImage :: inputList;
     output := [(noImage, noSound, [])];
-    memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
   |}.
 ]]
 *)
@@ -1181,9 +1292,9 @@ Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State.
   refine ({|
              PC := toBits 64 0;
              SP := toBits 64 0;
+             memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
              input := noImage :: inputList;
              output := [(noImage, noSound, [])];
-             memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
            |}).
   discriminate.
 Defined.
@@ -1192,10 +1303,6 @@ Section limit_scope.
 Open Scope nat_scope.
 
 (* end hide *)
-
-Equations fillMemory' (_: Bits64) (_: list Bits8) : ST unit :=
-  fillMemory' _ [] := stateUnchanged';
-  fillMemory' start (x :: u) := store' 1 start x ;; fillMemory' (toBits 64 (start + 1)) u.
 
 Definition loadProgram' (program: list Bits8) (argument: list Bits8) : ST unit :=
   let program_start := toBits 64 0 in
@@ -1208,61 +1315,24 @@ Definition loadProgram' (program: list Bits8) (argument: list Bits8) : ST unit :
 End limit_scope.
 (* end hide *)
 
-Definition conformingInitialState memorySize inputList program argument : State -> Prop :=
-  loadProgram' program argument (protoState memorySize inputList) tt.
+Equations run' (limit: nat) : ST unit :=
+  run' 0 := stop';
+  run' (S n) := fun s =>
+    match step' s with
+    | None => Some (tt, s)
+    | Some (tt, s1) => run' n s1
+    end.
 
-(** In other words, a conforming implementation must start the machine in
-a state which satisfies this predicate. This completes our specification.
+(**
+- [run' (S n) s0 = Some (tt, s0)] if [step' s0 = None].
+- [run' (S n) s0 = run' n s1] if [step' s0 = Some (tt, s1)] and
+- Otherwise, [run' (S n) s0 = None].
 *)
 
-Definition terminalState s : Prop := not (exists s1, step' s tt s1).
-
-Lemma terminalState_decidable: forall s, terminalState s \/ not (terminalState s).
-Proof.
-Admitted.
-
-Lemma step_deterministic: forall s0 s1 s2, step' s0 tt s1 -> step' s0 tt s2 -> s1 = s2.
-Proof.
-Admitted.
-
-Equations stepN' (_: nat) : ST unit :=
-  stepN' 0 := stateUnchanged';
-  stepN' (S n) := step';; stepN' n.
-
-Definition run (s0: State) (s: State) : Prop :=
-  terminalState s /\ exists n, stepN' n s0 tt s.
-
-Corollary run_deterministic: forall s0 s1 s2, run s0 s1 -> run s0 s2 -> s1 = s2.
-Proof.
-  unfold run.
-  intros s0 s1 s2 [H11 [n1 H12]] [H21 H22].
-  revert s0 H12 s2 H21 H22.
-  induction n1 as [|n1 IH];
-    simp stepN';
-    intros s0 H12 s2 H21 [n2 H22];
-    destruct n2.
-
-  - congruence.
-  - unfold stateUnchanged' in H12.
-    subst.
-    simp stepN' in H22.
-    destruct H22 as [[] [s [H221 H222]]].
-    exfalso.
-    apply H11.
-    exact (ex_intro _ _ H221).
-
-  - simp stepN' in H22.
-    unfold stateUnchanged' in H22.
-    subst.
-    destruct H12 as [[] [s [H121 H122]]].
-    exfalso.
-    apply H21.
-    exact (ex_intro _ _ H121).
-
-  - destruct H12 as [[] [s [H121 H122]]].
-    simp stepN' in H22.
-    destruct H22 as [[] [s' [H221 H222]]].
-    assert (s' = s); [exact (step_deterministic H221 H121) |].
-    subst.
-    exact (IH s H122 _ H21 (ex_intro _ n2 H222)).
-Qed.
+Definition finalState memorySize inputList program argument maxSteps : option State :=
+  let s0 := protoState memorySize inputList in
+  let loadAndRun := loadProgram' program argument;; run' (maxSteps + 1) in
+  match loadAndRun s0 with
+  | Some (_, s1) => Some s1
+  | None => None
+  end.
