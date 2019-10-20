@@ -371,10 +371,10 @@ Equations traverse {m} `{Monad m} {A B: Type} (_: A -> m B) (_: list A) : m (lis
   traverse f (x :: u) := y ::= f x; v ::= traverse f u; ret (y :: v).
 
 (** Many generic types have operations that satisfy the monad axioms, but
-in this text we shall use only two. The simplest of these is the "Maybe
-monad": *)
+in this text we shall use only two. The simplest of these is the option
+monad: *)
 
-Instance Maybe: Monad option :=
+Instance OptionMonad: Monad option :=
 {
   ret A x := Some x;
   bind A ma B f := match ma with None => None | Some a => f a end
@@ -628,9 +628,9 @@ Qed.
 
 (** *** State monad *)
 
-(** A "computation specification monad" can now be defined as follows: *)
+(** Our computation monad can now be defined as follows: *)
 
-Definition ST (A: Type) := State -> option (A * State).
+Definition Comp (A: Type) := State -> option (A) * State.
 
 (* begin hide *)
 
@@ -670,55 +670,48 @@ End st_tactics.
 
 (* end hide *)
 
-Instance SpecificationMonad: Monad ST :=
+Instance ComputationMonad: Monad Comp :=
   {
-    ret A x := fun s0 => Some (x, s0);
+    ret A x := fun s0 => (Some x, s0);
     bind A st B f := fun s => match st s with
-                           | Some (x, s1) => f x s1
-                           | None => None
+                           | (Some x, s1) => f x s1
+                           | (None, s1) => (None, s1)
                            end;
   }.
 Proof.
   - st_tactics.crush.
-    destruct (ma x) as [[? ?]|]; reflexivity.
+    destruct (ma x) as [[?|]?]; reflexivity.
   - st_tactics.crush.
   - st_tactics.crush.
-    destruct (ma x) as [[? ?]|]; reflexivity.
+    destruct (ma x) as [[?|]?]; reflexivity.
 Defined.
 
-(** The proofs of the monad axioms are easy assuming propositional and
-functional extensionality.
+(** It is easy to prove the monad axioms assuming propositional and
+functional extensionality. Some readers may recognize this as the result
+of applying an option monad transformer to a state monad. Informally, each
+[st: Comp A] is a computation that should produce a value of type [A],
+perhaps with some side-effects:
 
-Informally, each [st: ST A] represents a computation which should produce
-a value of type [A], potentially with some side-effects:
-
-- If [st s0 = Some (x, s1)], then executing [st] from state [s0] produces
+- If [st s0 = (Some x, s1)], then executing [st] from state [s0] produces
   [x] and changes the state to [s1].
 
-- If [st s0 = None], then the computation does not complete normally. *)
+- If [st s0 = (None, s1)], then the computation halts in state [s1].
 
-(** ** Primitive computations
 
-[ST unit] represents computations that do not produce any value. They may,
-however, produce output and have other side-effects. In the next section
-we shall specify one execution step of our virtual machine as a term
-[step': ST unit], but first we need some more building blocks. *)
+** Primitive computations
 
-Definition stop' {A}: ST A := fun _ => None.
+[Comp unit] represents computations that do not produce any value. They
+may, however, produce output and have other side-effects. In the next
+section we define one execution step of our virtual machine as a term
+[oneStep': Comp unit], but first we need some more building blocks. *)
 
-(* begin hide *)
-Lemma bind_stop: forall {A B} (st: ST A), (st ;; stop') = stop' :> ST B.
-Proof.
-  unfold stop'.
-  st_tactics.crush.
-  destruct (st x) as [[? ?]|]; reflexivity.
-Qed.
-(* end hide *)
-(** In other words, [stop'] never completes normally. We follow the
-convention that specifications (and functions returning specifications)
-have names ending with an apostrophe. For this reason we also define: *)
+Definition stop' {A}: Comp A := fun s => (None, s).
 
-Definition return' {A} (x: A) : ST A := ret x.
+(** In other words, [stop'] never completes normally. We use the
+convention that computations (and functions returning computations) have
+names ending with an apostrophe. For this reason we also define: *)
+
+Definition return' {A} (x: A) : Comp A := ret x.
 
 
 
@@ -739,67 +732,66 @@ Equations addresses n (start: Z) : vector Bits64 n :=
 End limit_scope.
 (* end hide *)
 
-Definition tryExtract' {A} (f: State -> option A) : ST A :=
-  fun s => match f s with
-        | Some x => Some (x, s)
-        | None => None
-        end.
+Definition tryExtract' {A} (f: State -> option A) : Comp A :=
+  fun s => (f s, s).
 
-Definition load' (n: nat) (start: Bits64) : ST nat :=
+Definition load' (n: nat) (az: Z) : Comp nat :=
   tryExtract'
     (fun s => lift fromLittleEndian
-                (traverse (memory s) (addresses n start))).
+                (traverse (memory s) (addresses n az))).
 
-(** In words, [load' n a s0 x s1] means that [s0 = s1] and that the [n]
-bytes starting at [a] represents the natural number [x] $<2^n$. If not all
-the addresses [start], ..., [start+n-1] are available, the machine stops.
-*)
+(** In words, [load' n az s0 = (Some x, s1)] if [s0 = s1] and the [n]
+bytes starting at [az] represent the natural number [x] $<2^n$. If not all
+the addresses [az], ..., [az+n-1] are available, the machine stops. *)
 
-Definition store1' (az: Z) (value: Bits8) : ST unit :=
+Definition store1' (az: Z) (value: Bits8) : Comp unit :=
   let a: Bits64 := toBits 64 az in
   fun s =>
     match memory s a with
-    | None => None
+    | None => (None, s)
     | Some _ =>
       let m (a': Bits64) := if a' =? a then Some value else memory s a' in
-      Some (tt, s <| memory := m |>)
+      (Some tt, s <| memory := m |>)
     end.
 
-Equations fillMemory' (_: Z) (_: list Bits8) : ST unit :=
+(** [store1'] tries to update the value at a given memory address, and
+stops if the address is not availble. *)
+
+Equations fillMemory' (_: Z) (_: list Bits8) : Comp unit :=
   fillMemory' _ [] := return' tt;
   fillMemory' start (x :: u) := store1' start x;; fillMemory' (start + 1) u.
 
-Definition store' (n: nat) (start: Z) (value: Z) : ST unit :=
+Definition store' (n: nat) (start: Z) (value: Z) : Comp unit :=
   fillMemory' start (toLittleEndian n value).
 
 
 (** *** Stack and program counter *)
 
-Definition setPC' (az: Z): ST unit :=
-  fun s => Some (tt, s <| PC := toBits 64 az |>).
+Definition setPC' (az: Z): Comp unit :=
+  fun s => (Some tt, s <| PC := toBits 64 az |>).
 
-Definition setSP' (az: Z): ST unit :=
-  fun s => Some (tt, s <| SP := toBits 64 az |>).
+Definition setSP' (az: Z): Comp unit :=
+  fun s => (Some tt, s <| SP := toBits 64 az |>).
 
 (** The corresponding "get" computations are simple instances of
 [extract']. *)
 
-Definition extract' {A} (f: State -> A): ST A :=
-  fun s => Some (f s, s).
+Definition extract' {A} (f: State -> A): Comp A :=
+  fun s => (Some (f s), s).
 
-Definition next' (n: nat) : ST nat :=
+Definition next' (n: nat) : Comp nat :=
   a ::= extract' PC;
   setPC' (a + n);;
   load' n a.
 
-Definition pop': ST Bits64 :=
+Definition pop': Comp Bits64 :=
   a ::= extract' SP;
   v ::= load' 8 a;
   setSP' (a + 8);;
   return' (toBits 64 v).
 
 (* begin hide*)
-Definition push' (value: Z): ST unit :=
+Definition push' (value: Z): Comp unit :=
   a0 ::= extract' SP;
   let a1 := a0 - 8 in
   setSP' a1;;
@@ -808,7 +800,7 @@ Definition push' (value: Z): ST unit :=
 
 (**
 [[
-Definition push' (value: Z): ST unit :=
+Definition push' (value: Z): Comp unit :=
   a0 ::= extract' SP;
   let a1 := a0 - 8 in
   setSP' a1;;
@@ -819,16 +811,16 @@ Definition push' (value: Z): ST unit :=
 
 (** *** Input and output *)
 
-Definition readFrame' : ST (Bits16 * Bits16) :=
+Definition readFrame' : Comp (Bits16 * Bits16) :=
   fun s =>
     let s' := set input (@tail _) s in
     let x := match input s' with
              | hd :: tl => (iWidth hd, iHeight hd)
              | _ => (toBits 16 0, toBits 16 0)
              end in
-    Some (x, s').
+    (Some x, s').
 
-Definition readPixel' (x y: nat) : ST Bits8 :=
+Definition readPixel' (x y: nat) : Comp Bits8 :=
   tryExtract'
     (fun s =>
        match input s with
@@ -858,9 +850,9 @@ Definition replaceOutput s o : State :=
       always_output:= fun H => nil_cons H
     |}).
 
-Definition newFrame' (width height rate: nat) : ST unit :=
+Definition newFrame' (width height rate: nat) : Comp unit :=
   let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
-  fun s => Some (tt, addOutput s o).
+  fun s => (Some tt, addOutput s o).
 
 (* TODO: Simplify presentation *)
 Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
@@ -894,41 +886,41 @@ Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
   - apply (iDef image).
 Defined.
 
-Definition getCurrentOutput' : ST Output :=
+Definition getCurrentOutput' : Comp Output :=
   fun s => match output s with
-        | o :: _ => Some (o, s)
-        | [] => None
+        | o :: _ => (Some o, s)
+        | [] => (None, s)
         end.
 
 (** TODO: Mention impossible case? *)
 
-Definition setPixel' (x y r g b : nat) : ST unit :=
+Definition setPixel' (x y r g b : nat) : Comp unit :=
   o ::= getCurrentOutput';
   match o with
   | (image, sound, text) =>
     match trySetPixel image x y (toBits 16 r, toBits 16 g, toBits 16 b) with
     | None => stop'
-    | Some updatedImage => fun s => Some (tt, replaceOutput s (updatedImage, sound, text))
+    | Some newImage => fun s => (Some tt, replaceOutput s (newImage, sound, text))
     end
   end.
 
-Definition addSample' (l r : nat) : ST unit :=
+Definition addSample' (l r : nat) : Comp unit :=
   o ::= getCurrentOutput';
   match o with
   | (image, sound, text) =>
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
     | right H =>
-      let updatedSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
-      fun s => Some (tt, replaceOutput s (image, updatedSound, text))
+      let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
+      fun s => (Some tt, replaceOutput s (image, newSound, text))
     | _ => stop'
     end
   end.
 
-Definition putChar' (c: nat) : ST unit :=
+Definition putChar' (c: nat) : Comp unit :=
   o ::= getCurrentOutput';
   match o with
   | (image, sound, text) =>
-    fun s => Some (tt, replaceOutput s (image, sound, (toBits 32 c) :: text))
+    fun s => (Some tt, replaceOutput s (image, sound, (toBits 32 c) :: text))
   end.
 
 
@@ -1041,11 +1033,10 @@ Let map (f: bool->bool) (u: Bits64) : Bits64 := Vector.map f u.
 Let map2 (f: bool->bool->bool) (u: Bits64) (v: Bits64) : Bits64 := Vector.map2 f u v.
 (* end hide *)
 
-(** %\vspace{1ex}% The following definition specifies what it means for
-the VM to perform a single execution step. We shall have more to say about
-this after the definition. *)
+(** %\vspace{1ex}% Now we can define what it means for our virtual machine
+to perform one execution step. *)
 
-Definition step' : ST unit :=
+Definition oneStep' : Comp unit :=
   opcode ::= next' 1;
   match opcode with
   | EXIT => stop'
@@ -1132,19 +1123,11 @@ End limit_scope.
 
 In general, we want to run the machine until it stops: *)
 
-Equations run' (limit: nat) : ST unit :=
+Equations run' (limit: nat) : Comp unit :=
   run' 0 := stop';
-  run' (S n) := fun s => match step' s with
-                      | None => Some (tt, s)
-                      | Some (tt, s1) => run' n s1
-                      end.
+  run' (S n) := oneStep';; run' n.
 
-(** In other words:
-- [run' 0 _ = None].
-- [run' (S n) s0 = Some (tt, s0)] %\;if\;% [step' s0 = None].
-- [run' (S n) s0 = run' n s1] %\;if\;% [step' s0 = Some (tt, s1)].
-
-Since we are working in a framework without general recursion, we must
+(** Since we are working in a framework without general recursion, we must
 limit the number of steps in order to guarantee termination.
 
 
@@ -1184,7 +1167,7 @@ Defined.
 [SP] points to the first address after this segment. If [memorySize >=]
 $2^{64}$, then [SP=0]. *)
 
-Definition loadProgram' (program: list Bits8) (argument: list Bits8) : ST unit :=
+Definition loadProgram' (program: list Bits8) (argument: list Bits8) : Comp unit :=
   let program_start := 0 in
   let argument_start := length program in
   fillMemory' program_start program;;
@@ -1198,4 +1181,4 @@ follows: *)
 Definition finalState memorySize inputList program argument : State -> Prop :=
   fun s1 =>
     let s0 := protoState memorySize inputList in
-    exists n, (loadProgram' program argument;; run' n) s0 = Some (tt, s1).
+    exists n, (loadProgram' program argument;; run' n) s0 = (Some tt, s1).
