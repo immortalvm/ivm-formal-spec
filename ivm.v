@@ -562,7 +562,6 @@ Record State :=
       memory: Bits64 -> option Bits8;
       input: list (Image Gray);
       output: list Output;
-      always_output: [] <> output;
     }.
 
 (** [PC] and [SP] are known as the "program counter" and the "stack
@@ -580,7 +579,7 @@ TODO: Mention output <> []
 
 (* begin hide *)
 
-Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output; always_output >.
+Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output >.
 
 Lemma State_expansion (s: State) :
   s = {|
@@ -589,7 +588,6 @@ Lemma State_expansion (s: State) :
     memory := memory s;
     input := input s;
     output := output s;
-    always_output := always_output s;
   |}.
 Proof.
   reflexivity.
@@ -598,14 +596,13 @@ Qed.
 (* Since State is finite, this might be provable even without
    PropExtensionality, but that will have to wait. *)
 Lemma State_injectivity
-      p0 s0 m0 i0 o0 ao0
-      p1 s1 m1 i1 o1 ao1:
+      p0 s0 m0 i0 o0
+      p1 s1 m1 i1 o1:
   p0=p1 -> s0=s1 -> m0=m1 -> i0=i1 -> o0=o1
-  -> {|PC:=p0; SP:=s0; memory:=m0; input:=i0; output:=o0; always_output:=ao0|}
-  = {|PC:=p1; SP:=s1; memory:=m1; input:=i1; output:=o1; always_output:=ao1|}.
+  -> {|PC:=p0; SP:=s0; memory:=m0; input:=i0; output:=o0|}
+  = {|PC:=p1; SP:=s1; memory:=m1; input:=i1; output:=o1|}.
 Proof.
   repeat (intro e; destruct e).
-  destruct (proof_irrelevance ([] <> o0) ao0 ao1).
   reflexivity.
 Qed.
 
@@ -830,29 +827,9 @@ Definition readPixel' (x y: nat) : Comp Bits8 :=
     end
   end.
 
-(**
-[[
 Definition newFrame' (width height rate: nat) : Comp unit :=
   let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
   updateState' (fun s => s <| output := o :: output s |>).
-]]
-*)
-
-(* begin hide *)
-
-Definition newFrame' (width height rate: nat) : Comp unit :=
-  let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
-  updateState' (fun s =>
-                  {|
-                    PC := PC s;
-                    SP := SP s;
-                    memory := memory s;
-                    input := input s;
-                    output := o :: output s;
-                    always_output:= fun H => nil_cons H
-                  |}).
-
-(* end hide *)
 
 (* TODO: Simplify presentation *)
 Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
@@ -894,27 +871,10 @@ Definition getCurrentOutput' : Comp Output :=
   end.
 
 (** ([getCurrentOutput'] never actually stops, since [output] is non-empty
-in every [State].)
+in every [State].) *)
 
-[[
-Definition replaceOutput s o : State :=
+Definition replaceOutput o s : State :=
   s <| output := o :: tail (output s) |>.
-]]
-*)
-
-(* begin hide *)
-
-Definition replaceOutput s o : State :=
-  ({|
-      PC := PC s;
-      SP := SP s;
-      memory := memory s;
-      input := input s;
-      output := o :: tail (output s);
-      always_output:= fun H => nil_cons H
-    |}).
-
-(* end hide *)
 
 Definition setPixel' (x y r g b : nat) : Comp unit :=
   o ::= getCurrentOutput';
@@ -922,7 +882,7 @@ Definition setPixel' (x y r g b : nat) : Comp unit :=
   | (image, sound, text) =>
     match trySetPixel image x y (toBits 16 r, toBits 16 g, toBits 16 b) with
     | None => stop'
-    | Some newImage => updateState' (fun s => replaceOutput s (newImage, sound, text))
+    | Some newImage => updateState' (replaceOutput (newImage, sound, text))
     end
   end.
 
@@ -933,7 +893,7 @@ Definition addSample' (l r : nat) : Comp unit :=
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
     | right H =>
       let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
-      updateState' (fun s => replaceOutput s (image, newSound, text))
+      updateState' (replaceOutput (image, newSound, text))
     | _ => stop'
     end
   end.
@@ -942,7 +902,7 @@ Definition putChar' (c: nat) : Comp unit :=
   o ::= getCurrentOutput';
   match o with
   | (image, sound, text) =>
-    updateState' (fun s => replaceOutput s (image, sound, (toBits 32 c) :: text))
+    updateState' (replaceOutput (image, sound, (toBits 32 c) :: text))
   end.
 
 
@@ -1158,9 +1118,8 @@ limit the number of steps in order to guarantee termination.
 Before the machine can start, we must load a program into the memory and
 set the program counter to its start position. We must also initialize the
 stack and stack pointer; and the initial state should contain the full
-list of input frames and no output frames.
+list of input frames and no output frames. *)
 
-[[
 Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State :=
   {|
     PC := toBits 64 0;
@@ -1169,21 +1128,6 @@ Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State :
     input := noImage :: inputList;
     output := [(noImage, noSound, [])];
   |}.
-]]
-*)
-
-(* begin hide *)
-Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State.
-  refine ({|
-             PC := toBits 64 0;
-             SP := toBits 64 (min memorySize (2 ^ 64));
-             memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
-             input := noImage :: inputList;
-             output := [(noImage, noSound, [])];
-           |}).
-  discriminate.
-Defined.
-(* end hide *)
 
 (** Initially, the memory is 0 at every address below [memorySize], and
 [SP] points to the first address after this segment. If [memorySize >=]
