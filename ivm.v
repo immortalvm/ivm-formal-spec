@@ -53,6 +53,7 @@ Global Unset Printing Primitive Projection Parameters.
 (** printing st2 $\coqdocvar{st}_2$ *)
 (** printing x1 $\coqdocvar{x}_1$ *)
 (** printing xn $\coqdocvar{x}_n$ *)
+(** printing map2 $\coqdocvar{map}_2$ *)
 
 
 (** * Formal virtual machine specification
@@ -137,8 +138,9 @@ Coercion to_list: t >-> list.
 
 (** *** Binary numbers
 
-A list or vector of Booleans can be seen as a binary number in the
-interval $[0, 2^n)$ when [n = length u]. *)
+If we interpret [true] and [false] as 1 and 0, then a list or vector of
+Booleans can be considered a binary in the interval $[0, 2^n)$ where [n =
+length u]. *)
 
 (* begin hide *)
 Definition boolToNat (x: bool) : nat := if x then 1 else 0.
@@ -150,10 +152,9 @@ Equations fromBits (_: list bool) : nat :=
   fromBits (x :: u) := 2 * fromBits u + x.
 
 (** This definition is formulated using the Equations extension to Coq.
-Observe that we interpret [true] and [false] as 1 and 0, and that the
-least significant bit comes first. Below, we shall mostly leave [fromBits]
-implicit, using elements of [list bool] and [vector bool n] as if they were
-natural numbers.
+Observe that the least significant bit comes first. We usually leave
+[fromBits] implicit, using elements of [list bool] and [vector bool n] as if
+they were natural numbers.
 
 Conversely, we can extract the $n$ least significant bits of any integer:
 *)
@@ -166,19 +167,16 @@ Open Scope vector_scope.
 Equations toBits (n: nat) (_: Z) : vector bool n :=
   toBits 0 _ := [] ;
   toBits (S n) z := (z mod 2 =? 1) :: toBits n (z / 2).
-
 (* begin hide *)
 End limit_scope.
 (* end hide *)
-
 (* Compute (fromBits (toBits 8 (213 + 1024))). *)
 
 (** Here [z mod 2 =? 1] is [true] if the equality holds, otherwise
 [false]. Moreover, [/] and [mod] are defined so that [z mod 2] is either 0
 or 1 and [z = 2 * (z / 2) + z mod 2] for every [z]. In particular, all the
-bits in [toBits n -1] are [true]. [toBits n] is essentially the ring
-homomorphism from [Z] to $\mathbb{Z}/2^n\mathbb{Z}$.
- *)
+bits in [toBits n (-1)] are [true]. [toBits n] is essentially the ring
+homomorphism $\mathbb{Z}\rightarrow\mathbb{Z}/2^n\mathbb{Z}$. *)
 
 (* begin hide *)
 
@@ -200,8 +198,6 @@ Proof.
     + lia.
 Qed.
 
-(* end hide *)
-
 Lemma toBits_fromBits: forall {n} (u: vector bool n), toBits n (fromBits u) = u.
 Proof.
   induction u as [|x n u IH].
@@ -216,6 +212,8 @@ Proof.
     rewrite IH.
     reflexivity.
 Qed.
+
+(* end hide *)
 
 (** In some situations, we want bit vectors to represent both positive and
 negative numbers:
@@ -302,7 +300,7 @@ Equations toLittleEndian n (_: Z) : vector Bits8 n :=
   toLittleEndian 0 _ := [];
   toLittleEndian (S n) z := (toBits 8 z) :: (toLittleEndian n (z / 256)).
 
-(** Observe that the "least significant byte" comes first. *)
+(** Observe that the least significant byte comes first. *)
 
 (* begin hide *)
 End limit_scope.
@@ -317,17 +315,10 @@ Notation "x =? y" := (Nat.eqb x y).
 Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
 Proof.
   intro n.
-  induction n as [|n IH].
-  simp toBits.
-  simp fromBits.
-  reflexivity.
-
-  simp toBits.
-  simpl.
-  simp fromBits.
-  rewrite IH.
-  simpl.
-  reflexivity.
+  induction n as [|n IH];
+    repeat (simp toBits || simp fromBits || simpl).
+  - reflexivity.
+  - rewrite IH. reflexivity.
 Qed.
 
 (* end hide *)
@@ -336,8 +327,8 @@ Qed.
 
 (** ** Monads
 
-A _monad_ consist of a generic type [m] and two operations that satisfy
-three axioms. In Coq this can be expressed as a "type class": *)
+A monad consist of a generic type [m] and two operations that satisfy
+three axioms. In Coq this can be expressed as a type class: *)
 
 (* Based on https://github.com/coq/coq/wiki/AUGER_Monad. *)
 Class Monad (m: Type -> Type): Type :=
@@ -363,8 +354,8 @@ Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativi
 \begin{tabular}{l@{$\qquad$ means $\qquad$}l}
 %
 [ma >>= f]      %&% [bind ma f] %\\%
-[a ::= ma ; mb] %&% [bind ma (fun a => mb)] %\\%
-[ma ;; mb]      %&% [bind ma (fun _ => mb)]
+[a ::= ma; mb]  %&% [bind ma (fun a => mb)] %\\%
+[ma;; mb]       %&% [bind ma (fun _ => mb)]
 %
 \end{tabular}
 \end{center}
@@ -394,18 +385,20 @@ Proof.
   - abstract (intros A x B f C g; case x; split).
 Defined.
 
-(** We leave the proofs of the monad axioms to the reader. *)
+(** The monad axioms are easy to prove. *)
 
 
 (** ** State and state monad
 
 As discovered by Eugenio Moggi in 1989, monads can be used to represent
-computations with "side-effects" such as input and output. Below we shall
-specify the behaviour of our virtual machine in terms of a partial
-computational monad, but first we define types representing the state of
-the machine at a given moment.
+computations with side-effects such as input and output. Below we shall
+define a virtual machine in terms of a partial computational monad, but
+first we define types representing the state of the machine at a given
+moment.
 
-*** VM state *)
+*** VM state
+
+An image is a two-dimensional matrix of pixels. *)
 
 Record Image (C: Type) :=
   mkImage {
@@ -415,13 +408,11 @@ Record Image (C: Type) :=
       iDef: forall x y, iPixel x y <> None <-> x < iWidth /\ y < iHeight;
     }.
 
-(** In Coq a record is an inductive type with a single constructor
-([mkImage]), where we projections "for free". For example, if [im: Image
-Bits8], then [iWidth im: Bits16]. The arguments to iWidth and iHeight are
-implicit in the type of iPixel. The type [C] represents the color of a
-single pixel.
-
-The simplest image consists of [0 * 0] pixels:
+(** A record is an inductive type with a single constructor ([mkImage]),
+where we get projections for free. For example, if [im: Image Bits8], then
+[iWidth im: Bits16]. The arguments to [iWidth] and [iHeight] are implicit
+in the type of iDef. The type [C] represents the color of a single pixel.
+The simplest image consists of 0 pixels:
 
 [[
 Definition noImage {C} : Image C :=
@@ -501,21 +492,13 @@ Definition OutputText := list Bits32.
 
 (* begin hide *)
 Section limit_scope.
-Open Scope vector_scope.
-(* end hide *)
-
-(** The virtual machine uses 64-bit memory addresses. *)
-
-Equations addresses n (_: Bits64) : vector Bits64 n :=
-  addresses 0 _ := [];
-  addresses (S n) start := start :: (addresses n (toBits 64 (start + 1))).
-
-(* begin hide *)
 Open Scope type_scope.
 (* end hide *)
+
 Definition Gray := Bits8.
 Definition Color := Bits16 * Bits16 * Bits16.
 Definition Black : Color := (toBits 16 0, toBits 16 0, toBits 16 0).
+
 (* begin hide *)
 End limit_scope.
 (* end hide *)
@@ -524,6 +507,7 @@ End limit_scope.
 black), whereas [Color] represents the ACES encoded colors of the output
 images. The [State] type can now be formulated as follows: *)
 
+(* begin hide *)
 Ltac derive name term :=
   let H := fresh in
   let A := type of term in
@@ -536,8 +520,9 @@ Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
 Proof.
   intros [Ht|Hf]; easy.
 Qed.
+(* end hide *)
 
-Definition blackImage (width: Bits16) (height: Bits16): Image Color.
+Definition allBlack (width: Bits16) (height: Bits16): Image Color.
   refine (
       {|
         iWidth := width;
@@ -593,9 +578,9 @@ until the machine terminates.
 TODO: Mention output <> []
 *)
 
-Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output; always_output >.
-
 (* begin hide *)
+
+Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output; always_output >.
 
 Lemma State_expansion (s: State) :
   s = {|
@@ -641,26 +626,13 @@ Qed.
 (* end hide *)
 
 
-(** *** State monads *)
+(** *** State monad *)
 
 (** A "computation specification monad" can now be defined as follows: *)
 
 Definition ST (A: Type) := State -> option (A * State).
 
 (* begin hide *)
-
-(* Extensionality is needed since A is an arbitrary type.
-   This can be avoided if we define monads in terms of setoids. *)
-(*
-Lemma ST_extensionality {A} (st0 st1: ST A):
-  (forall s0 x s1, st0 s0 x s1 <-> st1 s0 x s1) -> st0 = st1.
-Proof.
-  intro H.
-  repeat (intro || apply functional_extensionality).
-  apply propositional_extensionality.
-  apply H.
-Qed.
- *)
 
 Module st_tactics.
   Ltac destr :=
@@ -700,8 +672,11 @@ End st_tactics.
 
 Instance SpecificationMonad: Monad ST :=
   {
-    ret A x := fun s => Some (x, s);
-    bind A st B f := fun s => st s >>= (fun pair => f (fst pair) (snd pair));
+    ret A x := fun s0 => Some (x, s0);
+    bind A st B f := fun s => match st s with
+                           | Some (x, s1) => f x s1
+                           | None => None
+                           end;
   }.
 Proof.
   - st_tactics.crush.
@@ -711,150 +686,64 @@ Proof.
     destruct (ma x) as [[? ?]|]; reflexivity.
 Defined.
 
-(** TODO: Rewrite
-
-The proof of the monad axioms is easy assuming propositional and
+(** The proofs of the monad axioms are easy assuming propositional and
 functional extensionality.
 
-Informally, an element [st: ST A] specifies a computation with possible
-side-effects which should produce a value of type [A]. Suppose we execute
-an implementation of [st] starting in state [s0].
+Informally, each [st: ST A] represents a computation which should produce
+a value of type [A], potentially with some side-effects:
 
-- If [exists s1 x, st s0 x s1], then the implementation should produce an
-  element [x] and lead to a state [s1] such that [st s0 x s1].
+- If [st s0 = Some (x, s1)], then executing [st] from state [s0] produces
+  [x] and changes the state to [s1].
 
-- Otherwise, the result of executing the implementation is undefined.
-
-In other words, if [st s0 x s <-> (x = x1 /\ s = s1) \/ ... \/ (x = xn /\ s =
-sn)], then the implementation must produce one of [n] results if [n > 0].
-If [n = 0], the implementation is unconstrained since this should never
-happen in a correct program. Furthermore, our definition of [bind] ensures
-that if running [st] from state [s0] is undefined and [f: A -> ST B], then
-running [st >>= f] from [s0] is undefined as well. *)
-
+- If [st s0 = None], then the computation does not complete normally. *)
 
 (** ** Primitive computations
 
 [ST unit] represents computations that do not produce any value. They may,
 however, produce output and have other side-effects. In the next section
 we shall specify one execution step of our virtual machine as a term
-[step': ST unit], but first we need some more building blocks.
-
-
-*** Lattice structure
-
-A specification [st: ST A] is often "non-deterministic" in the sense that
-[st s0 x1 s1] and [st s0 x2 s2] does not imply [x1 = x2] or [s1 = s2]. It
-simply means that both [(x1, s1)] and [(x2, s2)] are possible outcomes.
-Thus, it makes sense to define the intersection of two such specifications
-as follows: *)
-
-(*
-Definition intersect' {A} (st1 st2: ST A): ST A :=
-  fun s0 x s1 => st1 s0 x s1 /\ st2 s0 x s1.
-*)
-
-(* begin hide *)
-(* Notation "st1 ∩ st2" := (intersect' st1 st2) (at level 50, left associativity). *)
-(* end hide *)
-
-(** We use [st1 ∩ st2] as an abbreviation for [intersect' st1 st2]. [ST A]
-clearly inherits a full lattice structure from the type of propositions,
-but we shall only use [∩] and the least element: *)
+[step': ST unit], but first we need some more building blocks. *)
 
 Definition stop' {A}: ST A := fun _ => None.
 
 (* begin hide *)
-
-(*
-Lemma intersect_stop: forall {A} (st: ST A), st ∩ stop' = stop'.
-Proof.
-  intros.
-  unfold stop', intersect'.
-  st_tactics.crush.
-Qed.
-
 Lemma bind_stop: forall {A B} (st: ST A), (st ;; stop') = stop' :> ST B.
 Proof.
   unfold stop'.
   st_tactics.crush.
+  destruct (st x) as [[? ?]|]; reflexivity.
 Qed.
-*)
-
 (* end hide *)
-
-(** We follow the convention that specifications (and functions returning
-specifications) have names ending with an apostrophe. For this reason we
-also define: *)
+(** In other words, [stop'] never completes normally. We follow the
+convention that specifications (and functions returning specifications)
+have names ending with an apostrophe. For this reason we also define: *)
 
 Definition return' {A} (x: A) : ST A := ret x.
 
 
-(** *** Unchanged and mostly unchanged state
-
-Many computations leave the state unchanged or mostly unchanged. This can
-be expressed this using intersection and the following specifications. *)
-
-(*
-Definition stateUnchanged' {A} : ST A :=
-  fun s0 _ s1 => s1 = s0.
-
-(* begin hide *)
-
-Lemma ret_characterized {A} (x: A) :
-  stateUnchanged' ∩ (fun _ y _ => y = x) = ret x.
-Proof.
-  unfold stateUnchanged', intersect'.
-  st_tactics.crush.
-Qed.
-
-(* end hide *)
-
-Definition registersUnchanged' {A} : ST A :=
-  fun s0 _ s1 =>
-    PC s1 = PC s0
-    /\ SP s1 = SP s0.
-
-Definition memoryUnchanged' {A} : ST A :=
-  fun s0 _ s1 => memory s1 = memory s0.
-
-Definition otherMemoryUnchanged' (n: nat) (start: Bits64): ST unit :=
-  fun s0 _ s1 =>
-    let other a := Forall (fun x => x <> a) (addresses n start) in
-    forall a, other a -> memory s1 a = memory s0 a.
-
-(** This means that the memory is unchanged except possibly for the [n]
-bytes starting at address [start]. *)
-
-Definition ioUnchanged' {A} : ST A :=
-  fun s0 _ s1 =>
-    input s1 = input s0
-    /\ output s1 = output s0.
-
-(* begin hide *)
-
-Lemma stateUnchanged_characterized {A} :
-  registersUnchanged' ∩ memoryUnchanged' ∩ ioUnchanged' = @stateUnchanged' A.
-Proof.
-  unfold registersUnchanged', memoryUnchanged', ioUnchanged', stateUnchanged'.
-  repeat (unfold intersect').
-  st_tactics.crush.
-Qed.
-
-(* end hide *)
-
- *)
-
 
 (** *** Memory access *)
+
+(** The virtual machine uses 64-bit memory addresses. *)
+
+(* begin hide *)
+Section limit_scope.
+Open Scope vector_scope.
+(* end hide *)
+
+Equations addresses n (start: Z) : vector Bits64 n :=
+  addresses 0 _ := [];
+  addresses (S n) start := toBits 64 start :: (addresses n (start + 1)).
+
+(* begin hide *)
+End limit_scope.
+(* end hide *)
 
 Definition tryExtract' {A} (f: State -> option A) : ST A :=
   fun s => match f s with
         | Some x => Some (x, s)
         | None => None
         end.
-
-(** Here is how we specify the [LOAD] instructions: *)
 
 Definition load' (n: nat) (start: Bits64) : ST nat :=
   tryExtract'
@@ -866,7 +755,8 @@ bytes starting at [a] represents the natural number [x] $<2^n$. If not all
 the addresses [start], ..., [start+n-1] are available, the machine stops.
 *)
 
-Definition store1' (a: Bits64) (value: Bits8) : ST unit :=
+Definition store1' (az: Z) (value: Bits8) : ST unit :=
+  let a: Bits64 := toBits 64 az in
   fun s =>
     match memory s a with
     | None => None
@@ -875,21 +765,21 @@ Definition store1' (a: Bits64) (value: Bits8) : ST unit :=
       Some (tt, s <| memory := m |>)
     end.
 
-Equations fillMemory' (_: Bits64) (_: list Bits8) : ST unit :=
+Equations fillMemory' (_: Z) (_: list Bits8) : ST unit :=
   fillMemory' _ [] := return' tt;
-  fillMemory' start (x :: u) := store1' start x;; fillMemory' (toBits 64 (start + 1)) u.
+  fillMemory' start (x :: u) := store1' start x;; fillMemory' (start + 1) u.
 
-Definition store' (n: nat) (start: Bits64) (value: nat) : ST unit :=
+Definition store' (n: nat) (start: Z) (value: Z) : ST unit :=
   fillMemory' start (toLittleEndian n value).
 
 
 (** *** Stack and program counter *)
 
-Definition setPC' (a: Bits64): ST unit :=
-  fun s => Some (tt, s <| PC := a |>).
+Definition setPC' (az: Z): ST unit :=
+  fun s => Some (tt, s <| PC := toBits 64 az |>).
 
-Definition setSP' (a: Bits64): ST unit :=
-  fun s => Some (tt, s <| SP := a |>).
+Definition setSP' (az: Z): ST unit :=
+  fun s => Some (tt, s <| SP := toBits 64 az |>).
 
 (** The corresponding "get" computations are simple instances of
 [extract']. *)
@@ -899,30 +789,30 @@ Definition extract' {A} (f: State -> A): ST A :=
 
 Definition next' (n: nat) : ST nat :=
   a ::= extract' PC;
-  setPC' (toBits 64 (a + n));;
+  setPC' (a + n);;
   load' n a.
 
 Definition pop': ST Bits64 :=
   a ::= extract' SP;
   v ::= load' 8 a;
-  setSP' (toBits 64 (a + 8));;
+  setSP' (a + 8);;
   return' (toBits 64 v).
 
 (* begin hide*)
 Definition push' (value: Z): ST unit :=
   a0 ::= extract' SP;
-  let a1 := toBits 64 (a0 - 8) in
+  let a1 := a0 - 8 in
   setSP' a1;;
-  store' 8 a1 (toBits 64 value : Bits64).
+  store' 8 a1 value.
 (* end hide *)
 
 (**
 [[
 Definition push' (value: Z): ST unit :=
   a0 ::= extract' SP;
-  let a1 := toBits 64 (a0 - 8) in
+  let a1 := a0 - 8 in
   setSP' a1;;
-  store' 8 a1 (toBits 64 value).
+  store' 8 a1 value.
 ]]
 *)
 
@@ -968,10 +858,9 @@ Definition replaceOutput s o : State :=
       always_output:= fun H => nil_cons H
     |}).
 
-Definition newFrame' (width height sampleRate: nat) : ST unit :=
-  fun s =>
-    let o := (blackImage (toBits 16 width) (toBits 16 height), emptySound (toBits 32 sampleRate), []) in
-    Some (tt, addOutput s o).
+Definition newFrame' (width height rate: nat) : ST unit :=
+  let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
+  fun s => Some (tt, addOutput s o).
 
 (* TODO: Simplify presentation *)
 Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
@@ -1168,7 +1057,7 @@ Definition step' : ST unit :=
       v ::= pop';
       if v =? 0
       then pc ::= extract' PC;
-           setPC' (toBits 64 (pc + (signed (toBits 8 offset))))
+           setPC' (pc + (signed (toBits 8 offset)))
       else return' tt
 
   | SET_SP => pop' >>= setSP'
@@ -1197,18 +1086,9 @@ Definition step' : ST unit :=
 
   | ADD => x ::= pop'; y ::= pop'; push' (x + y)
   | MULT => x ::= pop'; y ::= pop'; push' (x * y)
-  | DIV =>
-      x ::= pop';
-      y ::= pop';
-      push' (if x =? 0 then 0 else y / x)
-  | REM =>
-      x ::= pop';
-      y ::= pop';
-      push' (if x =? 0 then 0 else y mod x)
-  | LT =>
-      x ::= pop';
-      y ::= pop';
-      push' (if y <? x then -1 else 0)
+  | DIV => x ::= pop'; y ::= pop'; push' (if x =? 0 then 0 else y / x)
+  | REM => x ::= pop'; y ::= pop'; push' (if x =? 0 then 0 else y mod x)
+  | LT => x ::= pop'; y ::= pop'; push' (if y <? x then -1 else 0)
   | AND =>
       u ::= pop';
       v ::= pop';
@@ -1221,40 +1101,21 @@ Definition step' : ST unit :=
       u ::= pop';
       v ::= pop';
       push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
-  | NOT =>
-      u ::= pop';
-      push' (map (fun x => if x then false else true) u)
-  | POW2 =>
-      n ::= pop';
-      push' (2 ^ n)
+  | NOT => u ::= pop'; push' (map (fun x => if x then false else true) u)
+  | POW2 => n ::= pop'; push' (2 ^ n)
 
   | NEW_FRAME =>
-      rate ::= pop';
-      height ::= pop';
-      width ::= pop';
+      rate ::= pop'; height ::= pop'; width ::= pop';
       newFrame' width height rate
   | SET_PIXEL =>
-      b ::= pop';
-      g ::= pop';
-      r ::= pop';
-      y ::= pop';
-      x ::= pop';
+      b ::= pop'; g ::= pop'; r ::= pop';
+      y ::= pop'; x ::= pop';
       setPixel' x y r g b
-  | ADD_SAMPLE =>
-      right ::= pop';
-      left ::= pop';
-      addSample' left right
-  | PUT_CHAR =>
-      pop' >>= putChar'
+  | ADD_SAMPLE => r ::= pop'; l ::= pop'; addSample' l r
+  | PUT_CHAR => pop' >>= putChar'
 
-  | READ_FRAME =>
-      wh ::= readFrame';
-      push' (fst wh);;
-      push' (snd wh)
-  | READ_PIXEL =>
-      x ::= pop';
-      y ::= pop';
-      readPixel' x y >>= push'
+  | READ_FRAME => wh ::= readFrame'; push' (fst wh);; push' (snd wh)
+  | READ_PIXEL => x ::= pop'; y ::= pop'; readPixel' x y >>= push'
 
   | _ => stop'
   end.
@@ -1262,23 +1123,43 @@ Definition step' : ST unit :=
 (* begin hide *)
 End limit_scope.
 (*end hide *)
-(** In this definition %\,%[map: (bool->bool)->Bits64->Bits64] and %\,%[map2:
-(bool->bool->bool)->Bits64->Bits64->Bits64] denote the obvious "bitwise"
-transformations. *)
+(** In this definition [map] and [map2] denote the obvious "bitwise" transformations:
+
+%\begin{center}%
+[map : (bool -> bool) -> Bits64 -> Bits64] %$\qquad\qquad$%
+[map2 : (bool -> bool -> bool) -> Bits64 -> Bits64 -> Bits64]
+%\end{center}%
+
+In general, we want to run the machine until it stops: *)
+
+Equations run' (limit: nat) : ST unit :=
+  run' 0 := stop';
+  run' (S n) := fun s => match step' s with
+                      | None => Some (tt, s)
+                      | Some (tt, s1) => run' n s1
+                      end.
+
+(** In other words:
+- [run' 0 _ = None].
+- [run' (S n) s0 = Some (tt, s0)] %\;if\;% [step' s0 = None].
+- [run' (S n) s0 = run' n s1] %\;if\;% [step' s0 = Some (tt, s1)].
+
+Since we are working in a framework without general recursion, we must
+limit the number of steps in order to guarantee termination.
 
 
-(** ** The initial state
+** Running a program
 
-Before the machine can start, we must put a program in the memory and set
-the program counter to its start position. We must also initialize the
+Before the machine can start, we must load a program into the memory and
+set the program counter to its start position. We must also initialize the
 stack and stack pointer; and the initial state should contain the full
 list of input frames and no output frames.
 
 [[
-Definition protoState (inputList: list (Image Gray)) : State :=
+Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State :=
   {|
     PC := toBits 64 0;
-    SP := toBits 64 0;
+    SP := toBits 64 (min memorySize (2 ^ 64));
     memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
     input := noImage :: inputList;
     output := [(noImage, noSound, [])];
@@ -1287,52 +1168,34 @@ Definition protoState (inputList: list (Image Gray)) : State :=
 *)
 
 (* begin hide *)
-
 Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State.
   refine ({|
              PC := toBits 64 0;
-             SP := toBits 64 0;
+             SP := toBits 64 (min memorySize (2 ^ 64));
              memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
              input := noImage :: inputList;
              output := [(noImage, noSound, [])];
            |}).
   discriminate.
 Defined.
-
-Section limit_scope.
-Open Scope nat_scope.
-
 (* end hide *)
+
+(** Initially, the memory is 0 at every address below [memorySize], and
+[SP] points to the first address after this segment. If [memorySize >=]
+$2^{64}$, then [SP=0]. *)
 
 Definition loadProgram' (program: list Bits8) (argument: list Bits8) : ST unit :=
-  let program_start := toBits 64 0 in
-  let argument_start := toBits 64 (length program) in
+  let program_start := 0 in
+  let argument_start := length program in
   fillMemory' program_start program;;
-  fillMemory' argument_start argument;;
+  store' 8 argument_start (length argument);;
+  fillMemory' (argument_start + 8) argument;;
   setPC' program_start.
 
-(* begin hide *)
-End limit_scope.
-(* end hide *)
+(** Thus, the final state after running a program is characterized as
+follows: *)
 
-Equations run' (limit: nat) : ST unit :=
-  run' 0 := stop';
-  run' (S n) := fun s =>
-    match step' s with
-    | None => Some (tt, s)
-    | Some (tt, s1) => run' n s1
-    end.
-
-(**
-- [run' (S n) s0 = Some (tt, s0)] if [step' s0 = None].
-- [run' (S n) s0 = run' n s1] if [step' s0 = Some (tt, s1)] and
-- Otherwise, [run' (S n) s0 = None].
-*)
-
-Definition finalState memorySize inputList program argument maxSteps : option State :=
-  let s0 := protoState memorySize inputList in
-  let loadAndRun := loadProgram' program argument;; run' (maxSteps + 1) in
-  match loadAndRun s0 with
-  | Some (_, s1) => Some s1
-  | None => None
-  end.
+Definition finalState memorySize inputList program argument : State -> Prop :=
+  fun s1 =>
+    let s0 := protoState memorySize inputList in
+    exists n, (loadProgram' program argument;; run' n) s0 = Some (tt, s1).
