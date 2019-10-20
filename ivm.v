@@ -672,7 +672,7 @@ End st_tactics.
 
 Instance ComputationMonad: Monad Comp :=
   {
-    ret A x := fun s0 => (Some x, s0);
+    ret A x := fun s => (Some x, s);
     bind A st B f := fun s => match st s with
                            | (Some x, s1) => f x s1
                            | (None, s1) => (None, s1)
@@ -687,15 +687,16 @@ Proof.
 Defined.
 
 (** It is easy to prove the monad axioms assuming propositional and
-functional extensionality. Some readers may recognize this as the result
-of applying an option monad transformer to a state monad. Informally, each
+functional extensionality. Some may recognize this as the result of
+applying an option monad transformer to a state monad. Informally, every
 [st: Comp A] is a computation that should produce a value of type [A],
-perhaps with some side-effects:
+perhaps with some side-effects.
 
 - If [st s0 = (Some x, s1)], then executing [st] from state [s0] produces
   [x] and changes the state to [s1].
 
-- If [st s0 = (None, s1)], then the computation halts in state [s1].
+- If [st s0 = (None, s1)], then the computation halts in state [s1] before
+  producing any value.
 
 
 ** Primitive computations
@@ -705,14 +706,23 @@ may, however, produce output and have other side-effects. In the next
 section we define one execution step of our virtual machine as a term
 [oneStep': Comp unit], but first we need some more building blocks. *)
 
-Definition stop' {A}: Comp A := fun s => (None, s).
+Definition stop' {A}: Comp A :=
+  fun s => (None, s).
 
-(** In other words, [stop'] never completes normally. We use the
-convention that computations (and functions returning computations) have
-names ending with an apostrophe. For this reason we also define: *)
+Definition tryGet' {A} (f: State -> option A) : Comp A :=
+  fun s => (f s, s).
+
+Definition get' {A} (f: State -> A): Comp A :=
+  fun s => (Some (f s), s).
+
+Definition updateState' (f: State -> State): Comp unit :=
+  fun s => (Some tt, f s).
+
+(** We use the convention that computations (and functions returning
+computations) have names ending with an apostrophe. For this reason we
+also define: *)
 
 Definition return' {A} (x: A) : Comp A := ret x.
-
 
 
 (** *** Memory access *)
@@ -732,11 +742,8 @@ Equations addresses n (start: Z) : vector Bits64 n :=
 End limit_scope.
 (* end hide *)
 
-Definition tryExtract' {A} (f: State -> option A) : Comp A :=
-  fun s => (f s, s).
-
 Definition load' (n: nat) (az: Z) : Comp nat :=
-  tryExtract'
+  tryGet'
     (fun s => lift fromLittleEndian
                 (traverse (memory s) (addresses n az))).
 
@@ -746,16 +753,15 @@ the addresses [az], ..., [az+n-1] are available, the machine stops. *)
 
 Definition store1' (az: Z) (value: Bits8) : Comp unit :=
   let a: Bits64 := toBits 64 az in
-  fun s =>
-    match memory s a with
-    | None => (None, s)
-    | Some _ =>
-      let m (a': Bits64) := if a' =? a then Some value else memory s a' in
-      (Some tt, s <| memory := m |>)
+  mem ::= get' memory;
+  match mem a with
+  | None => stop'
+  | _ => let newMem (a': Bits64) := if a' =? a then Some value else mem a' in
+        updateState' (fun s => s <| memory := newMem |>)
     end.
 
-(** [store1'] tries to update the value at a given memory address, and
-stops if the address is not availble. *)
+(** [store1'] tries to change the value at a given memory address, but
+stops if the address is not available. *)
 
 Equations fillMemory' (_: Z) (_: list Bits8) : Comp unit :=
   fillMemory' _ [] := return' tt;
@@ -768,31 +774,25 @@ Definition store' (n: nat) (start: Z) (value: Z) : Comp unit :=
 (** *** Stack and program counter *)
 
 Definition setPC' (az: Z): Comp unit :=
-  fun s => (Some tt, s <| PC := toBits 64 az |>).
+  updateState' (fun s => s <| PC := toBits 64 az |>).
 
 Definition setSP' (az: Z): Comp unit :=
-  fun s => (Some tt, s <| SP := toBits 64 az |>).
-
-(** The corresponding "get" computations are simple instances of
-[extract']. *)
-
-Definition extract' {A} (f: State -> A): Comp A :=
-  fun s => (Some (f s), s).
+  updateState' (fun s => s <| SP := toBits 64 az |>).
 
 Definition next' (n: nat) : Comp nat :=
-  a ::= extract' PC;
+  a ::= get' PC;
   setPC' (a + n);;
   load' n a.
 
 Definition pop': Comp Bits64 :=
-  a ::= extract' SP;
+  a ::= get' SP;
   v ::= load' 8 a;
   setSP' (a + 8);;
   return' (toBits 64 v).
 
 (* begin hide*)
 Definition push' (value: Z): Comp unit :=
-  a0 ::= extract' SP;
+  a0 ::= get' SP;
   let a1 := a0 - 8 in
   setSP' a1;;
   store' 8 a1 value.
@@ -801,7 +801,7 @@ Definition push' (value: Z): Comp unit :=
 (**
 [[
 Definition push' (value: Z): Comp unit :=
-  a0 ::= extract' SP;
+  a0 ::= get' SP;
   let a1 := a0 - 8 in
   setSP' a1;;
   store' 8 a1 value.
@@ -812,47 +812,47 @@ Definition push' (value: Z): Comp unit :=
 (** *** Input and output *)
 
 Definition readFrame' : Comp (Bits16 * Bits16) :=
-  fun s =>
-    let s' := set input (@tail _) s in
-    let x := match input s' with
-             | hd :: tl => (iWidth hd, iHeight hd)
-             | _ => (toBits 16 0, toBits 16 0)
-             end in
-    (Some x, s').
+  updateState' (fun s => s <| input := tail (input s) |>);;
+  i ::= get' input;
+  return' (match i with
+           | frame :: _ => (iWidth frame, iHeight frame)
+           | [] => (toBits 16 0, toBits 16 0)
+           end).
 
 Definition readPixel' (x y: nat) : Comp Bits8 :=
-  tryExtract'
-    (fun s =>
-       match input s with
-       | frame :: _ => iPixel frame x y
-       | [] => None
-       end).
+  i ::= get' input;
+  match i with
+  | [] => stop'
+  | frame :: _ =>
+    match iPixel frame x y with
+    | None => stop'
+    | Some c => return' c
+    end
+  end.
 
-(* TODO: Hide *)
-Definition addOutput s o : State :=
-  ({|
-      PC := PC s;
-      SP := SP s;
-      memory := memory s;
-      input := input s;
-      output := o :: output s;
-      always_output:= fun H => nil_cons H
-    |}).
+(**
+[[
+Definition newFrame' (width height rate: nat) : Comp unit :=
+  let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
+  updateState' (fun s => s <| output := o :: output s |>).
+]]
+*)
 
-(* TODO: Hide *)
-Definition replaceOutput s o : State :=
-  ({|
-      PC := PC s;
-      SP := SP s;
-      memory := memory s;
-      input := input s;
-      output := o :: tail (output s);
-      always_output:= fun H => nil_cons H
-    |}).
+(* begin hide *)
 
 Definition newFrame' (width height rate: nat) : Comp unit :=
   let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
-  fun s => (Some tt, addOutput s o).
+  updateState' (fun s =>
+                  {|
+                    PC := PC s;
+                    SP := SP s;
+                    memory := memory s;
+                    input := input s;
+                    output := o :: output s;
+                    always_output:= fun H => nil_cons H
+                  |}).
+
+(* end hide *)
 
 (* TODO: Simplify presentation *)
 Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
@@ -887,12 +887,34 @@ Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
 Defined.
 
 Definition getCurrentOutput' : Comp Output :=
-  fun s => match output s with
-        | o :: _ => (Some o, s)
-        | [] => (None, s)
-        end.
+  os ::= get' output;
+  match os with
+  | o :: _ => return' o
+  | [] => stop'
+  end.
 
-(** TODO: Mention impossible case? *)
+(** ([getCurrentOutput'] never actually stops, since [output] is non-empty
+in every [State].)
+
+[[
+Definition replaceOutput s o : State :=
+  s <| output := o :: tail (output s) |>.
+]]
+*)
+
+(* begin hide *)
+
+Definition replaceOutput s o : State :=
+  ({|
+      PC := PC s;
+      SP := SP s;
+      memory := memory s;
+      input := input s;
+      output := o :: tail (output s);
+      always_output:= fun H => nil_cons H
+    |}).
+
+(* end hide *)
 
 Definition setPixel' (x y r g b : nat) : Comp unit :=
   o ::= getCurrentOutput';
@@ -900,7 +922,7 @@ Definition setPixel' (x y r g b : nat) : Comp unit :=
   | (image, sound, text) =>
     match trySetPixel image x y (toBits 16 r, toBits 16 g, toBits 16 b) with
     | None => stop'
-    | Some newImage => fun s => (Some tt, replaceOutput s (newImage, sound, text))
+    | Some newImage => updateState' (fun s => replaceOutput s (newImage, sound, text))
     end
   end.
 
@@ -911,7 +933,7 @@ Definition addSample' (l r : nat) : Comp unit :=
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
     | right H =>
       let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
-      fun s => (Some tt, replaceOutput s (image, newSound, text))
+      updateState' (fun s => replaceOutput s (image, newSound, text))
     | _ => stop'
     end
   end.
@@ -920,7 +942,7 @@ Definition putChar' (c: nat) : Comp unit :=
   o ::= getCurrentOutput';
   match o with
   | (image, sound, text) =>
-    fun s => (Some tt, replaceOutput s (image, sound, (toBits 32 c) :: text))
+    updateState' (fun s => replaceOutput s (image, sound, (toBits 32 c) :: text))
   end.
 
 
@@ -1047,13 +1069,13 @@ Definition oneStep' : Comp unit :=
       offset ::= next' 1;
       v ::= pop';
       if v =? 0
-      then pc ::= extract' PC;
+      then pc ::= get' PC;
            setPC' (pc + (signed (toBits 8 offset)))
       else return' tt
 
   | SET_SP => pop' >>= setSP'
-  | GET_PC => extract' PC >>= push'
-  | GET_SP => extract' SP >>= push'
+  | GET_PC => get' PC >>= push'
+  | GET_SP => get' SP >>= push'
 
   | PUSH0 => push' 0
   | PUSH1 => next' 1 >>= push'
