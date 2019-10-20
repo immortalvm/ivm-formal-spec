@@ -478,13 +478,6 @@ Defined.
 
 Definition noSound := emptySound (toBits 32 0).
 
-Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
-  {|
-    sRate := sRate s;
-    sSamples := (l, r) :: (sSamples s);
-    sDef := fun H0 => False_ind _ (H H0);
-  |}.
-
 (** Textual output from the machine uses the encoding UTF-32. Again, we
 use reverse ordering. *)
 
@@ -497,7 +490,6 @@ Open Scope type_scope.
 
 Definition Gray := Bits8.
 Definition Color := Bits16 * Bits16 * Bits16.
-Definition Black : Color := (toBits 16 0, toBits 16 0, toBits 16 0).
 
 (* begin hide *)
 End limit_scope.
@@ -505,9 +497,10 @@ End limit_scope.
 
 (** [Gray] represents the gray scale of the input images (where 0 is
 black), whereas [Color] represents the ACES encoded colors of the output
-images. The [State] type can now be formulated as follows: *)
+images. *)
 
 (* begin hide *)
+
 Ltac derive name term :=
   let H := fresh in
   let A := type of term in
@@ -520,40 +513,12 @@ Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
 Proof.
   intros [Ht|Hf]; easy.
 Qed.
+
 (* end hide *)
 
-Definition allBlack (width: Bits16) (height: Bits16): Image Color.
-  refine (
-      {|
-        iWidth := width;
-        iHeight := height;
-        iPixel x y := if (x <? width) && (y <? height) then Some Black else None;
-        iDef := _;
-      |}
-    ).
-  intros x y.
-  split.
-  - intro H.
-    remember ((x <? width) && (y <? height)) as H_lt eqn:Hxy.
-    destruct H_lt; [|congruence].
-    clear H.
-    derive Hxy (Bool.Is_true_eq_right _ Hxy).
-    derive Hxy (Bool.andb_prop_elim _ _ Hxy).
-    split;
-      [ destruct Hxy as [H _]
-      | destruct Hxy as [_ H] ];
-      derive H (proj1 (reflect_it (Nat.ltb_spec0 _ _)) H);
-      exact H.
-  - intros [Hx Hy].
-    derive Hx (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hx).
-    derive Hy (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hy).
-    set (H := Bool.andb_prop_intro _ _ (conj Hx Hy)).
-    derive H (Bool.Is_true_eq_true _ H).
-    rewrite H.
-    discriminate.
-Defined.
-
 Definition Output : Type := (Image Color) * Sound * OutputText.
+
+(** The [State] type can now be formulated as follows: *)
 
 Record State :=
   mkState {
@@ -816,6 +781,8 @@ Definition readFrame' : Comp (Bits16 * Bits16) :=
            | [] => (toBits 16 0, toBits 16 0)
            end).
 
+(** Here [tail (_ :: tl) := tl] and [tail [] := []]. *)
+
 Definition readPixel' (x y: nat) : Comp Bits8 :=
   i ::= get' input;
   match i with
@@ -827,21 +794,98 @@ Definition readPixel' (x y: nat) : Comp Bits8 :=
     end
   end.
 
+Definition black : Color := (toBits 16 0, toBits 16 0, toBits 16 0).
+
+(**
+[[
+Definition allBlack (width: Bits16) (height: Bits16): Image Color :=
+  {|
+    iWidth := width;
+    iHeight := height;
+    iPixel x y := if (x <? width) && (y <? height) then Some black else None;
+    iDef := _;
+  |}.
+]]
+
+Here [p && q = true] if and only if [p = true] and [q = true]. *)
+
+(* begin hide *)
+
+Definition allBlack (width: Bits16) (height: Bits16): Image Color.
+  refine (
+      {|
+        iWidth := width;
+        iHeight := height;
+        iPixel x y := if (x <? width) && (y <? height) then Some black else None;
+        iDef := _;
+      |}
+    ).
+  intros x y.
+  split.
+  - intro H.
+    remember ((x <? width) && (y <? height)) as H_lt eqn:Hxy.
+    destruct H_lt; [|congruence].
+    clear H.
+    derive Hxy (Bool.Is_true_eq_right _ Hxy).
+    derive Hxy (Bool.andb_prop_elim _ _ Hxy).
+    split;
+      [ destruct Hxy as [H _]
+      | destruct Hxy as [_ H] ];
+      derive H (proj1 (reflect_it (Nat.ltb_spec0 _ _)) H);
+      exact H.
+  - intros [Hx Hy].
+    derive Hx (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hx).
+    derive Hy (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hy).
+    set (H := Bool.andb_prop_intro _ _ (conj Hx Hy)).
+    derive H (Bool.Is_true_eq_true _ H).
+    rewrite H.
+    discriminate.
+Defined.
+
+(* end hide *)
+
 Definition newFrame' (width height rate: nat) : Comp unit :=
   let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
   updateState' (fun s => s <| output := o :: output s |>).
 
-(* TODO: Simplify presentation *)
+Definition getCurrentOutput' : Comp Output :=
+  oList ::= get' output;
+  match oList with
+  | o :: _ => return' o
+  | [] => stop'
+  end.
+
+(** In practice, [getCurrentOutput'] will never stop since we start the
+machine with a non-empty output list, see [protoState] below. *)
+
+Definition replaceOutput o s : State := s <| output := o :: tail (output s) |>.
+
+(**
+[[
+Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C) :=
+  if (x <? iWidth image) && (y <? iHeight image)
+  then let p xx yy := if (xx =? x) && (yy =? y)
+                     then Some c
+                     else iPixel image xx yy in
+       Some (image <| iPixel := p |>)
+  else None).
+]]
+*)
+
+(* begin hide *)
+
 Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
-  refine (if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
+  refine (let newPix xx yy := if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy in
+          if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
           then Some
                  {|
                    iWidth := iWidth image;
                    iHeight := iHeight image;
-                   iPixel := fun xx yy => if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy;
+                   iPixel := newPix;
                    iDef := _
                  |}
           else None).
+  subst newPix.
   intros xx yy.
   split;
     remember ((xx =? x) && (yy =? y)) as exy eqn:H;
@@ -863,45 +907,55 @@ Definition trySetPixel {C} (image: Image C) (x y: nat) (c: C): option (Image C).
   - apply (iDef image).
 Defined.
 
-Definition getCurrentOutput' : Comp Output :=
-  os ::= get' output;
-  match os with
-  | o :: _ => return' o
-  | [] => stop'
-  end.
-
-(** ([getCurrentOutput'] never actually stops, since [output] is non-empty
-in every [State].) *)
-
-Definition replaceOutput o s : State :=
-  s <| output := o :: tail (output s) |>.
+(* end hide *)
 
 Definition setPixel' (x y r g b : nat) : Comp unit :=
   o ::= getCurrentOutput';
-  match o with
-  | (image, sound, text) =>
+  match o with (image, sound, text) =>
     match trySetPixel image x y (toBits 16 r, toBits 16 g, toBits 16 b) with
     | None => stop'
     | Some newImage => updateState' (replaceOutput (newImage, sound, text))
     end
   end.
 
+(**
+[[
 Definition addSample' (l r : nat) : Comp unit :=
   o ::= getCurrentOutput';
-  match o with
-  | (image, sound, text) =>
+  match o with (image, sound, text) =>
+    if sRate sound ?= 0
+    then stop'
+    else let ns := sound <| sSamples := (toBits 16 l, toBits 16 r) :: sSamples sound |> in
+         updateState' (replaceOutput (image, ns, text))
+  end.
+]]
+*)
+
+(* begin hide *)
+
+Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
+  {|
+    sRate := sRate s;
+    sSamples := (l, r) :: (sSamples s);
+    sDef := fun H0 => False_ind _ (H H0);
+  |}.
+
+Definition addSample' (l r : nat) : Comp unit :=
+  o ::= getCurrentOutput';
+  match o with (image, sound, text) =>
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
+    | left _ => stop'
     | right H =>
       let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
       updateState' (replaceOutput (image, newSound, text))
-    | _ => stop'
     end
   end.
 
+(* end hide *)
+
 Definition putChar' (c: nat) : Comp unit :=
   o ::= getCurrentOutput';
-  match o with
-  | (image, sound, text) =>
+  match o with (image, sound, text) =>
     updateState' (replaceOutput (image, sound, (toBits 32 c) :: text))
   end.
 
@@ -1065,7 +1119,7 @@ Definition oneStep' : Comp unit :=
   | AND =>
       u ::= pop';
       v ::= pop';
-      push' (map2 (fun x y => if x then y else false) u v)
+      push' (map2 (fun x y => x && y) u v)
   | OR =>
       u ::= pop';
       v ::= pop';
