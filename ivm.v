@@ -58,20 +58,19 @@ Global Unset Printing Primitive Projection Parameters.
 
 (** * Formal virtual machine specification
 
-This section contains a formal specification of the virtual machine used
-to interpret the contents of this film. It does not describe how to
-implement this machine. Instead, this sections contains the requirements
-such an implementation must satisfy. The requirements have been formalized
-in a system for formal mathematics called Coq, which is based on
-higher-order type theory. The text below is based on this formalization.
-It involves some formal logic and type theory (where for simplicity we
-assume the principles of propositional and functional extensionality), but
-we have not included the formal proofs here. *)
+This section contains a mathematical definition of the virtual machine
+used to interpret the contents of this film. It has been formalized in a
+system for formal mathematics called Coq, which is based on higher-order
+type theory. The text below was extracted from the Coq description. It
+involves some formal logic and type theory (where for simplicity we assume
+the principles of propositional and functional extensionality), but we do
+not include the actual proofs here.
 
 
-(** ** Basic types
+** Basic types
 
-We will be using some simple inductive types from the Coq library.
+We will be using three simple inductive types from the Coq library (a.k.a.
+%\coqdocvar{unit}%, %\coqdocvar{bool}% and %\coqdocvar{nat}%):
 
 %\begin{center}\begin{tabular}{p{13em}|p{13em}|p{13em}}%
 [[
@@ -123,9 +122,10 @@ $n$, known as _vectors_:
 Definition vector A n := { u : list A | length u = n }.
 ]]
 
-For technical reasons, [vector] is not actually defined like this, but we
-still have implicit inclusions [vector A n] $↪$ [list A], and for every
-[u: list A] there is a corresponding vector in [Vector A (length u)]. *)
+For technical reasons, [vector] is not actually defined like this.
+However, we do have implicit inclusions [vector A n] $↪$ [list A], and
+there is a corresponding vector in [Vector A (length u)] for every [u:
+list A]. *)
 
 (* begin hide *)
 Open Scope bool_scope.
@@ -175,8 +175,8 @@ End limit_scope.
 (** Here [z mod 2 =? 1] is [true] if the equality holds, otherwise
 [false]. Moreover, [/] and [mod] are defined so that [z mod 2] is either 0
 or 1 and [z = 2 * (z / 2) + z mod 2] for every [z]. In particular, all the
-bits in [toBits n (-1)] are [true]. [toBits n] is essentially the ring
-homomorphism $\mathbb{Z}\rightarrow\mathbb{Z}/2^n\mathbb{Z}$. *)
+bits in [toBits n (-1)] are [true]. Thus, [toBits n] is essentially the
+ring homomorphism $\mathbb{Z}\rightarrow\mathbb{Z}/2^n\mathbb{Z}$. *)
 
 (* begin hide *)
 
@@ -215,7 +215,7 @@ Qed.
 
 (* end hide *)
 
-(** In some situations, we want bit vectors to represent both positive and
+(** In some situations we want bit vectors to represent both positive and
 negative numbers:
 
 [[
@@ -283,7 +283,7 @@ Definition fromBits32 (u: Bits32) := fromBits (to_list u). Coercion fromBits32 :
 Definition fromBits64 (u: Bits64) := fromBits (to_list u). Coercion fromBits64 : Bits64 >-> nat.
 (* end hide *)
 
-(** The elements of [Bits8] are called _bytes_. If we concatenate a list
+(** The elements of [Bits8] are called "bytes". If we concatenate a list
 of bytes, we get a bit vector which represents a natural number. More
 precisely: *)
 
@@ -343,7 +343,7 @@ Class Monad (m: Type -> Type): Type :=
 }.
 
 (* begin hide *)
-Notation "ma >>= f" := (bind ma _ f) (at level 98, left associativity).
+Notation "ma >>= f" := (bind ma _ f) (at level 69, left associativity).
 Notation "a ::= ma ; mb" := (bind ma _ (fun a => mb)) (at level 60, right associativity, only parsing).
 Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativity).
 (* end hide *)
@@ -360,7 +360,7 @@ Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativi
 \end{tabular}
 \end{center}
 %
-The type arguments ([A] and [B]) are most of the time left implicit. *)
+The type arguments ([A] and [B]) are usually implicit. *)
 
 Definition lift {m} `{Monad m} {A B: Type} (f: A -> B) (ma: m A): m B :=
   a ::= ma;
@@ -371,8 +371,8 @@ Equations traverse {m} `{Monad m} {A B: Type} (_: A -> m B) (_: list A) : m (lis
   traverse f (x :: u) := y ::= f x; v ::= traverse f u; ret (y :: v).
 
 (** Many generic types have operations that satisfy the monad axioms, but
-in this text we shall use only two. The simplest of these is the option
-monad: *)
+in this text we shall use only two. The simplest of these is the "option
+monad": *)
 
 Instance OptionMonad: Monad option :=
 {
@@ -398,7 +398,8 @@ moment.
 
 *** VM state
 
-An image is a two-dimensional matrix of pixels. *)
+An image is a two-dimensional matrix of pixels, counting from left to
+right and from top to bottom. *)
 
 Record Image (C: Type) :=
   mkImage {
@@ -412,7 +413,8 @@ Record Image (C: Type) :=
 where we get projections for free. For example, if [im: Image Bits8], then
 [iWidth im: Bits16]. The arguments to [iWidth] and [iHeight] are implicit
 in the type of iDef. The type [C] represents the color of a single pixel.
-The simplest image consists of 0 pixels:
+
+The simplest image consists of [0 * 0] pixels:
 
 [[
 Definition noImage {C} : Image C :=
@@ -426,6 +428,7 @@ Definition noImage {C} : Image C :=
 *)
 
 (* begin hide *)
+
 Definition noImage {C} : Image C.
   refine ({|
              iWidth := toBits 16 0;
@@ -441,12 +444,13 @@ Definition noImage {C} : Image C.
   - intros [Hx Hy].
     contradiction (Nat.nlt_0_r x Hx).
 Defined.
+
 (* end hide *)
 
 (** The [Sound] type represents a clip of stereo sound in LPCM encoding.
 Both channels have the same sample rate, and each pair of 16-bit words
-[(left, right)] contains one sample for each channel. For convenience,
-[sSamples] contains samples in reverse order. *)
+$[(\coqdocvar{left}, \coqdocvar{right})]$ contains one sample for each
+channel. For convenience, [sSamples] contains samples in reverse order. *)
 
 Record Sound :=
   mkSound {
@@ -457,15 +461,16 @@ Record Sound :=
 
 (**
 [[
-Definition noSound : Sound :=
+Definition emptySound (rate: Bits32) : Sound :=
   {|
-    sRate := toBits 32 0;
+    sRate := rate;
     sSamples := [];
   |}.
 ]]
 *)
 
 (* begin hide *)
+
 Definition emptySound (rate: Bits32) : Sound.
   refine ({|
              sRate := rate;
@@ -530,17 +535,14 @@ Record State :=
     }.
 
 (** [PC] and [SP] are known as the "program counter" and the "stack
-pointer", respectively. Each elements of [output] consists of an image,
-the sound clip to be played while this image is displayed, and an
-associated piece of text. Any of these elements may be empty; and the list
-is reversed in the sense that the first triple in the list should be
-rendered last. The list [input] will only be decreasing as the machine
-processes the input. Conversely, [output] will only be increasing, except
-that the first element in this list should be considered "in progress"
-until the machine terminates.
-
-TODO: Mention output <> []
-*)
+pointer", respectively. Each element of [output] consists of (i) an image,
+(ii) the sound clip to be played while this image is displayed, and (iii)
+an associated piece of text. Any of these elements may be empty; and the
+list is reversed in the sense that the first triple in the list should be
+rendered last. The list [input] will be shrinking as the machine processes
+the input. Conversely, [output] will only be growing, except that the
+first element in this list should be considered "in progress" until the
+machine halts. *)
 
 (* begin hide *)
 
@@ -635,7 +637,7 @@ End st_tactics.
 Instance ComputationMonad: Monad Comp :=
   {
     ret A x := fun s => (Some x, s);
-    bind A st B f := fun s => match st s with
+    bind A ma B f := fun s => match ma s with
                            | (Some x, s1) => f x s1
                            | (None, s1) => (None, s1)
                            end;
@@ -651,25 +653,38 @@ Defined.
 (** It is easy to prove the monad axioms assuming propositional and
 functional extensionality. Some may recognize this as the result of
 applying an option monad transformer to a state monad. Informally, every
-[st: Comp A] is a computation that should produce a value of type [A],
-perhaps with some side-effects.
+[ma: Comp A] is a computation that should produce a value of type [A]:
 
-- If [st s0 = (Some x, s1)], then executing [st] from state [s0] produces
-  [x] and changes the state to [s1].
+- If %\,%[ma s0 = (Some x, s1)], then executing [ma] from state [s0]
+  produces [x] and changes the state to [s1].
 
-- If [st s0 = (None, s1)], then the computation halts in state [s1] before
-  producing any value.
+- If %\,%[ma s0 = (None, s1)], then the computation halts in state [s1]
+  before producing any value.
 
 
 ** Primitive computations
 
-[Comp unit] represents computations that do not produce any value. They
-may, however, produce output and have other side-effects. In the next
-section we define one execution step of our virtual machine as a term
-[oneStep': Comp unit], but first we need some more building blocks. *)
+[Comp unit] represents computations that do not produce any meaningful
+value. They may, however, produce output and have other side-effects. In
+the next section we shall define one execution step of our virtual machine
+as a term [oneStep': Comp unit], but first we need some more building
+blocks. *)
 
 Definition stop' {A}: Comp A :=
   fun s => (None, s).
+
+(** Observe that [stop' >>= f = stop'] for every [f]. *)
+
+(* begin hide *)
+
+Lemma stop_bind : forall A B (f: A -> Comp B), stop' >>= f = stop' :> Comp B.
+Proof.
+  intros.
+  apply functional_extensionality.
+  reflexivity.
+Qed.
+
+(* end hide *)
 
 Definition tryGet' {A} (f: State -> option A) : Comp A :=
   fun s => (f s, s).
@@ -685,6 +700,8 @@ computations) have names ending with an apostrophe. For this reason we
 also define: *)
 
 Definition return' {A} (x: A) : Comp A := ret x.
+
+(** In other words, [return' x s = get' (fun _ => x) = (Some x, s)]. *)
 
 
 (** *** Memory access *)
@@ -704,26 +721,28 @@ Equations addresses n (start: Z) : vector Bits64 n :=
 End limit_scope.
 (* end hide *)
 
-Definition load' (n: nat) (az: Z) : Comp nat :=
-  tryGet'
-    (fun s => lift fromLittleEndian
-                (traverse (memory s) (addresses n az))).
+Definition load' (n: nat) (a: Z) : Comp nat :=
+  tryGet' (fun s => lift fromLittleEndian (traverse (memory s) (addresses n a))).
 
-(** In words, [load' n az s0 = (Some x, s1)] if [s0 = s1] and the [n]
-bytes starting at [az] represent the natural number [x] $<2^n$. If not all
-the addresses [az], ..., [az+n-1] are available, the machine stops. *)
+(** That is, [load' n a s0 = (Some x, s1)] if [s0 = s1] and the [n] bytes
+starting at [a] represent the natural number [x] $<2^n$. If not all the
+addresses [a], ..., [a+n-1] are available, the machine stops.
 
-Definition store1' (az: Z) (value: Bits8) : Comp unit :=
-  let a: Bits64 := toBits 64 az in
-  mem ::= get' memory;
-  match mem a with
-  | None => stop'
-  | _ => let newMem (a': Bits64) := if a' =? a then Some value else mem a' in
-        updateState' (fun s => s <| memory := newMem |>)
-    end.
-
-(** [store1'] tries to change the value at a given memory address, but
+[store1'] tries to change the value at a given memory address, but
 stops if the address is not available. *)
+
+Definition store1' (a: Z) (value: Bits8) : Comp unit :=
+  let u: Bits64 := toBits 64 a in
+  mem ::= get' memory;
+  match mem u with
+  | None => stop'
+  | _ => let newMem (v: Bits64) := if v =? u then Some value else mem v in
+        updateState' (fun s => s <| memory := newMem |>)
+  end.
+
+(** Here [s <| memory := newMem |>] denotes a new record which is
+identical to [s] except for the field [memory] has been changed to
+[newMem]. *)
 
 Equations fillMemory' (_: Z) (_: list Bits8) : Comp unit :=
   fillMemory' _ [] := return' tt;
@@ -781,7 +800,7 @@ Definition readFrame' : Comp (Bits16 * Bits16) :=
            | [] => (toBits 16 0, toBits 16 0)
            end).
 
-(** Here [tail (_ :: tl) := tl] and [tail [] := []]. *)
+(** Here [tail (_ :: tl) := tl] %\:and\:% [tail [] := []]. *)
 
 Definition readPixel' (x y: nat) : Comp Bits8 :=
   i ::= get' input;
@@ -794,29 +813,29 @@ Definition readPixel' (x y: nat) : Comp Bits8 :=
     end
   end.
 
-Definition black : Color := (toBits 16 0, toBits 16 0, toBits 16 0).
+Definition defaultColor : Color := (toBits 16 0, toBits 16 0, toBits 16 0).
 
 (**
 [[
-Definition allBlack (width: Bits16) (height: Bits16): Image Color :=
+Definition blank (width: Bits16) (height: Bits16): Image Color :=
   {|
     iWidth := width;
     iHeight := height;
-    iPixel x y := if (x <? width) && (y <? height) then Some black else None;
+    iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
     iDef := _;
   |}.
 ]]
 
-Here [p && q = true] if and only if [p = true] and [q = true]. *)
+Here %\:%[p && q = if p then q else false]. *)
 
 (* begin hide *)
 
-Definition allBlack (width: Bits16) (height: Bits16): Image Color.
+Definition blank (width: Bits16) (height: Bits16): Image Color.
   refine (
       {|
         iWidth := width;
         iHeight := height;
-        iPixel x y := if (x <? width) && (y <? height) then Some black else None;
+        iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
         iDef := _;
       |}
     ).
@@ -845,7 +864,7 @@ Defined.
 (* end hide *)
 
 Definition newFrame' (width height rate: nat) : Comp unit :=
-  let o := (allBlack (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
+  let o := (blank (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
   updateState' (fun s => s <| output := o :: output s |>).
 
 Definition getCurrentOutput' : Comp Output :=
@@ -855,7 +874,7 @@ Definition getCurrentOutput' : Comp Output :=
   | [] => stop'
   end.
 
-(** In practice, [getCurrentOutput'] will never stop since we start the
+(** In practice, [getCurrentOutput'] will not halt since we start the
 machine with a non-empty output list, see [protoState] below. *)
 
 Definition replaceOutput o s : State := s <| output := o :: tail (output s) |>.
@@ -1086,7 +1105,6 @@ Definition oneStep' : Comp unit :=
       then pc ::= get' PC;
            setPC' (pc + (signed (toBits 8 offset)))
       else return' tt
-
   | SET_SP => pop' >>= setSP'
   | GET_PC => get' PC >>= push'
   | GET_SP => get' SP >>= push'
@@ -1096,7 +1114,6 @@ Definition oneStep' : Comp unit :=
   | PUSH2 => next' 2 >>= push'
   | PUSH4 => next' 4 >>= push'
   | PUSH8 => next' 8 >>= push'
-
   | SIGX1 => v ::= pop'; push' (signed (toBits 8 v))
   | SIGX2 => v ::= pop'; push' (signed (toBits 16 v))
   | SIGX4 => v ::= pop'; push' (signed (toBits 32 v))
@@ -1105,7 +1122,6 @@ Definition oneStep' : Comp unit :=
   | LOAD2 => pop' >>= load' 2 >>= push'
   | LOAD4 => pop' >>= load' 4 >>= push'
   | LOAD8 => pop' >>= load' 8 >>= push'
-
   | STORE1 => a ::= pop'; v ::= pop'; store' 1 a v
   | STORE2 => a ::= pop'; v ::= pop'; store' 2 a v
   | STORE4 => a ::= pop'; v ::= pop'; store' 4 a v
@@ -1140,10 +1156,8 @@ Definition oneStep' : Comp unit :=
       setPixel' x y r g b
   | ADD_SAMPLE => r ::= pop'; l ::= pop'; addSample' l r
   | PUT_CHAR => pop' >>= putChar'
-
   | READ_FRAME => wh ::= readFrame'; push' (fst wh);; push' (snd wh)
   | READ_PIXEL => x ::= pop'; y ::= pop'; readPixel' x y >>= push'
-
   | _ => stop'
   end.
 
@@ -1157,17 +1171,52 @@ End limit_scope.
 [map2 : (bool -> bool -> bool) -> Bits64 -> Bits64 -> Bits64]
 %\end{center}%
 
-In general, we want to run the machine until it stops: *)
+We can also run the machine for [n] steps or until it stops: *)
 
-Equations run' (limit: nat) : Comp unit :=
-  run' 0 := stop';
-  run' (S n) := oneStep';; run' n.
+Equations nSteps' (_: nat) : Comp unit :=
+  nSteps' 0 := return' tt;
+  nSteps' (S n) := oneStep';; nSteps' n.
 
-(** Since we are working in a framework without general recursion, we must
-limit the number of steps in order to guarantee termination.
+(* begin hide *)
+
+Lemma nSteps_succ: forall n, nSteps' (S n) = nSteps' n;; oneStep'.
+Proof.
+  intro n.
+  induction n.
+  - simp nSteps'.
+    apply functional_extensionality.
+    intro s.
+    simpl.
+    destruct (oneStep' s) as [[[]|] s1]; reflexivity.
+  - simp nSteps' in *.
+    rewrite <- monad_assoc.
+    rewrite IHn.
+    reflexivity.
+Qed.
+
+Lemma nSteps_stop: forall n s0 s1,
+    nSteps' n s0 = (None, s1) -> nSteps' (S n) s0 = (None, s1).
+Proof.
+  intros n s0 s1 H.
+  rewrite nSteps_succ.
+  simpl.
+  rewrite H.
+  reflexivity.
+Qed.
+
+Lemma nSteps_stop_k: forall n s0 s1 k,
+    nSteps' n s0 = (None, s1) -> nSteps' (k + n) s0 = (None, s1).
+Proof.
+  intros n s0 s1 k H.
+  induction k.
+  - exact H.
+  - simpl. apply nSteps_stop. exact IHk.
+Qed.
+
+(* end hide *)
 
 
-** Running a program
+(** ** Running a program
 
 Before the machine can start, we must load a program into the memory and
 set the program counter to its start position. We must also initialize the
@@ -1195,10 +1244,48 @@ Definition loadProgram' (program: list Bits8) (argument: list Bits8) : Comp unit
   fillMemory' (argument_start + 8) argument;;
   setPC' program_start.
 
-(** Thus, the final state after running a program is characterized as
-follows: *)
+(** Thus, the final state after running a program has the following
+property: *)
 
 Definition finalState memorySize inputList program argument : State -> Prop :=
-  fun s1 =>
-    let s0 := protoState memorySize inputList in
-    exists n, (loadProgram' program argument;; run' n) s0 = (Some tt, s1).
+  let s0 := protoState memorySize inputList in
+  fun s1 => exists n, (loadProgram' program argument;; nSteps' n) s0 = (None, s1).
+
+(** This is a partial function in the following sense: *)
+
+Lemma finalState_unique: forall m i p a s1 s2,
+    finalState m i p a s1 -> finalState m i p a s2 -> s1 = s2.
+Proof. (* TODO: Simplify? *)
+  intros m i p a s1 s2 H1 H2.
+  unfold finalState in H1, H2.
+  destruct H1 as [n1 H1].
+  destruct H2 as [n2 H2].
+  simpl in H1, H2.
+  destruct (loadProgram' p a (protoState m i)) as [[[]|] s].
+  - clear m i p a.
+    set (n3 := max n1 n2).
+    enough (nSteps' n3 s = nSteps' n1 s /\ nSteps' n3 s = nSteps' n2 s) as [HH1 HH2].
+    + rewrite HH2 in HH1.
+      rewrite H1, H2 in HH1.
+      inversion HH1.
+      congruence.
+    + split;
+        [rename n1 into n; rename H1 into H
+        |rename n2 into n; rename H2 into H];
+        set (k := (n3 - n)%nat);
+        assert (n3 = k + n)%nat as Hk;
+        [lia| |lia| ];
+        rewrite Hk, H;
+        apply nSteps_stop_k;
+        exact H.
+  - congruence.
+Qed.
+
+(** In a framework with general recursion we might instead define this
+partial function directly as
+
+%\begin{center}%
+[fun ... => snd ((loadProgram' program argument;; run') (protoState memorySize inputList))]
+%\end{center}%
+
+where [run' = oneStep';; run']. *)
