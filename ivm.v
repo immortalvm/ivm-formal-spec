@@ -362,31 +362,6 @@ Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativi
 %
 The type arguments ([A] and [B]) are usually implicit. *)
 
-Definition lift {m} `{Monad m} {A B: Type} (f: A -> B) (ma: m A): m B :=
-  a ::= ma;
-  ret (f a).
-
-Equations traverse {m} `{Monad m} {A B: Type} (_: A -> m B) (_: list A) : m (list B) :=
-  traverse _ [] := ret [];
-  traverse f (x :: u) := y ::= f x; v ::= traverse f u; ret (y :: v).
-
-(** Many generic types have operations that satisfy the monad axioms, but
-in this text we shall use only two. The simplest of these is the "option
-monad": *)
-
-Instance OptionMonad: Monad option :=
-{
-  ret A x := Some x;
-  bind A ma B f := match ma with None => None | Some a => f a end
-}.
-Proof.
-  - abstract (intros A a; case a; split).
-  - abstract (split).
-  - abstract (intros A x B f C g; case x; split).
-Defined.
-
-(** The monad axioms are easy to prove. *)
-
 
 (** ** State and state monad
 
@@ -708,30 +683,41 @@ Definition return' {A} (x: A) : Comp A := ret x.
 
 (** The virtual machine uses 64-bit memory addresses. *)
 
+Definition loadByte' (a: Z) : Comp Bits8 :=
+  mem ::= get' memory;
+  match mem (toBits 64 a) with
+  | None => stop'
+  | Some value => return' value
+  end.
+
 (* begin hide *)
 Section limit_scope.
 Open Scope vector_scope.
 (* end hide *)
 
-Equations addresses n (start: Z) : vector Bits64 n :=
-  addresses 0 _ := [];
-  addresses (S n) start := toBits 64 start :: (addresses n (start + 1)).
+Equations loadBytes' (n: nat) (a: Z) : Comp (vector Bits8 n) :=
+  loadBytes' 0 _ := return' [];
+  loadBytes' (S n) start :=
+    x ::= loadByte' start;
+    u ::= loadBytes' n (start + 1);
+    return' (x :: u).
 
 (* begin hide *)
 End limit_scope.
 (* end hide *)
 
 Definition load' (n: nat) (a: Z) : Comp nat :=
-  tryGet' (fun s => lift fromLittleEndian (traverse (memory s) (addresses n a))).
+  bytes ::= loadBytes' n a;
+  return' (fromLittleEndian bytes).
 
 (** That is, [load' n a s0 = (Some x, s1)] if [s0 = s1] and the [n] bytes
 starting at [a] represent the natural number [x] $<2^n$. If not all the
 addresses [a], ..., [a+n-1] are available, the machine stops.
 
-[store1'] tries to change the value at a given memory address, but
-stops if the address is not available. *)
+[storeByte'] tries to change the value at a given memory address, but
+stops if the address is not available: *)
 
-Definition store1' (a: Z) (value: Bits8) : Comp unit :=
+Definition storeByte' (a: Z) (value: Bits8) : Comp unit :=
   let u: Bits64 := toBits 64 a in
   mem ::= get' memory;
   match mem u with
@@ -744,12 +730,14 @@ Definition store1' (a: Z) (value: Bits8) : Comp unit :=
 identical to [s] except for the field [memory] has been changed to
 [newMem]. *)
 
-Equations fillMemory' (_: Z) (_: list Bits8) : Comp unit :=
-  fillMemory' _ [] := return' tt;
-  fillMemory' start (x :: u) := store1' start x;; fillMemory' (start + 1) u.
+Equations storeBytes' (_: Z) (_: list Bits8) : Comp unit :=
+  storeBytes' _ [] := return' tt;
+  storeBytes' start (x :: u) :=
+    storeByte' start x;;
+    storeBytes' (start + 1) u.
 
 Definition store' (n: nat) (start: Z) (value: Z) : Comp unit :=
-  fillMemory' start (toLittleEndian n value).
+  storeBytes' start (toLittleEndian n value).
 
 
 (** *** Stack and program counter *)
@@ -1239,9 +1227,9 @@ $2^{64}$, then [SP=0]. *)
 Definition loadProgram' (program: list Bits8) (argument: list Bits8) : Comp unit :=
   let program_start := 0 in
   let argument_start := length program in
-  fillMemory' program_start program;;
+  storeBytes' program_start program;;
   store' 8 argument_start (length argument);;
-  fillMemory' (argument_start + 8) argument;;
+  storeBytes' (argument_start + 8) argument;;
   setPC' program_start.
 
 (** Thus, the final state after running a program has the following
