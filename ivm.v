@@ -324,8 +324,7 @@ Qed.
 (* end hide *)
 
 
-
-(** ** Monads
+(** *** Monads
 
 A monad consist of a generic type [m] and two operations that satisfy
 three axioms. In Coq this can be expressed as a type class: *)
@@ -371,7 +370,7 @@ define a virtual machine in terms of a partial computational monad, but
 first we define types representing the state of the machine at a given
 moment.
 
-*** VM state
+*** I/O state
 
 An image is a two-dimensional matrix of pixels, counting from left to
 right and from top to bottom. *)
@@ -463,21 +462,22 @@ use reverse ordering. *)
 
 Definition OutputText := list Bits32.
 
+
+(** *** Machine state *)
+
+(** [Gray] represents the gray scale of the input images (where 0 is
+black), whereas [Color] represents the ACES encoded colors of the output
+images: *)
+
 (* begin hide *)
+
 Section limit_scope.
 Open Scope type_scope.
+
 (* end hide *)
 
 Definition Gray := Bits8.
 Definition Color := Bits16 * Bits16 * Bits16.
-
-(* begin hide *)
-End limit_scope.
-(* end hide *)
-
-(** [Gray] represents the gray scale of the input images (where 0 is
-black), whereas [Color] represents the ACES encoded colors of the output
-images. *)
 
 (* begin hide *)
 
@@ -496,7 +496,7 @@ Qed.
 
 (* end hide *)
 
-Definition Output : Type := (Image Color) * Sound * OutputText.
+Definition Output := (Image Color) * Sound * OutputText.
 
 (** The [State] type can now be formulated as follows: *)
 
@@ -520,6 +520,8 @@ first element in this list should be considered "in progress" until the
 machine halts. *)
 
 (* begin hide *)
+
+End limit_scope.
 
 Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output >.
 
@@ -565,7 +567,7 @@ Qed.
 (* end hide *)
 
 
-(** *** State monad *)
+(** *** Computational monad *)
 
 (** Our computation monad can now be defined as follows: *)
 
@@ -714,12 +716,12 @@ Definition load' (n: nat) (a: Z) : Comp nat :=
 starting at [a] represent the natural number [x] $<2^n$. If not all the
 addresses [a], ..., [a+n-1] are available, the machine stops.
 
-[storeByte'] tries to change the value at a given memory address, but
-stops if the address is not available: *)
+[storeByte'] tries to change the value at a memory address, but stops if
+the address is not available: *)
 
 Definition storeByte' (a: Z) (value: Bits8) : Comp unit :=
-  let u: Bits64 := toBits 64 a in
   mem ::= get' memory;
+  let u: Bits64 := toBits 64 a in
   match mem u with
   | None => stop'
   | _ => let newMem (v: Bits64) := if v =? u then Some value else mem v in
@@ -727,7 +729,7 @@ Definition storeByte' (a: Z) (value: Bits8) : Comp unit :=
   end.
 
 (** Here [s <| memory := newMem |>] denotes a new record which is
-identical to [s] except for the field [memory] has been changed to
+identical to [s] except that the field [memory] has been changed to
 [newMem]. *)
 
 Equations storeBytes' (_: Z) (_: list Bits8) : Comp unit :=
