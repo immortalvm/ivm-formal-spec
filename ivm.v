@@ -333,18 +333,18 @@ three axioms. In Coq this can be expressed as a type class: *)
 Class Monad (m: Type -> Type): Type :=
 {
   ret: forall A, A -> m A;
-  bind: forall A, m A -> forall B, (A -> m B) -> m B;
+  bind: forall A, m A -> forall {B}, (A -> m B) -> m B;
 
-  monad_right: forall A (ma: m A), ma = bind ma (@ret A);
-  monad_left: forall A (a: A) B (f: A -> m B), f a = bind (ret a) f;
+  monad_right: forall A (ma: m A), bind ma (@ret A) = ma;
+  monad_left: forall A (a: A) B (f: A -> m B), bind (ret a) f = f a;
   monad_assoc: forall A (ma: m A) B f C (g: B -> m C),
       bind ma (fun a => bind (f a) g) = bind (bind ma f) g;
 }.
 
 (* begin hide *)
-Notation "ma >>= f" := (bind ma _ f) (at level 69, left associativity).
-Notation "a ::= ma ; mb" := (bind ma _ (fun a => mb)) (at level 60, right associativity, only parsing).
-Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativity).
+Notation "ma >>= f" := (bind ma f) (at level 69, left associativity).
+Notation "a ::= ma ; mb" := (bind ma (fun a => mb)) (at level 60, right associativity, only parsing).
+Notation "ma ;; mb" := (bind ma (fun _ => mb)) (at level 60, right associativity).
 (* end hide *)
 
 (** Working with monads, we use the following notation:
@@ -362,15 +362,645 @@ Notation "ma ;; mb" := (bind ma _ (fun _ => mb)) (at level 60, right associativi
 The type arguments ([A] and [B]) are usually implicit. *)
 
 
-(** ** State and state monad
+(** The simplest monad is the identity monad. *)
+
+(* TODO: Place in module? *)
+Instance IdMonad: Monad id :=
+{
+  ret A x := x;
+  bind A ma B f := f ma;
+}.
+Proof.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+Defined.
+
+
+(** *** Monad transformers *)
+
+Class Morphism {m1} `{Monad m1} {m2} `{Monad m2} (F: forall {A}, m1 A -> m2 A) :=
+{
+  morph_ret: forall A (x: A), F (ret x) = ret x;
+  morph_bind: forall A (ma: m1 A) B (f: A -> m1 B),
+      F (ma >>= f) = (F ma) >>= (fun x => F (f x));
+}.
+
+Class Transformer (t: forall (m: Type -> Type) `{Monad m}, Type -> Type): Type :=
+{
+  transformer_monad: forall m `{Monad m}, Monad (t m);
+  lift: forall {m} `{Monad m} {A}, m A -> (t m) A;
+  lift_morphism: forall {m} `{Monad m}, Morphism (@lift _ _);
+}.
+
+Existing Instance transformer_monad.
+Existing Instance lift_morphism.
+
+Definition Opt m `{mo:Monad m} A := m (option A).
+
+Instance OptionTransformer: Transformer Opt :=
+{
+  transformer_monad m mo :=
+    {|
+      ret A x := ret (Some x);
+      bind A ma B f := bind (A:=option A) ma
+                            (fun a => match a with None => ret None | Some x => f x end);
+    |};
+  lift _ _ _ ma := x ::= ma; ret (Some x);
+}.
+Proof.
+  - intros.
+    rewrite <- monad_right.
+    f_equal.
+    apply functional_extensionality.
+    intros [x|]; reflexivity.
+  - intros.
+    rewrite monad_left.
+    reflexivity.
+  - intros.
+    rewrite <- monad_assoc.
+    f_equal.
+    apply functional_extensionality.
+    intros [a|].
+    + reflexivity.
+    + rewrite monad_left.
+      reflexivity.
+  - intros.
+    split.
+    + intros.
+      rewrite monad_left.
+      reflexivity.
+    + intros.
+      rewrite <- monad_assoc at 1.
+      simpl.
+      rewrite <- monad_assoc.
+      f_equal.
+      apply functional_extensionality.
+      intro x.
+      rewrite monad_left.
+      reflexivity.
+Defined.
+
+(* TODO: Explain *)
+
+Definition stop' {m} `{mo: Monad m} {A}: Opt A := ret None.
+
+(** Observe that [stop' >>= f = stop'] for every [f]. *)
+
+(* begin hide *)
+
+Lemma stop_bind : forall m `(mo: Monad m) A B (f: A -> Opt B), stop' >>= f = stop'.
+Proof.
+  intros.
+  unfold stop'.
+  simpl.
+  rewrite monad_left.
+  reflexivity.
+Qed.
+
+Instance opt_morphism: forall m1 `(mo1: Monad m1) m2 `(mo2: Monad m2) (F: forall A, m1 A -> m2 A) `(mor: @Morphism m1 _ m2 _ F),
+    @Morphism (@Opt m1 _) _ (@Opt m2 _) _ (fun A => F (option A)).
+Proof.
+  intros.
+  split.
+  - intros.
+    apply (morph_ret (F:=F)).
+  - intros.
+    rewrite (morph_bind (F:=F)).
+    simpl.
+    f_equal.
+    apply functional_extensionality.
+    intros [x|].
+    + reflexivity.
+    + apply (morph_ret (F:=F)).
+Qed.
+
+(* end hide *)
+
+(* begin hide *)
+Section limit_scope.
+Open Scope type_scope.
+(* end hide *)
+
+Definition ST S m `{Monad m} A := S -> m (A * S).
+
+(* begin hide *)
+End limit_scope.
+(* end hide *)
+
+Instance StateTransformer S: Transformer (ST S) :=
+{
+  transformer_monad m mo :=
+    {|
+      ret A x s := ret (x, s);
+      bind A ma B f s := bind (ma s) (fun p => f (fst p) (snd p));
+    |};
+  lift _ _ _ ma s := bind ma (fun x => ret (x, s));
+}.
+Proof. (* TODO: The proofs are virtually identical to those of the option transformer. *)
+  - intros.
+    apply functional_extensionality.
+    intro s.
+    rewrite <- monad_right.
+    f_equal.
+    apply functional_extensionality.
+    intro p.
+    rewrite <- surjective_pairing.
+    reflexivity.
+  - intros.
+    apply functional_extensionality.
+    intro s.
+    rewrite monad_left.
+    reflexivity.
+  - intros.
+    apply functional_extensionality.
+    intro s.
+    rewrite <- monad_assoc.
+    reflexivity.
+  - intros.
+    split.
+    + intros.
+      apply functional_extensionality.
+      intro s.
+      rewrite monad_left.
+      reflexivity.
+    + intros.
+      apply functional_extensionality.
+      intro s.
+      rewrite <- monad_assoc at 1.
+      simpl.
+      rewrite <- monad_assoc.
+      f_equal.
+      apply functional_extensionality.
+      intro x.
+      rewrite monad_left.
+      reflexivity.
+Defined.
+
+(** TODO: Explain state monad transformer *)
+
+Section opt_st_facts.
+
+  Context {m} `{mo: Monad m} {S: Type}.
+
+  Let C := @Opt (@ST S m _) _.
+
+  Proposition ST_stop: forall A (s: S),
+      @stop' (@ST S m _) _ A s = ret (None, s).
+  Proof.
+    reflexivity.
+  Qed.
+
+  Definition tryGet' {A} (f: S -> option A) : C A :=
+    fun s => ret (f s, s).
+
+  Definition get' {A} (f: S -> A) : C A :=
+    fun s => ret (Some (f s), s).
+
+  Definition updateState' (f: S -> S): C unit :=
+    fun s => ret (Some tt, f s).
+
+  (** We use the convention that computations (and functions returning
+      computations) have names ending with an apostrophe. For this reason
+      we also define: *)
+
+  Definition return' {A} (x: A) : C A := ret x.
+
+End opt_st_facts.
+
+
+(** ** Core machine state
 
 As discovered by Eugenio Moggi in 1989, monads can be used to represent
 computations with side-effects such as input and output. Below we shall
 define a virtual machine in terms of a partial computational monad, but
 first we define types representing the state of the machine at a given
-moment.
+moment. *)
 
-*** I/O state
+(* begin hide *)
+
+Module Instructions.
+  Open Scope nat_scope.
+  Notation "'EXIT'" := 0.
+  Notation "'NOP'" := 1.
+  Notation "'JUMP'" := 2.
+  Notation "'JUMP_ZERO'" := 3.
+  Notation "'SET_SP'" := 4.
+  Notation "'GET_PC'" := 5.
+  Notation "'GET_SP'" := 6.
+  Notation "'PUSH0'" := 7.
+  Notation "'PUSH1'" := 8.
+  Notation "'PUSH2'" := 9.
+  Notation "'PUSH4'" := 10.
+  Notation "'PUSH8'" := 11.
+  Notation "'SIGX1'" := 12.
+  Notation "'SIGX2'" := 13.
+  Notation "'SIGX4'" := 14.
+  Notation "'LOAD1'" := 16.
+  Notation "'LOAD2'" := 17.
+  Notation "'LOAD4'" := 18.
+  Notation "'LOAD8'" := 19.
+  Notation "'STORE1'" := 20.
+  Notation "'STORE2'" := 21.
+  Notation "'STORE4'" := 22.
+  Notation "'STORE8'" := 23.
+  Notation "'ADD'" := 32.
+  Notation "'MULT'" := 33.
+  Notation "'DIV'" := 34.
+  Notation "'REM'" := 35.
+  Notation "'LT'" := 36.
+  Notation "'AND'" := 40.
+  Notation "'OR'" := 41.
+  Notation "'NOT'" := 42.
+  Notation "'XOR'" := 43.
+  Notation "'POW2'" := 44.
+End Instructions.
+(* end hide *)
+
+Record CoreState :=
+  mkCoreState {
+      PC: Bits64;
+      SP: Bits64;
+      memory: Bits64 -> option Bits8;
+    }.
+
+(** A record is an inductive type with a single constructor
+([mkCoreState]), where we get projections for free. For example, if [s:
+CoreState], then [PC s: Bits64]. *)
+
+(* begin hide *)
+
+Instance etaCoreState : Settable _ := settable! mkCoreState < PC; SP; memory >.
+
+(* end hide *)
+
+Definition initialCoreState
+           (program: list Bits8)
+           (argument: list Bits8)
+           (free: nat)
+           (_: length program + 8 + length argument + free <= 2^64) : CoreState :=
+  let zeros := repeat (toBits 8 0) free in
+  let mem := program ++ toLittleEndian 8 (length argument) ++ argument ++ zeros in
+  let memSize := length mem in
+  {|
+    PC := toBits 64 0;
+    SP := toBits 64 memSize;
+    memory a := nth a (map Some mem) None
+  |}.
+
+(** In other words, before the virtual machine is started, the available
+memory should be initialized to 0 except for a "program" and a "argument",
+both sequenced of bytes. Moreover, the (64-bit) length of the argument is
+stored between the program and the argument, the program counter is
+initialized to 0 and the stack pointer to the first address after the
+available memory. *)
+
+
+Section Core.
+
+  (* IO monad without stopping. *)
+  Context m `{mo: Monad m}.
+  Let IO := @Opt m mo.
+
+  Definition Comp := @Opt (@ST CoreState m mo) _.
+
+  Definition fromIO A : IO A -> Comp A := lift (A := option A).
+
+  Instance fromIO_morphism: @Morphism IO _ Comp _ fromIO.
+  Proof.
+    (* intros. apply opt_morphism, lift_morphism. *)
+    typeclasses eauto.
+  Qed.
+
+  (* begin hide *)
+
+  Proposition fromIO_characterization : forall A (ma: IO A),
+      fromIO ma = fun s => (ma : m (option A)) >>= (fun x => ret (x, s)).
+  Proof.
+    reflexivity.
+  Qed.
+
+  (* end hide *)
+
+
+  (** *** Memory access *)
+
+  (** The virtual machine uses 64-bit memory addresses. *)
+
+  Definition loadByte' (a: Z) : Comp Bits8 :=
+    mem ::= get' memory;
+    match mem (toBits 64 a) with
+    | None => stop'
+    | Some value => return' value
+    end.
+
+  (* begin hide *)
+  Section limit_scope.
+  Open Scope vector_scope.
+  (* end hide *)
+
+  Equations loadBytes' (n: nat) (a: Z) : Comp (vector Bits8 n) :=
+    loadBytes' 0 _ := return' [];
+    loadBytes' (S n) start :=
+      x ::= loadByte' start;
+      u ::= loadBytes' n (start + 1);
+      return' (x :: u).
+
+  (* begin hide *)
+  End limit_scope.
+  (* end hide *)
+
+  Definition load' (n: nat) (a: Z) : Comp nat :=
+    bytes ::= loadBytes' n a;
+    return' (fromLittleEndian bytes).
+
+  (** That is, [load' n a s0 = (Some x, s1)] if [s0 = s1] and the [n] bytes
+  starting at [a] represent the natural number [x] $<2^n$. If not all the
+  addresses [a], ..., [a+n-1] are available, the machine stops.
+
+  [storeByte'] tries to change the value at a memory address, but stops if
+  the address is not available: *)
+
+  Definition storeByte' (a: Z) (value: Bits8) : Comp unit :=
+    mem ::= get' memory;
+    let u: Bits64 := toBits 64 a in
+    match mem u with
+    | None => stop'
+    | _ => let newMem (v: Bits64) := if v =? u then Some value else mem v in
+          updateState' (fun s => s <| memory := newMem |>)
+    end.
+
+  (** Here [s <| memory := newMem |>] denotes a record which is identical
+  to [s] except that the field [memory] has been changed to [newMem]. *)
+
+  Equations storeBytes' (_: Z) (_: list Bits8) : Comp unit :=
+    storeBytes' _ [] := return' tt;
+    storeBytes' start (x :: u) :=
+      storeByte' start x;;
+      storeBytes' (start + 1) u.
+
+  Definition store' (n: nat) (start: Z) (value: Z) : Comp unit :=
+    storeBytes' start (toLittleEndian n value).
+
+
+  (** *** Stack and program counter *)
+
+  Definition setPC' (az: Z): Comp unit :=
+    updateState' (fun s => s <| PC := toBits 64 az |>).
+
+  Definition setSP' (az: Z): Comp unit :=
+    updateState' (fun s => s <| SP := toBits 64 az |>).
+
+  Definition next' (n: nat) : Comp nat :=
+    a ::= get' PC;
+    setPC' (a + n);;
+    load' n a.
+
+  Definition pop': Comp Bits64 :=
+    a ::= get' SP;
+    v ::= load' 8 a;
+    setSP' (a + 8);;
+    return' (toBits 64 v).
+
+  (* begin hide *)
+  Section limit_scope.
+  Open Scope vector_scope.
+  (* end hide *)
+
+  Equations popN' (n: nat) : Comp (vector Bits64 n) :=
+    popN' 0 := return' [];
+    popN' (S n) := u ::= popN' n; x ::= pop'; return' (x :: u).
+
+  (** Observe that the result from [popN'] comes in the order was pushed.
+  *)
+
+  (* begin hide *)
+  End limit_scope.
+  (* end hide *)
+
+  Definition push' (value: Z): Comp unit :=
+    a0 ::= get' SP;
+    let a1 := a0 - 8 in
+    setSP' a1;;
+    store' 8 a1 value.
+
+  Equations pushList' (_: list Z) : Comp unit :=
+    pushList' [] := return' tt;
+    pushList' (x :: u) := push' x;; pushList' u.
+
+
+  (** *** Abstract I/O *)
+
+  Record IO_operation :=
+    mkIO_operation {
+        ioArgs: nat;
+        operation: vector Bits64 ioArgs -> IO (list Z);
+      }.
+
+  Definition from_IO_operation (op: IO_operation) : Comp unit :=
+    arguments ::= popN' (ioArgs op);
+    results ::= fromIO (operation op arguments);
+    pushList' results.
+
+  Context (IO_operations: list IO_operation).
+
+  Definition ioStep' (n: nat) : Comp unit :=
+    if n <? 128
+    then stop'
+    else nth (n - 128) (map from_IO_operation IO_operations) stop'.
+
+
+  (** ** Single execution step
+
+  The virtual machine has the following core "opcodes":
+
+  %
+  \newcommand\col[1]{\begin{tabular}[t]{rl}#1\end{tabular}}
+  \begin{center}
+  \col{
+   0 & \coqdocvar{EXIT}\\
+   1 & \coqdocvar{NOP}\\
+   2 & \coqdocvar{JUMP}\\
+   3 & \coqdocvar{JUMP\_ZERO}\\
+   4 & \coqdocvar{SET\_SP}\\
+   5 & \coqdocvar{GET\_PC}\\
+   6 & \coqdocvar{GET\_SP}\\
+  }
+  \col{
+   7 & \coqdocvar{PUSH0}\\
+   8 & \coqdocvar{PUSH1}\\
+   9 & \coqdocvar{PUSH2}\\
+  10 & \coqdocvar{PUSH4}\\
+  11 & \coqdocvar{PUSH8}\\
+  12 & \coqdocvar{SIGX1}\\
+  13 & \coqdocvar{SIGX2}\\
+  14 & \coqdocvar{SIGX4}\\
+  }
+  \col{
+  16 & \coqdocvar{LOAD1}\\
+  17 & \coqdocvar{LOAD2}\\
+  18 & \coqdocvar{LOAD4}\\
+  19 & \coqdocvar{LOAD8}\\
+  20 & \coqdocvar{STORE1}\\
+  21 & \coqdocvar{STORE2}\\
+  22 & \coqdocvar{STORE4}\\
+  23 & \coqdocvar{STORE8}\\
+  }
+  \col{
+  32 & \coqdocvar{ADD}\\
+  33 & \coqdocvar{MULT}\\
+  34 & \coqdocvar{DIV}\\
+  35 & \coqdocvar{REM}\\
+  36 & \coqdocvar{LT}\\
+  40 & \coqdocvar{AND}\\
+  41 & \coqdocvar{OR}\\
+  42 & \coqdocvar{NOT}\\
+  43 & \coqdocvar{XOR}\\
+  44 & \coqdocvar{POW2}\\
+  }
+  \end{center}
+  %
+  *)
+
+  (* begin hide *)
+  Section limit_scope.
+  Import Instructions.
+  Let map (f: bool->bool) (u: Bits64) : Bits64 := Vector.map f u.
+  Let map2 (f: bool->bool->bool) (u: Bits64) (v: Bits64) : Bits64 := Vector.map2 f u v.
+  (* end hide *)
+
+  (** %\vspace{1ex}% Now we can define what it means for our virtual machine
+  to perform one execution step. *)
+
+  Definition oneStep' : Comp unit :=
+    opcode ::= next' 1;
+    match opcode with
+    | EXIT => stop'
+    | NOP => return' tt
+
+    | JUMP => pop' >>= setPC'
+    | JUMP_ZERO =>
+        offset ::= next' 1;
+        v ::= pop';
+        if v =? 0
+        then pc ::= get' PC;
+             setPC' (pc + (signed (toBits 8 offset)))
+        else return' tt
+    | SET_SP => pop' >>= setSP'
+    | GET_PC => get' PC >>= push'
+    | GET_SP => get' SP >>= push'
+
+    | PUSH0 => push' 0
+    | PUSH1 => next' 1 >>= push'
+    | PUSH2 => next' 2 >>= push'
+    | PUSH4 => next' 4 >>= push'
+    | PUSH8 => next' 8 >>= push'
+    | SIGX1 => v ::= pop'; push' (signed (toBits 8 v))
+    | SIGX2 => v ::= pop'; push' (signed (toBits 16 v))
+    | SIGX4 => v ::= pop'; push' (signed (toBits 32 v))
+
+    | LOAD1 => pop' >>= load' 1 >>= push'
+    | LOAD2 => pop' >>= load' 2 >>= push'
+    | LOAD4 => pop' >>= load' 4 >>= push'
+    | LOAD8 => pop' >>= load' 8 >>= push'
+    | STORE1 => a ::= pop'; v ::= pop'; store' 1 a v
+    | STORE2 => a ::= pop'; v ::= pop'; store' 2 a v
+    | STORE4 => a ::= pop'; v ::= pop'; store' 4 a v
+    | STORE8 => a ::= pop'; v ::= pop'; store' 8 a v
+
+    | ADD => x ::= pop'; y ::= pop'; push' (x + y)
+    | MULT => x ::= pop'; y ::= pop'; push' (x * y)
+    | DIV => x ::= pop'; y ::= pop'; push' (if x =? 0 then 0 else y / x)
+    | REM => x ::= pop'; y ::= pop'; push' (if x =? 0 then 0 else y mod x)
+    | LT => x ::= pop'; y ::= pop'; push' (if y <? x then -1 else 0)
+    | AND =>
+        u ::= pop';
+        v ::= pop';
+        push' (map2 (fun x y => x && y) u v)
+    | OR =>
+        u ::= pop';
+        v ::= pop';
+        push' (map2 (fun x y => if x then true else y) u v)
+    | XOR =>
+        u ::= pop';
+        v ::= pop';
+        push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
+    | NOT => u ::= pop'; push' (map (fun x => if x then false else true) u)
+    | POW2 => n ::= pop'; push' (2 ^ n)
+
+    | n => ioStep' n
+    end.
+
+  (* begin hide *)
+  End limit_scope.
+  (*end hide *)
+  (** In this definition [map] and [map2] denote the obvious "bitwise" transformations:
+
+  %\begin{center}%
+  [map : (bool -> bool) -> Bits64 -> Bits64] %$\qquad\qquad$%
+  [map2 : (bool -> bool -> bool) -> Bits64 -> Bits64 -> Bits64]
+  %\end{center}%
+
+  We can also run the machine for [n] steps or until it stops: *)
+
+  Equations nSteps' (_: nat) : Comp unit :=
+    nSteps' 0 := return' tt;
+    nSteps' (S n) := oneStep';; nSteps' n.
+
+  (* begin hide *)
+
+  Lemma nSteps_succ: forall n, nSteps' (S n) = nSteps' n;; oneStep'.
+  Proof.
+    intro n.
+    induction n.
+    - simp nSteps'.
+      rewrite monad_left.
+      rewrite <- monad_right.
+      f_equal.
+      apply functional_extensionality.
+      intros [].
+      reflexivity.
+    - simp nSteps' in *.
+      rewrite <- monad_assoc.
+      rewrite IHn.
+      reflexivity.
+  Qed.
+
+  Lemma nSteps_stop: forall (init: Comp unit) n,
+      init;; nSteps' n;; stop' = init;; nSteps' n -> init;; nSteps' (S n) = init;; nSteps' n.
+  Proof.
+    intros init n H.
+    rewrite nSteps_succ.
+    rewrite monad_assoc.
+    rewrite <- H.
+    repeat rewrite <- monad_assoc.
+    rewrite stop_bind.
+    reflexivity.
+  Qed.
+
+  Lemma nSteps_stop_k: forall (init: Comp unit) n k,
+      init;; nSteps' n;; stop' = init;; nSteps' n -> init;; nSteps' (k + n) = init;; nSteps' n.
+  Proof.
+    intros init n k H.
+    induction k as [|k IH].
+    - reflexivity.
+    - rewrite plus_Sn_m.
+      rewrite <- IH.
+      apply nSteps_stop.
+      rewrite monad_assoc.
+      rewrite IH.
+      rewrite <- monad_assoc.
+      exact H.
+  Qed.
+
+  (* end hide *)
+
+End Core.
+
+
+(** ** Input and output *)
+
+(** *** IO state
 
 An image is a two-dimensional matrix of pixels, counting from left to
 right and from top to bottom. *)
@@ -421,6 +1051,22 @@ Defined.
 
 (* end hide *)
 
+(** [Gray] represents the gray scale of the input images (where 0 is
+black), whereas [Color] represents the ACES2065-1 encoded colors of the
+output images: *)
+
+(* begin hide *)
+
+Section limit_scope.
+Open Scope type_scope.
+
+(* end hide *)
+
+Definition Gray := Bits8.
+Definition Color := Bits16 * Bits16 * Bits16.
+
+(* begin hide *)
+
 (** The [Sound] type represents a clip of stereo sound in LPCM encoding.
 Both channels have the same sample rate, and each pair of 16-bit words
 $[(\coqdocvar{left}, \coqdocvar{right})]$ contains one sample for each
@@ -462,327 +1108,46 @@ use reverse ordering. *)
 
 Definition OutputText := list Bits32.
 
-
-(** *** Machine state *)
-
-(** [Gray] represents the gray scale of the input images (where 0 is
-black), whereas [Color] represents the ACES encoded colors of the output
-images: *)
-
-(* begin hide *)
-
-Section limit_scope.
-Open Scope type_scope.
-
-(* end hide *)
-
-Definition Gray := Bits8.
-Definition Color := Bits16 * Bits16 * Bits16.
-
-(* begin hide *)
-
-Ltac derive name term :=
-  let H := fresh in
-  let A := type of term in
-  assert A as H;
-  [ exact term | ];
-  clear name;
-  rename H into name.
-
-Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
-Proof.
-  intros [Ht|Hf]; easy.
-Qed.
-
-(* end hide *)
-
 Definition Output := (Image Color) * Sound * OutputText.
 
-(** The [State] type can now be formulated as follows: *)
+(** The complete I/O state of our machine can now be defined as: *)
 
-Record State :=
-  mkState {
-      PC: Bits64;
-      SP: Bits64;
-      memory: Bits64 -> option Bits8;
+Record IoState :=
+  mkIoState {
       input: list (Image Gray);
       output: list Output;
     }.
 
-(** [PC] and [SP] are known as the "program counter" and the "stack
-pointer", respectively. Each element of [output] consists of (i) an image,
-(ii) the sound clip to be played while this image is displayed, and (iii)
-an associated piece of text. Any of these elements may be empty; and the
-list is reversed in the sense that the first triple in the list should be
-rendered last. The list [input] will be shrinking as the machine processes
-the input. Conversely, [output] will only be growing, except that the
-first element in this list should be considered "in progress" until the
-machine halts. *)
-
 (* begin hide *)
 
 End limit_scope.
 
-Instance etaState : Settable _ := settable! mkState < PC; SP; memory; input; output >.
+Instance etaIoState : Settable _ := settable! mkIoState < input; output >.
 
-Lemma State_expansion (s: State) :
-  s = {|
-    PC := PC s;
-    SP := SP s;
-    memory := memory s;
-    input := input s;
-    output := output s;
+(* end hide *)
+
+(** When the machine starts, [input] contains all the frames of the film
+plus an initial empty frame, and [output] is empty exept for an empty
+triple. *)
+
+Definition initialIoState (inputList: list (Image Gray)) :=
+  {|
+    input := noImage :: inputList;
+    output := [(noImage, noSound, [])]
   |}.
-Proof.
-  reflexivity.
-Qed.
 
-(* Since State is finite, this might be provable even without
-   PropExtensionality, but that will have to wait. *)
-Lemma State_injectivity
-      p0 s0 m0 i0 o0
-      p1 s1 m1 i1 o1:
-  p0=p1 -> s0=s1 -> m0=m1 -> i0=i1 -> o0=o1
-  -> {|PC:=p0; SP:=s0; memory:=m0; input:=i0; output:=o0|}
-  = {|PC:=p1; SP:=s1; memory:=m1; input:=i1; output:=o1|}.
-Proof.
-  repeat (intro e; destruct e).
-  reflexivity.
-Qed.
+(** As the machine executes [input] will consist of the input frame
+currently being processed and the rest of the film, whereas whereas
+[output] will consist of the
 
-Lemma State_extensionality : forall (s0 s1: State),
-    PC s0 = PC s1
-    -> SP s0 = SP s1
-    -> input s0 = input s1
-    -> output s0 = output s1
-    -> memory s0 = memory s1
-    -> s0 = s1.
-Proof.
-  intros.
-  rewrite (State_expansion s0).
-  rewrite (State_expansion s1).
-  apply State_injectivity; assumption.
-Qed.
+increase. The
 
-(* end hide *)
+r *)
 
+Definition IO0 := @ST IoState id _.
+Definition IO := @Opt IO0 _.
 
-(** *** Computational monad *)
-
-(** Our computation monad can now be defined as follows: *)
-
-Definition Comp (A: Type) := State -> option (A) * State.
-
-(* begin hide *)
-
-Module st_tactics.
-  Ltac destr :=
-    match goal with
-    | H:_ /\ _ |- _ => destruct H
-    | H:_ * _ |- _ => destruct H
-    | H:_ \/ _ |- _ => destruct H
-    | H: exists _, _ |- _ => destruct H
-    | H: option _ |- _ => destruct H
-    | H: False |- _ => destruct H
-    end.
-
-  Ltac ex_tac := fail.
-  Ltac crush := repeat (
-                    intro || split || assumption || discriminate || subst
-                    || apply State_extensionality
-                    || apply functional_extensionality
-                    || f_equal
-                    || simpl in * || destr || ex_tac).
-  Ltac ex_tac ::=
-    match goal with
-    | [ |- exists x s, x = ?x' /\ s = ?s' /\ _] => exists x; exists s; solve[crush]
-    | [x:?X, s:State, _:context H[_ ?x ?s] |- exists _: ?X, exists _: State, _ ] => exists x; exists s; solve[crush]
-    end.
-
-  Ltac special :=
-    match goal with
-    | [ H1: forall x (s: State), ?st x s -> ?R, H2: ?st ?x ?s  |- _ ] =>
-      let h := fresh in
-      specialize (H1 _ _ H2) as h;
-      try exact h;
-      try destruct h as [? [? h]]
-    end.
-End st_tactics.
-
-(* end hide *)
-
-Instance ComputationMonad: Monad Comp :=
-  {
-    ret A x := fun s => (Some x, s);
-    bind A ma B f := fun s => match ma s with
-                           | (Some x, s1) => f x s1
-                           | (None, s1) => (None, s1)
-                           end;
-  }.
-Proof.
-  - st_tactics.crush.
-    destruct (ma x) as [[?|]?]; reflexivity.
-  - st_tactics.crush.
-  - st_tactics.crush.
-    destruct (ma x) as [[?|]?]; reflexivity.
-Defined.
-
-(** It is easy to prove the monad axioms assuming propositional and
-functional extensionality. Some may recognize this as the result of
-applying an option monad transformer to a state monad. Informally, every
-[ma: Comp A] is a computation that should produce a value of type [A]:
-
-- If %\,%[ma s0 = (Some x, s1)], then executing [ma] from state [s0]
-  produces [x] and changes the state to [s1].
-
-- If %\,%[ma s0 = (None, s1)], then the computation halts in state [s1]
-  before producing any value.
-
-
-** Primitive computations
-
-[Comp unit] represents computations that do not produce any meaningful
-value. They may, however, produce output and have other side-effects. In
-the next section we shall define one execution step of our virtual machine
-as a term [oneStep': Comp unit], but first we need some more building
-blocks. *)
-
-Definition stop' {A}: Comp A :=
-  fun s => (None, s).
-
-(** Observe that [stop' >>= f = stop'] for every [f]. *)
-
-(* begin hide *)
-
-Lemma stop_bind : forall A B (f: A -> Comp B), stop' >>= f = stop' :> Comp B.
-Proof.
-  intros.
-  apply functional_extensionality.
-  reflexivity.
-Qed.
-
-(* end hide *)
-
-Definition tryGet' {A} (f: State -> option A) : Comp A :=
-  fun s => (f s, s).
-
-Definition get' {A} (f: State -> A): Comp A :=
-  fun s => (Some (f s), s).
-
-Definition updateState' (f: State -> State): Comp unit :=
-  fun s => (Some tt, f s).
-
-(** We use the convention that computations (and functions returning
-computations) have names ending with an apostrophe. For this reason we
-also define: *)
-
-Definition return' {A} (x: A) : Comp A := ret x.
-
-(** In other words, [return' x s = get' (fun _ => x) = (Some x, s)]. *)
-
-
-(** *** Memory access *)
-
-(** The virtual machine uses 64-bit memory addresses. *)
-
-Definition loadByte' (a: Z) : Comp Bits8 :=
-  mem ::= get' memory;
-  match mem (toBits 64 a) with
-  | None => stop'
-  | Some value => return' value
-  end.
-
-(* begin hide *)
-Section limit_scope.
-Open Scope vector_scope.
-(* end hide *)
-
-Equations loadBytes' (n: nat) (a: Z) : Comp (vector Bits8 n) :=
-  loadBytes' 0 _ := return' [];
-  loadBytes' (S n) start :=
-    x ::= loadByte' start;
-    u ::= loadBytes' n (start + 1);
-    return' (x :: u).
-
-(* begin hide *)
-End limit_scope.
-(* end hide *)
-
-Definition load' (n: nat) (a: Z) : Comp nat :=
-  bytes ::= loadBytes' n a;
-  return' (fromLittleEndian bytes).
-
-(** That is, [load' n a s0 = (Some x, s1)] if [s0 = s1] and the [n] bytes
-starting at [a] represent the natural number [x] $<2^n$. If not all the
-addresses [a], ..., [a+n-1] are available, the machine stops.
-
-[storeByte'] tries to change the value at a memory address, but stops if
-the address is not available: *)
-
-Definition storeByte' (a: Z) (value: Bits8) : Comp unit :=
-  mem ::= get' memory;
-  let u: Bits64 := toBits 64 a in
-  match mem u with
-  | None => stop'
-  | _ => let newMem (v: Bits64) := if v =? u then Some value else mem v in
-        updateState' (fun s => s <| memory := newMem |>)
-  end.
-
-(** Here [s <| memory := newMem |>] denotes a new record which is
-identical to [s] except that the field [memory] has been changed to
-[newMem]. *)
-
-Equations storeBytes' (_: Z) (_: list Bits8) : Comp unit :=
-  storeBytes' _ [] := return' tt;
-  storeBytes' start (x :: u) :=
-    storeByte' start x;;
-    storeBytes' (start + 1) u.
-
-Definition store' (n: nat) (start: Z) (value: Z) : Comp unit :=
-  storeBytes' start (toLittleEndian n value).
-
-
-(** *** Stack and program counter *)
-
-Definition setPC' (az: Z): Comp unit :=
-  updateState' (fun s => s <| PC := toBits 64 az |>).
-
-Definition setSP' (az: Z): Comp unit :=
-  updateState' (fun s => s <| SP := toBits 64 az |>).
-
-Definition next' (n: nat) : Comp nat :=
-  a ::= get' PC;
-  setPC' (a + n);;
-  load' n a.
-
-Definition pop': Comp Bits64 :=
-  a ::= get' SP;
-  v ::= load' 8 a;
-  setSP' (a + 8);;
-  return' (toBits 64 v).
-
-(* begin hide*)
-Definition push' (value: Z): Comp unit :=
-  a0 ::= get' SP;
-  let a1 := a0 - 8 in
-  setSP' a1;;
-  store' 8 a1 value.
-(* end hide *)
-
-(**
-[[
-Definition push' (value: Z): Comp unit :=
-  a0 ::= get' SP;
-  let a1 := a0 - 8 in
-  setSP' a1;;
-  store' 8 a1 value.
-]]
-*)
-
-
-(** *** Input and output *)
-
-Definition readFrame' : Comp (Bits16 * Bits16) :=
+Definition readFrame' : IO (Bits16 * Bits16) :=
   updateState' (fun s => s <| input := tail (input s) |>);;
   i ::= get' input;
   return' (match i with
@@ -792,7 +1157,7 @@ Definition readFrame' : Comp (Bits16 * Bits16) :=
 
 (** Here [tail (_ :: tl) := tl] %\:and\:% [tail [] := []]. *)
 
-Definition readPixel' (x y: nat) : Comp Bits8 :=
+Definition readPixel' (x y: nat) : IO Bits8 :=
   i ::= get' input;
   match i with
   | [] => stop'
@@ -819,6 +1184,19 @@ Definition blank (width: Bits16) (height: Bits16): Image Color :=
 Here %\:%[p && q = if p then q else false]. *)
 
 (* begin hide *)
+
+Ltac derive name term :=
+  let H := fresh in
+  let A := type of term in
+  assert A as H;
+  [ exact term | ];
+  clear name;
+  rename H into name.
+
+Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
+Proof.
+  intros [Ht|Hf]; easy.
+Qed.
 
 Definition blank (width: Bits16) (height: Bits16): Image Color.
   refine (
@@ -853,11 +1231,12 @@ Defined.
 
 (* end hide *)
 
-Definition newFrame' (width height rate: nat) : Comp unit :=
+
+Definition newFrame' (width height rate: nat) : IO unit :=
   let o := (blank (toBits 16 width) (toBits 16 height), emptySound (toBits 32 rate), []) in
   updateState' (fun s => s <| output := o :: output s |>).
 
-Definition getCurrentOutput' : Comp Output :=
+Definition getCurrentOutput' : IO Output :=
   oList ::= get' output;
   match oList with
   | o :: _ => return' o
@@ -865,9 +1244,9 @@ Definition getCurrentOutput' : Comp Output :=
   end.
 
 (** In practice, [getCurrentOutput'] will not halt since we start the
-machine with a non-empty output list, see [protoState] below. *)
+machine with a non-empty output list, see [initialIoState] above. *)
 
-Definition replaceOutput o s : State := s <| output := o :: tail (output s) |>.
+Definition replaceOutput o s : IoState := s <| output := o :: tail (output s) |>.
 
 (**
 [[
@@ -918,7 +1297,7 @@ Defined.
 
 (* end hide *)
 
-Definition setPixel' (x y r g b : nat) : Comp unit :=
+Definition setPixel' (x y r g b : nat) : IO unit :=
   o ::= getCurrentOutput';
   match o with (image, sound, text) =>
     match trySetPixel image x y (toBits 16 r, toBits 16 g, toBits 16 b) with
@@ -926,6 +1305,7 @@ Definition setPixel' (x y r g b : nat) : Comp unit :=
     | Some newImage => updateState' (replaceOutput (newImage, sound, text))
     end
   end.
+
 
 (**
 [[
@@ -949,7 +1329,7 @@ Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
     sDef := fun H0 => False_ind _ (H H0);
   |}.
 
-Definition addSample' (l r : nat) : Comp unit :=
+Definition addSample' (l r : nat) : IO unit :=
   o ::= getCurrentOutput';
   match o with (image, sound, text) =>
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
@@ -962,320 +1342,138 @@ Definition addSample' (l r : nat) : Comp unit :=
 
 (* end hide *)
 
-Definition putChar' (c: nat) : Comp unit :=
+Definition putChar' (c: nat) : IO unit :=
   o ::= getCurrentOutput';
   match o with (image, sound, text) =>
     updateState' (replaceOutput (image, sound, (toBits 32 c) :: text))
   end.
 
 
-(** ** Single execution step
+(** *** Putting the pieces together
 
-The virtual machine has the following "opcodes":
 
-%
-\newcommand\col[1]{\begin{tabular}[t]{rl}#1\end{tabular}}
-\begin{center}
-\col{
- 0 & \coqdocvar{EXIT}\\
- 1 & \coqdocvar{NOP}\\
- 2 & \coqdocvar{JUMP}\\
- 3 & \coqdocvar{JUMP\_ZERO}\\
- 4 & \coqdocvar{SET\_SP}\\
- 5 & \coqdocvar{GET\_PC}\\
- 6 & \coqdocvar{GET\_SP}\\
- 7 & \coqdocvar{PUSH0}\\
- 8 & \coqdocvar{PUSH1}\\
- 9 & \coqdocvar{PUSH2}\\
-10 & \coqdocvar{PUSH4}\\
-11 & \coqdocvar{PUSH8}
-}
-\col{
-12 & \coqdocvar{SIGX1}\\
-13 & \coqdocvar{SIGX2}\\
-14 & \coqdocvar{SIGX4}\\
-16 & \coqdocvar{LOAD1}\\
-17 & \coqdocvar{LOAD2}\\
-18 & \coqdocvar{LOAD4}\\
-19 & \coqdocvar{LOAD8}\\
-20 & \coqdocvar{STORE1}\\
-21 & \coqdocvar{STORE2}\\
-22 & \coqdocvar{STORE4}\\
-23 & \coqdocvar{STORE8}\\
-}
-\col{
-32 & \coqdocvar{ADD}\\
-33 & \coqdocvar{MULT}\\
-34 & \coqdocvar{DIV}\\
-35 & \coqdocvar{REM}\\
-36 & \coqdocvar{LT}\\
-40 & \coqdocvar{AND}\\
-41 & \coqdocvar{OR}\\
-42 & \coqdocvar{NOT}\\
-43 & \coqdocvar{XOR}\\
-44 & \coqdocvar{POW2}\\
-}
-\col{
-48 & \coqdocvar{NEW\_FRAME}\\
-49 & \coqdocvar{SET\_PIXEL}\\
-50 & \coqdocvar{ADD\_SAMPLE}\\
-52 & \coqdocvar{PUT\_CHAR}\\
-56 & \coqdocvar{READ\_FRAME}\\
-57 & \coqdocvar{READ\_PIXEL}\\
-}
-\end{center}
-%
-*)
+[nFun n A B = A -> A -> ... -> B] *)
+
+Equations nFun (n: nat) (A B: Type): Type :=
+  nFun O _ B := B;
+  nFun (S n) A B := A -> (nFun n A B).
 
 (* begin hide *)
-
-Module Instructions.
-  Open Scope nat_scope.
-  Notation "'EXIT'" := 0.
-  Notation "'NOP'" := 1.
-  Notation "'JUMP'" := 2.
-  Notation "'JUMP_ZERO'" := 3.
-  Notation "'SET_SP'" := 4.
-  Notation "'GET_PC'" := 5.
-  Notation "'GET_SP'" := 6.
-  Notation "'PUSH0'" := 7.
-  Notation "'PUSH1'" := 8.
-  Notation "'PUSH2'" := 9.
-  Notation "'PUSH4'" := 10.
-  Notation "'PUSH8'" := 11.
-  Notation "'SIGX1'" := 12.
-  Notation "'SIGX2'" := 13.
-  Notation "'SIGX4'" := 14.
-  Notation "'LOAD1'" := 16.
-  Notation "'LOAD2'" := 17.
-  Notation "'LOAD4'" := 18.
-  Notation "'LOAD8'" := 19.
-  Notation "'STORE1'" := 20.
-  Notation "'STORE2'" := 21.
-  Notation "'STORE4'" := 22.
-  Notation "'STORE8'" := 23.
-  Notation "'ADD'" := 32.
-  Notation "'MULT'" := 33.
-  Notation "'DIV'" := 34.
-  Notation "'REM'" := 35.
-  Notation "'LT'" := 36.
-  Notation "'AND'" := 40.
-  Notation "'OR'" := 41.
-  Notation "'NOT'" := 42.
-  Notation "'XOR'" := 43.
-  Notation "'POW2'" := 44.
-  Notation "'NEW_FRAME'" := 48.
-  Notation "'SET_PIXEL'" := 49.
-  Notation "'ADD_SAMPLE'" := 50.
-  Notation "'PUT_CHAR'" := 52.
-  Notation "'READ_FRAME'" := 56.
-  Notation "'READ_PIXEL'" := 57.
-End Instructions.
-
-Section limit_scope.
-Import Instructions.
-Let map (f: bool->bool) (u: Bits64) : Bits64 := Vector.map f u.
-Let map2 (f: bool->bool->bool) (u: Bits64) (v: Bits64) : Bits64 := Vector.map2 f u v.
+Open Scope vector_scope.
 (* end hide *)
 
-(** %\vspace{1ex}% Now we can define what it means for our virtual machine
-to perform one execution step. *)
-
-Definition oneStep' : Comp unit :=
-  opcode ::= next' 1;
-  match opcode with
-  | EXIT => stop'
-  | NOP => return' tt
-
-  | JUMP => pop' >>= setPC'
-  | JUMP_ZERO =>
-      offset ::= next' 1;
-      v ::= pop';
-      if v =? 0
-      then pc ::= get' PC;
-           setPC' (pc + (signed (toBits 8 offset)))
-      else return' tt
-  | SET_SP => pop' >>= setSP'
-  | GET_PC => get' PC >>= push'
-  | GET_SP => get' SP >>= push'
-
-  | PUSH0 => push' 0
-  | PUSH1 => next' 1 >>= push'
-  | PUSH2 => next' 2 >>= push'
-  | PUSH4 => next' 4 >>= push'
-  | PUSH8 => next' 8 >>= push'
-  | SIGX1 => v ::= pop'; push' (signed (toBits 8 v))
-  | SIGX2 => v ::= pop'; push' (signed (toBits 16 v))
-  | SIGX4 => v ::= pop'; push' (signed (toBits 32 v))
-
-  | LOAD1 => pop' >>= load' 1 >>= push'
-  | LOAD2 => pop' >>= load' 2 >>= push'
-  | LOAD4 => pop' >>= load' 4 >>= push'
-  | LOAD8 => pop' >>= load' 8 >>= push'
-  | STORE1 => a ::= pop'; v ::= pop'; store' 1 a v
-  | STORE2 => a ::= pop'; v ::= pop'; store' 2 a v
-  | STORE4 => a ::= pop'; v ::= pop'; store' 4 a v
-  | STORE8 => a ::= pop'; v ::= pop'; store' 8 a v
-
-  | ADD => x ::= pop'; y ::= pop'; push' (x + y)
-  | MULT => x ::= pop'; y ::= pop'; push' (x * y)
-  | DIV => x ::= pop'; y ::= pop'; push' (if x =? 0 then 0 else y / x)
-  | REM => x ::= pop'; y ::= pop'; push' (if x =? 0 then 0 else y mod x)
-  | LT => x ::= pop'; y ::= pop'; push' (if y <? x then -1 else 0)
-  | AND =>
-      u ::= pop';
-      v ::= pop';
-      push' (map2 (fun x y => x && y) u v)
-  | OR =>
-      u ::= pop';
-      v ::= pop';
-      push' (map2 (fun x y => if x then true else y) u v)
-  | XOR =>
-      u ::= pop';
-      v ::= pop';
-      push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
-  | NOT => u ::= pop'; push' (map (fun x => if x then false else true) u)
-  | POW2 => n ::= pop'; push' (2 ^ n)
-
-  | NEW_FRAME =>
-      rate ::= pop'; height ::= pop'; width ::= pop';
-      newFrame' width height rate
-  | SET_PIXEL =>
-      b ::= pop'; g ::= pop'; r ::= pop';
-      y ::= pop'; x ::= pop';
-      setPixel' x y r g b
-  | ADD_SAMPLE => r ::= pop'; l ::= pop'; addSample' l r
-  | PUT_CHAR => pop' >>= putChar'
-  | READ_FRAME => wh ::= readFrame'; push' (fst wh);; push' (snd wh)
-  | READ_PIXEL => x ::= pop'; y ::= pop'; readPixel' x y >>= push'
-  | _ => stop'
-  end.
+Equations nApp {n A B} (f: nFun n A B) (v: vector A n): B :=
+  nApp y [] := y;
+  nApp f (x :: v) := nApp (f x) v.
 
 (* begin hide *)
-End limit_scope.
-(*end hide *)
-(** In this definition [map] and [map2] denote the obvious "bitwise" transformations:
+Close Scope vector_scope.
+(* end hide *)
 
-%\begin{center}%
-[map : (bool -> bool) -> Bits64 -> Bits64] %$\qquad\qquad$%
-[map2 : (bool -> bool -> bool) -> Bits64 -> Bits64 -> Bits64]
-%\end{center}%
+(* For some reason, I can't make this a "let" in the next definition. *)
+Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list Z))) |}.
 
-We can also run the machine for [n] steps or until it stops: *)
-
-Equations nSteps' (_: nat) : Comp unit :=
-  nSteps' 0 := return' tt;
-  nSteps' (S n) := oneStep';; nSteps' n.
+Definition IO_operations :=
+  [
+    io_operation 0 (wh ::= readFrame'; return' [fst wh : Z; snd wh : Z]);
+    io_operation 2 (fun x y => p ::= readPixel' x y; return' [p:Z]);
+    io_operation 3 (fun w h r => newFrame' w h r;; return' []);
+    io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
+    io_operation 2 (fun l r => addSample' l r;; return' []);
+    io_operation 1 (fun c => putChar' c;; return' [])
+  ].
 
 (* begin hide *)
 
-Lemma nSteps_succ: forall n, nSteps' (S n) = nSteps' n;; oneStep'.
+(* Why is this needed?*)
+Instance CompMonad: Monad (Comp (m:=IO0)).
 Proof.
-  intro n.
-  induction n.
-  - simp nSteps'.
-    apply functional_extensionality.
-    intro s.
+  unfold Comp.
+  typeclasses eauto.
+Defined.
+
+(* end hide *)
+
+
+Lemma characterize_stopped: forall (c: Comp (m:=IO0) unit) (cs: CoreState) (ios: IoState),
+    let init := updateState' (fun _ => cs);; fromIO _ (updateState' (fun _ => ios)) in
+    init;; c;; stop' = init;; c <-> fst (fst (c cs ios)) = None.
+Proof. (* TODO: Improve proof *)
+  intros.
+  split; intro H.
+  - assert ((init;; c;; stop') cs ios = (init;; c) cs ios) as HH;
+      [congruence|]; clear H; rename HH into H.
+    subst init.
+    simpl in H.
+    rewrite <- H.
+    clear H.
+    destruct (fst (fst (c cs ios))); reflexivity.
+  - apply functional_extensionality. intro cs2.
+    apply functional_extensionality. intro iso2.
     simpl.
-    destruct (oneStep' s) as [[[]|] s1]; reflexivity.
-  - simp nSteps' in *.
-    rewrite <- monad_assoc.
-    rewrite IHn.
+    rewrite H.
+    clear cs2 iso2.
+    destruct (c cs ios) as [[opt cs2] ios2].
+    simpl. simpl in H.
+    rewrite H.
     reflexivity.
 Qed.
 
-Lemma nSteps_stop: forall n s0 s1,
-    nSteps' n s0 = (None, s1) -> nSteps' (S n) s0 = (None, s1).
-Proof.
-  intros n s0 s1 H.
-  rewrite nSteps_succ.
-  simpl.
-  rewrite H.
-  reflexivity.
-Qed.
 
-Lemma nSteps_stop_k: forall n s0 s1 k,
-    nSteps' n s0 = (None, s1) -> nSteps' (k + n) s0 = (None, s1).
-Proof.
-  intros n s0 s1 k H.
-  induction k.
-  - exact H.
-  - simpl. apply nSteps_stop. exact IHk.
-Qed.
+Definition State: Type := CoreState * IoState.
 
-(* end hide *)
-
-
-(** ** Running a program
-
-Before the machine can start, we must load a program into the memory and
-set the program counter to its start position. We must also initialize the
-stack and stack pointer; and the initial state should contain the full
-list of input frames and no output frames. *)
-
-Definition protoState (memorySize: nat) (inputList: list (Image Gray)) : State :=
-  {|
-    PC := toBits 64 0;
-    SP := toBits 64 (min memorySize (2 ^ 64));
-    memory := fun a => if a <? memorySize then Some (toBits 8 0) else None;
-    input := noImage :: inputList;
-    output := [(noImage, noSound, [])];
-  |}.
-
-(** Initially, the memory is 0 at every address below [memorySize], and
-[SP] points to the first address after this segment. If [memorySize >=]
-$2^{64}$, then [SP=0]. *)
-
-Definition loadProgram' (program: list Bits8) (argument: list Bits8) : Comp unit :=
-  let program_start := 0 in
-  let argument_start := length program in
-  storeBytes' program_start program;;
-  store' 8 argument_start (length argument);;
-  storeBytes' (argument_start + 8) argument;;
-  setPC' program_start.
-
-(** Thus, the final state after running a program has the following
-property: *)
-
-Definition finalState memorySize inputList program argument : State -> Prop :=
-  let s0 := protoState memorySize inputList in
-  fun s1 => exists n, (loadProgram' program argument;; nSteps' n) s0 = (None, s1).
+Definition finalState
+           program argument (free: nat) inputList
+           (H: length program + 8 + length argument + free <= 2^64): State -> Prop :=
+  let cs := initialCoreState program argument free H in
+  let ios := initialIoState inputList in
+  fun s => exists n, nSteps' IO_operations n cs ios = ((None, fst s), snd s).
 
 (** This is a partial function in the following sense: *)
 
-Lemma finalState_unique: forall m i p a s1 s2,
-    finalState m i p a s1 -> finalState m i p a s2 -> s1 = s2.
-Proof. (* TODO: Simplify? *)
-  intros m i p a s1 s2 H1 H2.
-  unfold finalState in H1, H2.
+Lemma finalState_unique: forall p a f i H s1 s2,
+    finalState p a f i H s1 -> finalState p a f i H s2 -> s1 = s2.
+Proof. (* TODO: simplify *)
+  intros p a f i H s1 s2 H1 H2.
   destruct H1 as [n1 H1].
   destruct H2 as [n2 H2].
-  simpl in H1, H2.
-  destruct (loadProgram' p a (protoState m i)) as [[[]|] s].
-  - clear m i p a.
+  revert H1 H2.
+  generalize (initialCoreState p a f H).
+  generalize (initialIoState i).
+  intros ios cs H1 H2.
+  set (g := nSteps' IO_operations) in *.
+  enough (g n1 cs ios = g n2 cs ios) as HH.
+  - rewrite H1, H2 in HH.
+    inversion HH.
+    destruct s1.
+    destruct s2.
+    f_equal; assumption.
+  - set (init := updateState' (fun _ => cs);; fromIO _ (updateState' (fun _ => ios))).
+    assert (init;; g n1;; stop' = init;; g n1) as Hs1; [apply characterize_stopped; rewrite H1; reflexivity|].
+    assert (init;; g n2;; stop' = init;; g n2) as Hs2; [apply characterize_stopped; rewrite H2; reflexivity|].
+
     set (n3 := max n1 n2).
-    enough (nSteps' n3 s = nSteps' n1 s /\ nSteps' n3 s = nSteps' n2 s) as [HH1 HH2].
+    enough (g n3 cs ios = g n1 cs ios /\ g n3 cs ios = g n2 cs ios) as [HH1 HH2].
     + rewrite HH2 in HH1.
       rewrite H1, H2 in HH1.
       inversion HH1.
+      destruct  s1; destruct s2.
+      simpl in *.
       congruence.
-    + split;
-        [rename n1 into n; rename H1 into H
-        |rename n2 into n; rename H2 into H];
-        set (k := (n3 - n)%nat);
-        assert (n3 = k + n)%nat as Hk;
-        [lia| |lia| ];
-        rewrite Hk, H;
-        apply nSteps_stop_k;
-        exact H.
-  - congruence.
+    + split.
+      * set (k1 := (n3 - n1)%nat).
+        assert (n3 = (k1 + n1)%nat) as Hn1; [lia|].
+        assert (init;; g (k1 + n1)%nat = init;; g n1) as Hi1; [apply nSteps_stop_k; exact Hs1|].
+        rewrite <- Hn1 in Hi1.
+        assert ((init;; g n3) cs ios = (init;; g n1) cs ios) as HH1; [congruence|].
+        exact HH1.
+      * set (k2 := (n3 - n2)%nat).
+        assert (n3 = (k2 + n2)%nat) as Hn2; [lia|].
+        assert (init;; g (k2 + n2)%nat = init;; g n2) as Hi2; [apply nSteps_stop_k; exact Hs2|].
+        rewrite <- Hn2 in Hi2.
+        assert ((init;; g n3) cs ios = (init;; g n2) cs ios) as HH2; [congruence|].
+        exact HH2.
 Qed.
 
-(** In a framework with general recursion we might instead define this
-partial function directly as
-
-%\begin{center}%
-[fun ... => snd ((loadProgram' program argument;; run') (protoState memorySize inputList))]
-%\end{center}%
-
-where [run' = oneStep';; run']. *)
+(** In a framework with general recursion we could have defined this
+partial function directly. *)
