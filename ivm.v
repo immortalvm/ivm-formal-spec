@@ -56,7 +56,7 @@ Global Unset Printing Primitive Projection Parameters.
 (** printing map2 $\coqdocvar{map}_2$ *)
 
 
-(** * Formal virtual machine specification
+(** * Formal virtual machine specification%\label{sec:formal}%
 
 This section contains a mathematical definition of the virtual machine
 used to interpret the contents of this film. It has been formalized in a
