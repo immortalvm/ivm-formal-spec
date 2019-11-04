@@ -20,11 +20,16 @@
 \usepackage{bbm}
 \usepackage{hyperref}
 \usepackage{xspace}
+\usepackage{tikz-cd}
+
 
 \newcommand{\FSharp}{\textsf{F\nolinebreak[4]\kern-.05em\raisebox{.2ex}{\small\#}}\xspace}
 
 \usepackage[parfill]{parskip}
 \setlength{\coqdocbaseindent}{2em}
+
+% Allow last line in paragraphs to fill width.
+\setlength{\parfillskip}{0pt plus 1fil}
 
 \let\oldCoqdocemptyline\coqdocemptyline
 \let\oldCoqdoceol\coqdoceol
@@ -32,7 +37,19 @@
 \renewcommand{\coqdoceol}{\oldCoqdoceol\let\coqdocemptyline\oldCoqdocemptyline}
 \renewenvironment{coqdoccode}{\ignorespaces}{}
 
-\renewcommand{\coqdoctac}{\coqdocvar}
+\makeatletter
+% Inspired by https://tex.stackexchange.com/a/195498.
+\usepackage{pdftexcmds}
+\renewcommand{\coqdoctac}[1]{%
+  \ifnum\pdf@strcmp{\unexpanded{#1}}{in}=0 %
+    \expandafter\@firstoftwo
+  \else
+    \expandafter\@secondoftwo
+  \fi
+  {\coqdockw{in}}
+  {\coqdocvar{#1}}%
+}
+\makeatother
 
 \title{%
   Formal Specification of VM and I/O devices\\
@@ -47,7 +64,7 @@
 
 \section{Introduction}
 
-The core of this document is a formal specification of the iVM virtual machine. Is has been formalized and mechanically checked using the \emph{Coq Proof Assistant}. By the end of the project the full source code will be made publicly available at:
+The core of this document is a formal specification of the iVM abstract machine. Is has been formalized and mechanically checked using the \emph{Coq Proof Assistant}. By the end of the project the full source code will be made publicly available at:
 
 \begin{center}
   \url{https://github.com/preservationvm/formalizations}
@@ -57,7 +74,7 @@ The mathematical machine description in section~\ref{sec:formal} below has been 
 
 We have specified the machine using \emph{monads}, a mathematical concept much used in computer science. As a result, the specification resembles an implementation of the machine in a functional programming language. This makes it easy to confirm that O2.2 describes the same machine. The formal specification assumes that the reader has a certain ``mathematical maturity''. Nevertheless, we have included precise definitions of all but the most basic conscepts in order to reduce the risk of misunderstandings. We also explain the Coq syntax when it is not obvious from the context and point out when we diverge from ``standard Coq'' in order to simplify the presentation (such as writing $\mathbbm{1}$ instead of $\coqdocvar{unit}$ for the one element type).
 
-The iVM virtual machine is so simple that it is hard to write a C compiler targetting it directly. For this reason, we have defined an intermediate ``assembly language'' and an assembler which translates it into the machine language. Since this is a non-trivial transformation, we have also written a number of automatic tests for it. Instead of checking the assembler output directly, these tests run the resulting machine code on a prototype implementation of the virtual machine written in \FSharp. This is a functional programming language, so the prototype implementation is virtually identical to the specification below. As a consequence, the tests also confirm the ``sanity'' of the machine specification. These tests will be described in detail in O2.4.
+The iVM abstract machine is so simple that it is hard to write a C compiler targetting it directly. For this reason, we have defined an intermediate ``assembly language'' and an assembler which translates it into the machine language. Since this is a non-trivial transformation, we have also written a number of automatic tests for it. Instead of checking the assembler output directly, these tests run the resulting machine code on a prototype implementation of the abstract machine written in \FSharp. This is a functional programming language, so the prototype implementation is virtually identical to the specification below. As a consequence, the tests also confirm the ``sanity'' of the machine specification. These tests will be described in detail in O2.4.
 
 Section~\ref{sec:formal} has been extracted from the Coq formalization using a modified version of the tool \texttt{coqdoc}, which makes it possible to mix formalized mathematics with explanations in natural language. Details in the Coq code that are not necessary to understand the specification have been left out. The complete source code can be found at the URL mentioned above.
 
