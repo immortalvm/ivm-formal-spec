@@ -2,8 +2,9 @@
 #
 # tex_makefile is ugly and will hopefully soon be replaced by Dune.
 
+# Adjust path to coq-record-update and update _CoqProject correspondingly.
 ivm.vo: ivm.v
-		coqc -no-glob ivm.v
+		coqc -R ~/Source/coq-record-update/src RecordUpdate -no-glob ivm.v
 
 .PHONY: compile
 compile: ivm.vo
