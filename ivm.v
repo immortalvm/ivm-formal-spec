@@ -399,16 +399,11 @@ Notation "ma ;; mb" := (bind ma (fun _ => mb)) (at level 60, right associativity
 (** The simplest monad is the "identity monad", were [m A = A] for every [A]: *)
 
 (* TODO: Place in module? *)
-Instance IdMonad: Monad id :=
+Program Instance IdMonad: Monad id :=
 {
   ret A x := x;
   bind A ma B f := f ma;
 }.
-Proof.
-  - reflexivity.
-  - reflexivity.
-  - reflexivity.
-Defined.
 
 (** We shall often say that a function [Type -> Type] is a monad if the
 rest of the monad structure is clear from the context. *)
@@ -460,7 +455,7 @@ Arguments Opt _ {_}.
 
 (* end hide *)
 
-Instance OptionTransformer: Transformer Opt :=
+Program Instance OptionTransformer: Transformer Opt :=
 {
   transformer_monad m _ :=
     {|
@@ -470,37 +465,42 @@ Instance OptionTransformer: Transformer Opt :=
     |};
   lift _ _ _ ma := x ::= ma; ret (Some x);
 }.
-Proof.
-  - intros.
-    rewrite <- monad_right.
-    f_equal.
-    apply functional_extensionality.
-    intros [x|]; reflexivity.
+Next Obligation.
+  match goal with
+    |- ma >>= ?f = ma => assert (f = ret) as Hf
+  end.
+   - apply functional_extensionality.
+     intros [?|]; reflexivity.
+   - rewrite Hf.
+     apply (monad_right (m:=m)).
+Defined.
+Next Obligation.
+  rewrite monad_left.
+  reflexivity.
+Defined.
+Next Obligation.
+  rewrite <- monad_assoc.
+  f_equal.
+  apply functional_extensionality.
+  intros [a|].
+  + reflexivity.
+  + rewrite monad_left.
+    reflexivity.
+Defined.
+Next Obligation.
+  split.
   - intros.
     rewrite monad_left.
     reflexivity.
   - intros.
+    rewrite <- monad_assoc at 1.
+    simpl.
     rewrite <- monad_assoc.
     f_equal.
     apply functional_extensionality.
-    intros [a|].
-    + reflexivity.
-    + rewrite monad_left.
-      reflexivity.
-  - intros.
-    split.
-    + intros.
-      rewrite monad_left.
-      reflexivity.
-    + intros.
-      rewrite <- monad_assoc at 1.
-      simpl.
-      rewrite <- monad_assoc.
-      f_equal.
-      apply functional_extensionality.
-      intro x.
-      rewrite monad_left.
-      reflexivity.
+    intro x.
+    rewrite monad_left.
+    reflexivity.
 Defined.
 
 (** Here we define [ret] and [bind] in terms of the corresponding
@@ -565,7 +565,7 @@ Arguments ST _ _ {_} _.
 
 (* end hide *)
 
-Instance StateTransformer S: Transformer (ST S) :=
+Program Instance StateTransformer S: Transformer (ST S) :=
 {
   transformer_monad m _ :=
     {|
@@ -574,44 +574,47 @@ Instance StateTransformer S: Transformer (ST S) :=
     |};
   lift _ _ _ ma := fun s => x ::= ma; ret (x, s);
 }.
-Proof. (* TODO: The proofs are virtually identical to those of the option transformer. *)
-  - intros.
-    apply functional_extensionality.
-    intro s.
-    rewrite <- monad_right.
-    f_equal.
-    apply functional_extensionality.
-    intro p.
-    rewrite <- surjective_pairing.
-    reflexivity.
-  - intros.
+Next Obligation.
+  (* TODO: The proofs are virtually identical to those of the option transformer. *)
+  apply functional_extensionality.
+  intro s.
+  rewrite <- monad_right.
+  f_equal.
+  apply functional_extensionality.
+  intro p.
+  rewrite <- surjective_pairing.
+  reflexivity.
+Defined.
+Next Obligation.
+  apply functional_extensionality.
+  intro s.
+  rewrite monad_left.
+  reflexivity.
+Defined.
+Next Obligation.
+  apply functional_extensionality.
+  intro s.
+  rewrite <- monad_assoc.
+  reflexivity.
+Defined.
+Next Obligation.
+  split.
+  + intros.
     apply functional_extensionality.
     intro s.
     rewrite monad_left.
     reflexivity.
-  - intros.
+  + intros.
     apply functional_extensionality.
     intro s.
+    rewrite <- monad_assoc at 1.
+    simpl.
     rewrite <- monad_assoc.
+    f_equal.
+    apply functional_extensionality.
+    intro x.
+    rewrite monad_left.
     reflexivity.
-  - intros.
-    split.
-    + intros.
-      apply functional_extensionality.
-      intro s.
-      rewrite monad_left.
-      reflexivity.
-    + intros.
-      apply functional_extensionality.
-      intro s.
-      rewrite <- monad_assoc at 1.
-      simpl.
-      rewrite <- monad_assoc.
-      f_equal.
-      apply functional_extensionality.
-      intro x.
-      rewrite monad_left.
-      reflexivity.
 Defined.
 
 (** In other words, [ST S] is a monad transformer for every type [S]. We
