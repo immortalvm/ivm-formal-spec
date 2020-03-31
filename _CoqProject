@@ -1,2 +1,2 @@
--R ~/Source/coq-record-update/src RecordUpdate
+-Q coq-record-update/src RecordUpdate
 ivm.v
