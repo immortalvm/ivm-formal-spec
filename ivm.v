@@ -724,15 +724,19 @@ Instance etaCoreState : Settable _ := settable! mkCoreState < PC; SP; memory >.
 Definition initialCoreState
            (program: list Bits8)
            (argument: list Bits8)
-           (free: nat)
-           (_: length program + 8 + length argument + free <= 2^64) : CoreState :=
-  let zeros := repeat (toBits 8 0) free in
-  let mem := program ++ toLittleEndian 8 (length argument) ++ argument ++ zeros in
-  let memSize := length mem in
+           (start: Bits64)
+           (memorySize: nat)
+           (_: start + memorySize <= 2^64)
+           (_: length program + 8 + length argument <= memorySize) : CoreState :=
+  let stop := (start + memorySize)%nat in
+  let mem := program ++ toLittleEndian 8 (length argument) ++ argument in
   {|
-    PC := toBits 64 0;
-    SP := toBits 64 memSize;
-    memory a := nth a (map Some mem) None
+    PC := toBits 64 start;
+    SP := toBits 64 stop;
+    memory a :=
+      if (start <=? a) && (a <? stop)
+      then Some (nth (a - start) mem (toBits 8 0))
+      else None
   |}.
 
 (** In other words, before the machine is started, the available memory
@@ -1565,22 +1569,23 @@ End limit_scope.
 (* end hide *)
 
 Definition finalState
-           program argument (free: nat) inputList
-           (H: length program + 8 + length argument + free <= 2^64): State -> Prop :=
-  let cs := initialCoreState program argument free H in
+           program argument (start: Bits64) (memorySize: nat) inputList
+           (Ha: start + memorySize <= 2^64)
+           (Hb: length program + 8 + length argument <= memorySize): State -> Prop :=
+  let cs := initialCoreState program argument start memorySize Ha Hb in
   let ios := initialIoState inputList in
   fun s => exists n, nSteps' (IO_operations (m := id)) n cs ios = ((None, fst s), snd s).
 
 (** This is a partial function in the following sense: *)
 
-Lemma finalState_unique: forall p a f i H s1 s2,
-    finalState p a f i H s1 -> finalState p a f i H s2 -> s1 = s2.
+Lemma finalState_unique: forall p a st ms i Ha Hb s1 s2,
+    finalState p a st ms i Ha Hb s1 -> finalState p a st ms i Ha Hb s2 -> s1 = s2.
 Proof. (* TODO: simplify *)
-  intros p a f i H s1 s2 H1 H2.
+  intros p a st ms i Ha Hb s1 s2 H1 H2.
   destruct H1 as [n1 H1].
   destruct H2 as [n2 H2].
   revert H1 H2.
-  generalize (initialCoreState p a f H).
+  generalize (initialCoreState p a st ms Ha Hb).
   generalize (initialIoState i).
   intros ios cs H1 H2.
   set (g := nSteps' (IO_operations (m := id))) in *.
