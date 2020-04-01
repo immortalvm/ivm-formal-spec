@@ -1263,251 +1263,256 @@ frame currently being processed/produced. In other words, we use a reverse
 ordering for [output] as well. The I/O monad is based on the identity
 monad: *)
 
-Definition IO0 := ST IoState id.
+Section io_monad_section.
 
-Definition IO := Opt IO0.
+  Context m `{H_monad_m: Monad m}.
 
+  Definition IO0 := ST IoState m.
 
-(** *** Input operations *)
-
-Definition readFrame' : IO (Bits16 * Bits16) :=
-  update' (fun s => s<|input := tail (input s)|>);;
-  i ::= get' input;
-  return' (match i with
-           | frame :: _ => (iWidth frame, iHeight frame)
-           | [] => (toBits 16 0, toBits 16 0)
-           end).
-
-(** Here [tail (_ :: tl) := tl] %\:and\:% [tail [] := []]. *)
-
-Definition readPixel' (x y: nat) : IO Bits8 :=
-  i ::= get' input;
-  match i with
-  | [] => stop'
-  | frame :: _ =>
-    match iPixel frame x y with
-    | None => stop'
-    | Some c => return' c
-    end
-  end.
+  Definition IO := Opt IO0.
 
 
-(** *** Output operations *)
+  (** *** Input operations *)
 
-Definition defaultColor: Color := let z := toBits 64 0 in (z, z, z).
-(* begin hide *)
+  Definition readFrame' : IO (Bits16 * Bits16) :=
+    update' (fun s => s<|input := tail (input s)|>);;
+    i ::= get' input;
+    return' (match i with
+             | frame :: _ => (iWidth frame, iHeight frame)
+             | [] => (toBits 16 0, toBits 16 0)
+             end).
 
-Ltac derive name term :=
-  let H := fresh in
-  let A := type of term in
-  assert A as H;
-  [ exact term | ];
-  clear name;
-  rename H into name.
+  (** Here [tail (_ :: tl) := tl] %\:and\:% [tail [] := []]. *)
 
-Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
-Proof.
-  intros [Ht|Hf]; easy.
-Qed.
+  Definition readPixel' (x y: nat) : IO Bits8 :=
+    i ::= get' input;
+    match i with
+    | [] => stop'
+    | frame :: _ =>
+      match iPixel frame x y with
+      | None => stop'
+      | Some c => return' c
+      end
+    end.
 
-Definition blank (width: Bits16) (height: Bits16): Image Color.
-  refine (
-      {|
-        iWidth := width;
-        iHeight := height;
-        iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
-        iDefined := _;
-      |}
-    ).
-  intros x y.
-  split.
-  - intro H.
-    remember ((x <? width) && (y <? height)) as H_lt eqn:Hxy.
-    destruct H_lt; [|congruence].
-    clear H.
-    derive Hxy (Bool.Is_true_eq_right _ Hxy).
-    derive Hxy (Bool.andb_prop_elim _ _ Hxy).
+
+  (** *** Output operations *)
+
+  Definition defaultColor: Color := let z := toBits 64 0 in (z, z, z).
+  (* begin hide *)
+
+  Ltac derive name term :=
+    let H := fresh in
+    let A := type of term in
+    assert A as H;
+    [ exact term | ];
+    clear name;
+    rename H into name.
+
+  Lemma reflect_it P b: Bool.reflect P b -> (Bool.Is_true b <-> P).
+  Proof.
+    intros [Ht|Hf]; easy.
+  Qed.
+
+  Definition blank (width: Bits16) (height: Bits16): Image Color.
+    refine (
+        {|
+          iWidth := width;
+          iHeight := height;
+          iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
+          iDefined := _;
+        |}
+      ).
+    intros x y.
+    split.
+    - intro H.
+      remember ((x <? width) && (y <? height)) as H_lt eqn:Hxy.
+      destruct H_lt; [|congruence].
+      clear H.
+      derive Hxy (Bool.Is_true_eq_right _ Hxy).
+      derive Hxy (Bool.andb_prop_elim _ _ Hxy).
+      split;
+        [ destruct Hxy as [H _]
+        | destruct Hxy as [_ H] ];
+        derive H (proj1 (reflect_it (Nat.ltb_spec0 _ _)) H);
+        exact H.
+    - intros [Hx Hy].
+      derive Hx (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hx).
+      derive Hy (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hy).
+      set (H := Bool.andb_prop_intro _ _ (conj Hx Hy)).
+      derive H (Bool.Is_true_eq_true _ H).
+      rewrite H.
+      discriminate.
+  Defined.
+
+  (* end hide *)
+  (**
+  [[
+  Definition blank (width: Bits16) (height: Bits16): Image Color :=
+    {|
+      iWidth := width;
+      iHeight := height;
+      iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
+      iDefined := _;
+    |}.
+  ]]
+
+  Here %\:%[p && q = if p then q else false]. *)
+
+  Definition newFrame' (width height rate: nat) : IO unit :=
+    let o := (blank (toBits 16 width) (toBits 16 height), emptySound rate, []) in
+    update' (fun s => s<|output := o :: output s|>).
+
+  Definition getCurrentOutput' : IO OneOutput :=
+    oList ::= get' output;
+    match oList with
+    | o :: _ => return' o
+    | [] => stop'
+    end.
+
+  (** In practice, [getCurrentOutput'] will not stop since we start the
+  machine with a non-empty output list. *)
+
+  Definition replaceOutput o s : IoState := s<|output := o :: tail (output s)|>.
+
+  (**
+  [[
+  Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color) :=
+    if (x <? iWidth image) && (y <? iHeight image)
+    then let p xx yy := if (xx =? x) && (yy =? y)
+                       then Some c
+                       else iPixel image xx yy in
+         Some (image <| iPixel := p |>)
+    else None).
+  ]]
+  *)
+
+  (* begin hide *)
+
+  Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color).
+    refine (let newPix xx yy := if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy in
+            if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
+            then Some
+                   {|
+                     iWidth := iWidth image;
+                     iHeight := iHeight image;
+                     iPixel := newPix;
+                     iDefined := _
+                   |}
+            else None).
+    subst newPix.
+    intros xx yy.
     split;
-      [ destruct Hxy as [H _]
-      | destruct Hxy as [_ H] ];
-      derive H (proj1 (reflect_it (Nat.ltb_spec0 _ _)) H);
-      exact H.
-  - intros [Hx Hy].
-    derive Hx (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hx).
-    derive Hy (proj2 (reflect_it (Nat.ltb_spec0 _ _)) Hy).
-    set (H := Bool.andb_prop_intro _ _ (conj Hx Hy)).
-    derive H (Bool.Is_true_eq_true _ H).
-    rewrite H.
-    discriminate.
-Defined.
+      remember ((xx =? x) && (yy =? y)) as exy eqn:H;
+      destruct exy.
+    - intros _.
+      derive e (Bool.Is_true_eq_left _ e).
+      derive e (Bool.andb_prop_elim _ _ e).
+      derive H (Bool.Is_true_eq_right _ H).
+      derive H (Bool.andb_prop_elim _ _ H).
+      split;
+        [ destruct e as [e _] | destruct e as [_ e] ];
+        [ destruct H as [H _] | destruct H as [_ H] ];
+        derive e (proj1 (reflect_it (Nat.ltb_spec0 _ _)) e);
+        derive H (proj1 (reflect_it (Nat.eqb_spec _ _)) H);
+        subst;
+        exact e.
+    - apply (iDefined image).
+    - discriminate.
+    - apply (iDefined image).
+  Defined.
 
-(* end hide *)
-(**
-[[
-Definition blank (width: Bits16) (height: Bits16): Image Color :=
-  {|
-    iWidth := width;
-    iHeight := height;
-    iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
-    iDefined := _;
-  |}.
-]]
+  (* end hide *)
 
-Here %\:%[p && q = if p then q else false]. *)
-
-Definition newFrame' (width height rate: nat) : IO unit :=
-  let o := (blank (toBits 16 width) (toBits 16 height), emptySound rate, []) in
-  update' (fun s => s<|output := o :: output s|>).
-
-Definition getCurrentOutput' : IO OneOutput :=
-  oList ::= get' output;
-  match oList with
-  | o :: _ => return' o
-  | [] => stop'
-  end.
-
-(** In practice, [getCurrentOutput'] will not stop since we start the
-machine with a non-empty output list. *)
-
-Definition replaceOutput o s : IoState := s<|output := o :: tail (output s)|>.
-
-(**
-[[
-Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color) :=
-  if (x <? iWidth image) && (y <? iHeight image)
-  then let p xx yy := if (xx =? x) && (yy =? y)
-                     then Some c
-                     else iPixel image xx yy in
-       Some (image <| iPixel := p |>)
-  else None).
-]]
-*)
-
-(* begin hide *)
-
-Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color).
-  refine (let newPix xx yy := if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy in
-          if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
-          then Some
-                 {|
-                   iWidth := iWidth image;
-                   iHeight := iHeight image;
-                   iPixel := newPix;
-                   iDefined := _
-                 |}
-          else None).
-  subst newPix.
-  intros xx yy.
-  split;
-    remember ((xx =? x) && (yy =? y)) as exy eqn:H;
-    destruct exy.
-  - intros _.
-    derive e (Bool.Is_true_eq_left _ e).
-    derive e (Bool.andb_prop_elim _ _ e).
-    derive H (Bool.Is_true_eq_right _ H).
-    derive H (Bool.andb_prop_elim _ _ H).
-    split;
-      [ destruct e as [e _] | destruct e as [_ e] ];
-      [ destruct H as [H _] | destruct H as [_ H] ];
-      derive e (proj1 (reflect_it (Nat.ltb_spec0 _ _)) e);
-      derive H (proj1 (reflect_it (Nat.eqb_spec _ _)) H);
-      subst;
-      exact e.
-  - apply (iDefined image).
-  - discriminate.
-  - apply (iDefined image).
-Defined.
-
-(* end hide *)
-
-Definition setPixel' (x y r g b : nat) : IO unit :=
-  o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
-    match trySetPixel image x y (toBits 64 r, toBits 64 g, toBits 64 b) with
-    | None => stop'
-    | Some newImage => update' (replaceOutput (newImage, sound, text))
-    end
-  end.
+  Definition setPixel' (x y r g b : nat) : IO unit :=
+    o ::= getCurrentOutput';
+    match o with (image, sound, text) =>
+      match trySetPixel image x y (toBits 64 r, toBits 64 g, toBits 64 b) with
+      | None => stop'
+      | Some newImage => update' (replaceOutput (newImage, sound, text))
+      end
+    end.
 
 
-(**
-[[
-Definition addSample' (l r : nat) : Comp unit :=
-  o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
-    if sRate sound =? 0
-    then stop'
-    else let ns := sound <| sSamples := (toBits 16 l, toBits 16 r) :: sSamples sound |> in
-         update' (replaceOutput (image, ns, text))
-  end.
-]]
-*)
+  (**
+  [[
+  Definition addSample' (l r : nat) : Comp unit :=
+    o ::= getCurrentOutput';
+    match o with (image, sound, text) =>
+      if sRate sound =? 0
+      then stop'
+      else let ns := sound <| sSamples := (toBits 16 l, toBits 16 r) :: sSamples sound |> in
+           update' (replaceOutput (image, ns, text))
+    end.
+  ]]
+  *)
 
-(* begin hide *)
+  (* begin hide *)
 
-Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
-  {|
-    sRate := sRate s;
-    sSamples := (l, r) :: (sSamples s);
-    sDefined := fun H0 => False_ind _ (H H0);
-  |}.
+  Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
+    {|
+      sRate := sRate s;
+      sSamples := (l, r) :: (sSamples s);
+      sDefined := fun H0 => False_ind _ (H H0);
+    |}.
 
-Definition addSample' (l r : nat) : IO unit :=
-  o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
-    match Sumbool.sumbool_of_bool (0 =? sRate sound) with
-    | left _ => stop'
-    | right H =>
-      let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
-      update' (replaceOutput (image, newSound, text))
-    end
-  end.
+  Definition addSample' (l r : nat) : IO unit :=
+    o ::= getCurrentOutput';
+    match o with (image, sound, text) =>
+      match Sumbool.sumbool_of_bool (0 =? sRate sound) with
+      | left _ => stop'
+      | right H =>
+        let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
+        update' (replaceOutput (image, newSound, text))
+      end
+    end.
 
-(* end hide *)
+  (* end hide *)
 
-Definition putChar' (c: nat) : IO unit :=
-  o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
-    update' (replaceOutput (image, sound, (toBits 32 c) :: text))
-  end.
+  Definition putChar' (c: nat) : IO unit :=
+    o ::= getCurrentOutput';
+    match o with (image, sound, text) =>
+      update' (replaceOutput (image, sound, (toBits 32 c) :: text))
+    end.
 
 
-(** *** List of I/O operations
+  (** *** List of I/O operations
 
-The generic machine defined in section%~\ref{sec:generic}% expects I/O
-operations of a certain form. *)
+  The generic machine defined in section%~\ref{sec:generic}% expects I/O
+  operations of a certain form. *)
 
-Equations nFun (n: nat) (A B: Type): Type :=
-  nFun O _ B := B;
-  nFun (S n) A B := A -> (nFun n A B).
+  Equations nFun (n: nat) (A B: Type): Type :=
+    nFun O _ B := B;
+    nFun (S n) A B := A -> (nFun n A B).
 
-(** In other words, [nFun n A B = ]$\underbrace{A\rightarrow A\rightarrow ...}_n$[ -> B]. *)
+  (** In other words, [nFun n A B = ]$\underbrace{A\rightarrow A\rightarrow ...}_n$[ -> B]. *)
 
-(* begin hide *)
-Open Scope vector_scope.
-(* end hide *)
+  (* begin hide *)
+  Open Scope vector_scope.
+  (* end hide *)
 
-Equations nApp {n A B} (f: nFun n A B) (v: vector A n): B :=
-  nApp y [] := y;
-  nApp f (x :: v) := nApp (f x) v.
+  Equations nApp {n A B} (f: nFun n A B) (v: vector A n): B :=
+    nApp y [] := y;
+    nApp f (x :: v) := nApp (f x) v.
 
-(* begin hide *)
-Close Scope vector_scope.
-(* end hide *)
+  (* begin hide *)
+  Close Scope vector_scope.
+  (* end hide *)
 
-(* For some reason, I can't make this a "let" in the next definition. *)
-Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list Z))) |}.
+  (* For some reason, I can't make this a "let" in the next definition. *)
+  Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list Z))) |}.
 
-Definition IO_operations :=
-  [
-    io_operation 0 (wh ::= readFrame'; return' [fst wh : Z; snd wh : Z]);
-    io_operation 2 (fun x y => p ::= readPixel' x y; return' [p:Z]);
-    io_operation 3 (fun w h r => newFrame' w h r;; return' []);
-    io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
-    io_operation 2 (fun l r => addSample' l r;; return' []);
-    io_operation 1 (fun c => putChar' c;; return' [])
-  ].
+  Definition IO_operations :=
+    [
+      io_operation 0 (wh ::= readFrame'; return' [fst wh : Z; snd wh : Z]);
+      io_operation 2 (fun x y => p ::= readPixel' x y; return' [p:Z]);
+      io_operation 3 (fun w h r => newFrame' w h r;; return' []);
+      io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
+      io_operation 2 (fun l r => addSample' l r;; return' []);
+      io_operation 1 (fun c => putChar' c;; return' [])
+    ].
 
+End io_monad_section.
 
 
 (** ** Integration%\label{sec:integration}%
@@ -1517,14 +1522,14 @@ from start to finish. *)
 
 (* begin hide *)
 (* Why is this needed?*)
-Instance CompMonad: Monad (Comp (m:=IO0)).
+Instance CompMonad: Monad (Comp (m := (IO0 (m := id)))).
 Proof.
   unfold Comp.
   typeclasses eauto.
 Defined.
 (* end hide *)
 
-Lemma characterize_stopped: forall (c: Comp (m:=IO0) unit) (cs: CoreState) (ios: IoState),
+Lemma characterize_stopped: forall (c: Comp (m := (IO0 (m := id))) unit) (cs: CoreState) (ios: IoState),
     let init := update' (fun _ => cs);; fromIO (update' (fun _ => ios)) in
     init;; c;; stop' = init;; c  <->  fst (fst (c cs ios)) = None.
 Proof. (* TODO: Improve proof *)
@@ -1564,7 +1569,7 @@ Definition finalState
            (H: length program + 8 + length argument + free <= 2^64): State -> Prop :=
   let cs := initialCoreState program argument free H in
   let ios := initialIoState inputList in
-  fun s => exists n, nSteps' IO_operations n cs ios = ((None, fst s), snd s).
+  fun s => exists n, nSteps' (IO_operations (m := id)) n cs ios = ((None, fst s), snd s).
 
 (** This is a partial function in the following sense: *)
 
@@ -1578,7 +1583,7 @@ Proof. (* TODO: simplify *)
   generalize (initialCoreState p a f H).
   generalize (initialIoState i).
   intros ios cs H1 H2.
-  set (g := nSteps' IO_operations) in *.
+  set (g := nSteps' (IO_operations (m := id))) in *.
   enough (g n1 cs ios = g n2 cs ios) as HH.
   - rewrite H1, H2 in HH.
     inversion HH.
