@@ -1230,7 +1230,9 @@ use reverse ordering. *)
 
 Definition OutputText := list Bits32.
 
-Definition OneOutput := (Image Color) * Sound * OutputText.
+Definition OutputBytes := list Bits8.
+
+Definition OneOutput := (Image Color) * Sound * OutputText * OutputBytes.
 
 
 (** *** The I/O monad
@@ -1258,7 +1260,7 @@ triple. *)
 Definition initialIoState (inputList: list (Image Gray)) :=
   {|
     input := noImage :: inputList;
-    output := [(noImage, noSound, [])]
+    output := [(noImage, noSound, [], [])]
   |}.
 
 (** As the machine executes, [input] will decrease in size, whereas
@@ -1360,7 +1362,7 @@ Definition blank (width: Bits16) (height: Bits16): Image Color :=
 Here %\:%[p && q = if p then q else false]. *)
 
 Definition newFrame' (width height rate: nat) : IO unit :=
-  let o := (blank (toBits 16 width) (toBits 16 height), emptySound rate, []) in
+  let o := (blank (toBits 16 width) (toBits 16 height), emptySound rate, [], []) in
   update' (fun s => s<|output := o :: output s|>).
 
 Definition getCurrentOutput' : IO OneOutput :=
@@ -1426,10 +1428,10 @@ Defined.
 
 Definition setPixel' (x y r g b : nat) : IO unit :=
   o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
+  match o with (image, sound, text, bytes) =>
     match trySetPixel image x y (toBits 64 r, toBits 64 g, toBits 64 b) with
     | None => stop'
-    | Some newImage => update' (replaceOutput (newImage, sound, text))
+    | Some newImage => update' (replaceOutput (newImage, sound, text, bytes))
     end
   end.
 
@@ -1458,12 +1460,12 @@ Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
 
 Definition addSample' (l r : nat) : IO unit :=
   o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
+  match o with (image, sound, text, bytes) =>
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
     | left _ => stop'
     | right H =>
       let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
-      update' (replaceOutput (image, newSound, text))
+      update' (replaceOutput (image, newSound, text, bytes))
     end
   end.
 
@@ -1471,8 +1473,14 @@ Definition addSample' (l r : nat) : IO unit :=
 
 Definition putChar' (c: nat) : IO unit :=
   o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
-    update' (replaceOutput (image, sound, (toBits 32 c) :: text))
+  match o with (image, sound, text, bytes) =>
+    update' (replaceOutput (image, sound, (toBits 32 c) :: text, bytes))
+  end.
+
+Definition putByte' (b: nat) : IO unit :=
+  o ::= getCurrentOutput';
+  match o with (image, sound, text, bytes) =>
+    update' (replaceOutput (image, sound, text, (toBits 8 b) :: bytes))
   end.
 
 
@@ -1509,7 +1517,8 @@ Definition IO_operations :=
     io_operation 3 (fun w h r => newFrame' w h r;; return' []);
     io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
     io_operation 2 (fun l r => addSample' l r;; return' []);
-    io_operation 1 (fun c => putChar' c;; return' [])
+    io_operation 1 (fun c => putChar' c;; return' []);
+    io_operation 1 (fun c => putByte' c;; return' [])
   ].
 
 
