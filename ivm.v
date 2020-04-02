@@ -344,14 +344,17 @@ Notation "x < y" := (Nat.lt x y).
 Notation "x <? y" := (Nat.ltb x y).
 Notation "x =? y" := (Nat.eqb x y).
 
+
 (* This could be generalized to all $x < 2^n$. *)
 Lemma zeroBits_zero: forall n, fromBits (toBits n 0) = 0.
-Proof.
+Proof. (* TODO: simplify *)
   intro n.
   induction n as [|n IH];
     repeat (simp toBits || simp fromBits || simpl).
   - reflexivity.
-  - rewrite IH. reflexivity.
+  - change (fromBits (false :: toBits n 0) = 0%nat).
+    simp fromBits.
+    rewrite IH. reflexivity.
 Qed.
 
 (* end hide *)
@@ -530,8 +533,8 @@ Proof.
   - intros.
     apply (morph_ret (F:=F)).
   - intros.
-    rewrite (morph_bind (F:=F)).
     simpl.
+    rewrite (morph_bind (F:=F)).
     f_equal.
     apply functional_extensionality.
     intros [x|].
@@ -640,11 +643,19 @@ Section opt_st_section.
       with a list of shared [Context] parameters and a local abbreviation,
       [C]. In this text computations (and functions returning
       computations) have names ending with an apostrophe. For this reason
-      we also define: *)
+      we also define:
 
+[[
   Definition return' {A} (x: A) : C A := ret x.
+]]
+ *)
 
 End opt_st_section.
+
+(* begin hide *)
+(* Define as alias instead to get unfolding for free. *)
+Notation return' := ret.
+(* end hide *)
 
 
 (** ** Generic abstract machine%\label{sec:generic}%
@@ -899,10 +910,10 @@ Section generic_machine_section.
   (** *** Generic I/O interface
 
   In the generic machine an I/O operation is simply an element [io: vector
-  Bits64 n -> IO (list Bits64)] for some [n]. When a corresponding
+  Bits64 n -> IO (list Bits64)] for some%~%[n]. When a corresponding
   operation is encountered, the machine will pop [n] elements from the
-  stack, execute [io] on these elements and place the push the result onto
-  the stack. *)
+  stack, execute [io] on these elements, and place the push the result
+  onto the stack. *)
 
   Record IO_operation :=
     mkIO_operation {
@@ -1255,7 +1266,7 @@ Instance etaIoState : Settable _ := settable! mkIoState < input; output >.
 
 (** When the machine starts, [input] contains all the frames of the film
 plus an initial empty frame, and [output] is empty exept for an empty
-triple. *)
+tuple. *)
 
 Definition initialIoState (inputList: list (Image Gray)) :=
   {|
@@ -1268,6 +1279,7 @@ Definition initialIoState (inputList: list (Image Gray)) :=
 frame currently being processed/produced. In other words, we use a reverse
 ordering for [output] as well. The I/O monad is based on the identity
 monad: *)
+
 
 Definition IO0 := ST IoState id.
 
