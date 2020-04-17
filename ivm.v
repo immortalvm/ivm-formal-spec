@@ -462,54 +462,52 @@ Definition Opt m `{Monad m} A := m (option A).
 Arguments Opt: clear implicits.
 Arguments Opt _ {_}.
 
+Ltac destr x :=
+  match type of x with
+  | unit => destruct x
+  | prod _ _ =>
+    let x1 := fresh x "1" in
+    let x2 := fresh x "2" in
+    destruct x as [x1 x2];
+    destr x1;
+    destr x2
+  | option _ =>
+    destruct x as [x|]; [destr x|]
+  | sum _ _ =>
+    destruct x as [x|x];
+    destr x
+  | _ => idtac
+  end.
+
+Ltac intr := let x := fresh "x" in intro x; destr x.
+
+Ltac transformer_crush :=
+  repeat (intros;
+          try reflexivity;
+          (match goal with
+             [ |- ?ma >>= _ = ?ma] => transitivity (ma >>= ret); [f_equal|]
+           end
+           || rewrite monad_left
+           || rewrite monad_right
+           || rewrite <- monad_assoc
+           || (apply functional_extensionality; intr)
+           || split
+           || f_equal
+           || simpl)).
+
 (* end hide *)
 
-Program Instance OptionTransformer: Transformer Opt :=
+#[refine] Instance OptionTransformer: Transformer Opt :=
 {
   transformer_monad m _ :=
     {|
       ret _ x := ret (Some x);
-      bind _ ma _ f := a ::= (ma: m _);
+      bind _ ma _ f := a ::= (ma: _);
                        match a with None => ret None | Some x => f x end;
     |};
   lift _ _ _ ma := x ::= ma; ret (Some x);
 }.
-Next Obligation.
-  match goal with
-    |- ma >>= ?f = ma => assert (f = ret) as Hf
-  end.
-   - apply functional_extensionality.
-     intros [?|]; reflexivity.
-   - rewrite Hf.
-     apply (monad_right (m:=m)).
-Defined.
-Next Obligation.
-  rewrite monad_left.
-  reflexivity.
-Defined.
-Next Obligation.
-  rewrite <- monad_assoc.
-  f_equal.
-  apply functional_extensionality.
-  intros [a|].
-  + reflexivity.
-  + rewrite monad_left.
-    reflexivity.
-Defined.
-Next Obligation.
-  split.
-  - intros.
-    rewrite monad_left.
-    reflexivity.
-  - intros.
-    rewrite <- monad_assoc at 1.
-    simpl.
-    rewrite <- monad_assoc.
-    f_equal.
-    apply functional_extensionality.
-    intro x.
-    rewrite monad_left.
-    reflexivity.
+all: transformer_crush.
 Defined.
 
 (** Here we define [ret] and [bind] in terms of the corresponding
@@ -574,7 +572,7 @@ Arguments ST _ _ {_} _.
 
 (* end hide *)
 
-Program Instance StateTransformer S: Transformer (ST S) :=
+#[refine] Instance StateTransformer S: Transformer (ST S) :=
 {
   transformer_monad m _ :=
     {|
@@ -583,47 +581,7 @@ Program Instance StateTransformer S: Transformer (ST S) :=
     |};
   lift _ _ _ ma := fun s => x ::= ma; ret (x, s);
 }.
-Next Obligation.
-  (* TODO: The proofs are virtually identical to those of the option transformer. *)
-  apply functional_extensionality.
-  intro s.
-  rewrite <- monad_right.
-  f_equal.
-  apply functional_extensionality.
-  intro p.
-  rewrite <- surjective_pairing.
-  reflexivity.
-Defined.
-Next Obligation.
-  apply functional_extensionality.
-  intro s.
-  rewrite monad_left.
-  reflexivity.
-Defined.
-Next Obligation.
-  apply functional_extensionality.
-  intro s.
-  rewrite <- monad_assoc.
-  reflexivity.
-Defined.
-Next Obligation.
-  split.
-  + intros.
-    apply functional_extensionality.
-    intro s.
-    rewrite monad_left.
-    reflexivity.
-  + intros.
-    apply functional_extensionality.
-    intro s.
-    rewrite <- monad_assoc at 1.
-    simpl.
-    rewrite <- monad_assoc.
-    f_equal.
-    apply functional_extensionality.
-    intro x.
-    rewrite monad_left.
-    reflexivity.
+all: transformer_crush.
 Defined.
 
 (** In other words, [ST S] is a monad transformer for every type [S]. We
@@ -1087,12 +1045,7 @@ Section generic_machine_section.
     intro n.
     induction n.
     - simp nSteps'.
-      rewrite monad_left.
-      rewrite <- monad_right.
-      f_equal.
-      apply functional_extensionality.
-      intros [].
-      reflexivity.
+      transformer_crush.
     - simp nSteps' in *.
       rewrite <- monad_assoc.
       rewrite IHn.
@@ -1100,7 +1053,8 @@ Section generic_machine_section.
   Qed.
 
   Lemma nSteps_stop: forall (init: Comp unit) n,
-      init;; nSteps' n;; stop' = init;; nSteps' n -> init;; nSteps' (S n) = init;; nSteps' n.
+      init;; nSteps' n;; stop' = init;; nSteps' n
+      -> init;; nSteps' (S n) = init;; nSteps' n.
   Proof.
     intros init n HH.
     rewrite nSteps_succ.
@@ -1112,7 +1066,8 @@ Section generic_machine_section.
   Qed.
 
   Lemma nSteps_stop_k: forall (init: Comp unit) n k,
-      init;; nSteps' n;; stop' = init;; nSteps' n -> init;; nSteps' (k + n) = init;; nSteps' n.
+      init;; nSteps' n;; stop' = init;; nSteps' n
+      -> init;; nSteps' (k + n) = init;; nSteps' n.
   Proof.
     intros init n k HH.
     induction k as [|k IH].
