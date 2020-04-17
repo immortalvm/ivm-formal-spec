@@ -204,7 +204,7 @@ Proof.
   - f_equal.
     rewrite Z.add_comm, Z.mul_comm, Z_div_plus.
     + destruct x; simpl; reflexivity.
-    + lia.
+    + auto with zarith. (* alternative: lia *)
 Qed.
 
 Lemma toBits_fromBits: forall {n} (u: vector bool n), toBits n (fromBits u) = u.
