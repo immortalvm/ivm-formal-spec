@@ -399,14 +399,20 @@ Notation "a ::= ma ; mb" := (bind ma (fun a => mb)) (at level 60, right associat
 Notation "ma ;; mb" := (bind ma (fun _ => mb)) (at level 60, right associativity).
 (* end hide *)
 
+
 (** The simplest monad is the "identity monad", were [m A = A] for every [A]: *)
 
-(* TODO: Place in module? *)
-Program Instance IdMonad: Monad id :=
-{
-  ret A x := x;
-  bind A ma B f := f ma;
-}.
+Module IdMonad_module.
+
+  #[refine] Instance IdMonad: Monad id :=
+  {
+    ret A x := x;
+    bind A ma B f := f ma;
+  }.
+  all: reflexivity.
+  Defined.
+
+End IdMonad_module.
 
 (** We shall often say that a function [Type -> Type] is a monad if the
 rest of the monad structure is clear from the context. *)
