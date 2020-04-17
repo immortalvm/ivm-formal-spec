@@ -43,5 +43,5 @@ clean:
 
 .PHONY: distclean
 distclean: clean
-	rm -f ivm.vo
+	rm -f .lia.cache .nia.cache ivm.glob ivm.vo ivm.vok ivm.vos
 	latexmk -quiet -pdf -C
