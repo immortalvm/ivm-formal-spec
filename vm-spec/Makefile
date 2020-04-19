@@ -3,7 +3,7 @@
 # tex_makefile is ugly and will hopefully soon be replaced by Dune.
 
 ivm.vo: coq-record-update ivm.v
-		coqc -Q coq-record-update/src RecordUpdate -no-glob ivm.v
+		coqc -Q coq-record-update/src RecordUpdate -Q . VmSpec -no-glob ivm.v
 
 .PHONY: compile
 compile: ivm.vo
