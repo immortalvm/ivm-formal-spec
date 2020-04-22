@@ -712,11 +712,11 @@ Definition initialCoreState
   |}.
 
 (** In other words, before the machine is started, the available memory
-will be initialized to 0, except for a "program" and an "argument", both
-sequenced of bytes. Also, the length of the argument is stored in 64 bits
-between the program and the argument, the program counter is set to 0, and
-the stack pointer is set to the first address after the available memory.
-*)
+will be initialized to 0, except for a "program" and an "argument" -- both
+sequences of bytes. The length of the argument is stored in 64 bits
+between the program and the argument. The program counter is set to first
+address of the available memory, whereas the stack pointer is set to the
+first address after the available memory. *)
 
 
 Section generic_machine_section.
@@ -1210,34 +1210,34 @@ The complete I/O state of our machine can now be defined as: *)
 
 Record IoState :=
   mkIoState {
-      input: list (Image Gray);
+      currentInput: Image Gray;
+      allInput: list (Image Gray);
       output: list OneOutput;
     }.
+
+(** During execution [allInput] is constant and [currentInput] is an
+element of [allInput] or the empty frame. *)
 
 (* begin hide *)
 
 End limit_scope.
 
-Instance etaIoState : Settable _ := settable! mkIoState < input; output >.
+Instance etaIoState : Settable _ := settable! mkIoState < currentInput; allInput; output >.
 
 (* end hide *)
 
-(** When the machine starts, [input] contains all the frames of the film
-plus an initial empty frame, and [output] is empty exept for an empty
-tuple. *)
-
 Definition initialIoState (inputList: list (Image Gray)) :=
   {|
-    input := noImage :: inputList;
+    currentInput := noImage;
+    allInput := inputList;
     output := [(noImage, noSound, [], [])]
   |}.
 
-(** As the machine executes, [input] will decrease in size, whereas
-[output] will increase. The first element in each list represents the
-frame currently being processed/produced. In other words, we use a reverse
-ordering for [output] as well. The I/O monad is based on the identity
-monad: *)
-
+(** When the machine starts, [output] contains only an empty tuple; but as
+the machine executes, more elements will be added. The first element
+always represents the frame currently being produced. In other words, we
+use a reverse ordering here as well. The I/O monad is based on the
+identity monad: *)
 
 Definition IO0 := ST IoState id.
 
@@ -1246,25 +1246,19 @@ Definition IO := Opt IO0.
 
 (** *** Input operations *)
 
-Definition readFrame' : IO (Bits16 * Bits16) :=
-  update' (fun s => s<|input := tail (input s)|>);;
-  i ::= get' input;
-  return' (match i with
-           | frame :: _ => (iWidth frame, iHeight frame)
-           | [] => (toBits 16 0, toBits 16 0)
-           end).
+Definition readFrame' (i: nat) : IO (Bits16 * Bits16) :=
+  update' (fun s => s<|currentInput := nth i (allInput s) noImage|>);;
+  frame ::= get' currentInput;
+  return' (iWidth frame, iHeight frame).
 
-(** Here [tail (_ :: tl) := tl] %\:and\:% [tail [] := []]. *)
+(** Here [nth i (allInput s) noImage] is the [i]th element of the list, or
+[noImage] if the list is too short. *)
 
 Definition readPixel' (x y: nat) : IO Bits8 :=
-  i ::= get' input;
-  match i with
-  | [] => stop'
-  | frame :: _ =>
-    match iPixel frame x y with
-    | None => stop'
-    | Some c => return' c
-    end
+  frame ::= get' currentInput;
+  match iPixel frame x y with
+  | None => stop'
+  | Some c => return' c
   end.
 
 
@@ -1482,7 +1476,7 @@ Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list 
 
 Definition IO_operations :=
   [
-    io_operation 0 (wh ::= readFrame'; return' [fst wh : Z; snd wh : Z]);
+    io_operation 1 (fun i => wh ::= readFrame' i; return' [fst wh : Z; snd wh : Z]);
     io_operation 2 (fun x y => p ::= readPixel' x y; return' [p:Z]);
     io_operation 3 (fun w h r => newFrame' w h r;; return' []);
     io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
