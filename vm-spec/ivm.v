@@ -1211,25 +1211,20 @@ The complete I/O state of our machine can now be defined as: *)
 Record IoState :=
   mkIoState {
       currentInput: Image Gray;
-      allInput: list (Image Gray);
       output: list OneOutput;
     }.
-
-(** During execution [allInput] is constant and [currentInput] is an
-element of [allInput] or the empty frame. *)
 
 (* begin hide *)
 
 End limit_scope.
 
-Instance etaIoState : Settable _ := settable! mkIoState < currentInput; allInput; output >.
+Instance etaIoState : Settable _ := settable! mkIoState < currentInput; output >.
 
 (* end hide *)
 
-Definition initialIoState (inputList: list (Image Gray)) :=
+Definition initialIoState :=
   {|
     currentInput := noImage;
-    allInput := inputList;
     output := [(noImage, noSound, [], [])]
   |}.
 
@@ -1246,12 +1241,12 @@ Definition IO := Opt IO0.
 
 (** *** Input operations *)
 
-Definition readFrame' (i: nat) : IO (Bits16 * Bits16) :=
-  update' (fun s => s<|currentInput := nth i (allInput s) noImage|>);;
+Definition readFrame' (allInput: list (Image Gray)) (i: nat) : IO (Bits16 * Bits16) :=
+  update' (fun s => s<|currentInput := nth i allInput noImage|>);;
   frame ::= get' currentInput;
   return' (iWidth frame, iHeight frame).
 
-(** Here [nth i (allInput s) noImage] is the [i]th element of the list, or
+(** Here [nth i allInput noImage] is the [i]th element of the list, or
 [noImage] if the list is too short. *)
 
 Definition readPixel' (x y: nat) : IO Bits8 :=
@@ -1474,9 +1469,9 @@ Close Scope vector_scope.
 (* For some reason, I can't make this a "let" in the next definition. *)
 Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list Z))) |}.
 
-Definition IO_operations :=
+Definition IO_operations (allInput: list (Image Gray)) :=
   [
-    io_operation 1 (fun i => wh ::= readFrame' i; return' [fst wh : Z; snd wh : Z]);
+    io_operation 1 (fun i => wh ::= readFrame' allInput i; return' [fst wh : Z; snd wh : Z]);
     io_operation 2 (fun x y => p ::= readPixel' x y; return' [p:Z]);
     io_operation 3 (fun w h r => newFrame' w h r;; return' []);
     io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
@@ -1541,8 +1536,8 @@ Definition finalState
            (Ha: start + memorySize <= 2^64)
            (Hb: length program + 8 + length argument <= memorySize): State -> Prop :=
   let cs := initialCoreState program argument start memorySize Ha Hb in
-  let ios := initialIoState inputList in
-  fun s => exists n, nSteps' IO_operations n cs ios = ((None, fst s), snd s).
+  let ioOps := IO_operations inputList in
+  fun s => exists n, nSteps' ioOps n cs initialIoState = ((None, fst s), snd s).
 
 (** This is a partial function in the following sense: *)
 
@@ -1554,9 +1549,9 @@ Proof. (* TODO: simplify *)
   destruct H2 as [n2 H2].
   revert H1 H2.
   generalize (initialCoreState p a st ms Ha Hb).
-  generalize (initialIoState i).
+  generalize initialIoState.
   intros ios cs H1 H2.
-  set (g := nSteps' IO_operations) in *.
+  set (g := nSteps' (IO_operations i)) in *.
   enough (g n1 cs ios = g n2 cs ios) as HH.
   - rewrite H1, H2 in HH.
     inversion HH.
