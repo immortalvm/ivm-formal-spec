@@ -102,6 +102,35 @@ Close Scope Z_scope.
 Close Scope vector.
 
 
+(** ** Bitmap images *)
+
+Record Image (C: Type) :=
+  mkImage {
+      width: nat;
+      height: nat;
+      pixel (x: nat) (Hx: x < width) (y: nat) (Hy: y < height): C;
+    }.
+
+Definition noImage {C}: Image C.
+  refine {|
+      width := 0;
+      height := 0;
+      pixel x Hx y Hy := _;
+    |}.
+  lia.
+Defined.
+
+(* It seems RecordUpdate does not handle dependent types. *)
+Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
+{|
+  width := width im;
+  height := height im;
+  pixel x' Hx y' Hy :=
+    if (x' =? x) && (y' =? y) then c
+    else pixel im Hx Hy
+|}.
+
+
 (** ** Building blocks *)
 
 (** Erroneous operation(s) *)
@@ -243,32 +272,6 @@ End pc_sp_section.
 
 
 (** ** I/O *)
-
-Record Image (C: Type) :=
-  mkImage {
-      width: nat;
-      height: nat;
-      pixel (x: nat) (Hx: x < width) (y: nat) (Hy: y < height): C;
-    }.
-
-Definition noImage {C}: Image C.
-  refine {|
-      width := 0;
-      height := 0;
-      pixel x Hx y Hy := _;
-    |}.
-  lia.
-Defined.
-
-(* It seems RecordUpdate does not handle dependent types. *)
-Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
-{|
-  width := width im;
-  height := height im;
-  pixel x' Hx y' Hy :=
-    if (x' =? x) && (y' =? y) then c
-    else pixel im Hx Hy
-|}.
 
 Class Inp0 :=
 {
