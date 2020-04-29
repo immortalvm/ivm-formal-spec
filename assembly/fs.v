@@ -33,7 +33,6 @@ Notation "'let*' ( a : t ) ':=' p 'in' q" := (bind p%monad (fun (a:t) => q%monad
   (in custom monad at level 0, a ident, p constr, q at level 10, right associativity, only parsing).
 
 
-
 (** ** Lists and vectors *)
 
 Definition map := List.map. (* Prelude binds this. *)
@@ -101,6 +100,39 @@ Equations to_Bits (n: nat) (_: Z) : Bits n :=
 
 Close Scope Z_scope.
 Close Scope vector.
+
+
+(** ** Building blocks *)
+
+(** Erroneous operation(s) *)
+Inductive ERROR : interface :=
+| Error {A: Type} : ERROR A.
+
+Definition error_contract: contract ERROR unit :=
+  {|
+  witness_update _ _ _ _ := tt;
+  caller_obligation _ _ _ := False;
+  callee_obligation := no_callee_obligation;
+  |}.
+
+Section log_section.
+
+  Context (Value: Type).
+
+  (** Append-only log *)
+  Inductive LOG : interface :=
+  | Log (x: Value) : LOG unit.
+
+  Definition log_contract: contract LOG (list Value) :=
+  {|
+    witness_update lst _ op _ := match op with Log x => x :: lst end;
+    caller_obligation := no_caller_obligation;
+    callee_obligation := no_callee_obligation;
+  |}.
+
+End log_section.
+
+(** We will also use [STORE], which is built in. *)
 
 
 (** ** Core *)
@@ -382,38 +414,8 @@ Section output_section.
 
 End output_section.
 
-Section consumer_section.
-
-  Context (Value: Type).
-
-  Inductive CONSUMER : interface :=
-  | Consume (x: Value) : CONSUMER unit.
-
-  Definition consumer_contract: contract CONSUMER (list Value) :=
-  {|
-    witness_update lst _ op _ := match op with Consume x => x :: lst end;
-    caller_obligation := no_caller_obligation;
-    callee_obligation := no_callee_obligation;
-  |}.
-
-End consumer_section.
-
 
 (** ** Integration *)
-
-Section failure_section.
-
-  Inductive FAILURE : interface :=
-  | Fail {A: Type} : FAILURE A.
-
-  Definition failure_contract: contract FAILURE unit :=
-    {|
-    witness_update _ _ _ _ := tt;
-    caller_obligation _ _ _ := False;
-    callee_obligation := no_callee_obligation;
-    |}.
-
-End failure_section.
 
 Class Machine (ix: interface) `{Hc0 : Core0} `{Hi0 : Inp0} `{Ho0 : Out0} :=
 {
@@ -425,17 +427,17 @@ Class Machine (ix: interface) `{Hc0 : Core0} `{Hi0 : Inp0} `{Ho0 : Out0} :=
   Mout :> MayProvide ix OUTPUT;
   Hout :> @Provide ix OUTPUT Mout;
 
-  Mcon :> MayProvide ix (CONSUMER (Frame OutputColor));
-  Hcon :> @Provide ix (CONSUMER (Frame OutputColor)) Mcon;
+  Mcon :> MayProvide ix (LOG (Frame OutputColor));
+  Hcon :> @Provide ix (LOG (Frame OutputColor)) Mcon;
 
-  Mf :> MayProvide ix FAILURE;
-  Hf :> @Provide ix FAILURE Mf;
+  Mf :> MayProvide ix ERROR;
+  Hf :> @Provide ix ERROR Mf;
 }.
 
 Definition newFrame {ix} `{Machine ix} (w h r : nat) : impure ix unit :=
   do
     let* previous := request (NextFrame w h r) in
-    request (Consume previous)
+    request (Log previous)
   end.
 
 Module Instructions.
@@ -542,7 +544,7 @@ Section integration_section.
     do
       let continue := pure true : impure ix bool in
       let stop := pure false : impure ix bool in
-      let fail := request Fail : impure ix bool in
+      let error := request Error : impure ix bool in
 
       let* opcode := next' 1 in
       match opcode with
@@ -606,7 +608,7 @@ Section integration_section.
       | PUT_CHAR => continue
       | PUT_BYTE => continue
 
-      | _ => fail
+      | _ => error
       end
     end.
 
