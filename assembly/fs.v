@@ -94,12 +94,46 @@ Coercion to_BitList : Bits >-> BitList.
 Open Scope vector.
 Open Scope Z_scope.
 
-Equations to_Bits (n: nat) (_: Z) : Bits n :=
-  to_Bits O _ := [];
-  to_Bits (S n) z := (z mod 2 =? 1) :: to_Bits n (z / 2).
+Equations toBits (n: nat) (_: Z) : Bits n :=
+  toBits O _ := [];
+  toBits (S n) z := (z mod 2 =? 1) :: toBits n (z / 2).
 
 Close Scope Z_scope.
 Close Scope vector.
+
+Equations signed (_: list bool) : Z :=
+  signed [] := 0;
+  signed (x :: u) := match u with
+                    | [] => -x
+                    | _ => 2 * signed u + x
+                    end.
+
+(*
+Definition fromLittleEndian (u: list Cell) : nat :=
+  bitListToNat (concat (map to_BitList u)).
+ *)
+
+Notation B8 := (Bits 8).
+Notation B16 := (Bits 16).
+Notation B32 := (Bits 32).
+Notation B64 := (Bits 64).
+
+Notation toB8 := (toBits 8).
+Notation toB16 := (toBits 16).
+Notation toB32 := (toBits 32).
+Notation toB64 := (toBits 64).
+
+Equations fromLittleEndian (_: list B8): nat :=
+  fromLittleEndian [] := 0;
+  fromLittleEndian (x :: r) := 256 * (fromLittleEndian r) + x.
+
+Open Scope vector_scope.
+
+Equations toLittleEndian n (_: Z) : Vector.t B8 n :=
+  toLittleEndian 0 _ := [];
+  toLittleEndian (S n) z := (toB8 z) :: (toLittleEndian n (z / 256)).
+
+Close Scope vector_scope.
 
 
 (** ** Bitmap images *)
@@ -166,18 +200,29 @@ End log_section.
 
 (** ** Core *)
 
-Class Core0 :=
-{
-  Addr: Type;
-  H_eqdec :> EqDec Addr;
-  available: Addr -> Prop;
-  offset: Z -> Addr -> Addr; (* This should be a group action. *)
-  Cell: Type;
-}.
+Module Type machine_type.
 
-Section memory_section.
+  Context
+    (Addr: Type)
+    `{H_eqdec: EqDec Addr}
+    (available: Addr -> Prop)
+    (offset: Z -> Addr -> Addr) (* This should be a group action. *)
+    (Cell: Type)
 
-  Context `{Hc0: Core0}.
+    (InputColor: Type)
+    (allInputImages: list (Image InputColor))
+
+    (OutputColor: Type)
+    (Char: Type)
+    (Byte: Type)
+    (Sample: Type).
+
+End machine_type.
+
+Module core_module (M: machine_type).
+
+  Import M.
+  Existing Instance H_eqdec.
 
   Inductive MEMORY : interface :=
   | Load (a: Addr) : MEMORY Cell
@@ -205,83 +250,26 @@ Section memory_section.
     callee_obligation := o_callee_memory;
   |}.
 
-End memory_section.
+  Class Core (ix: interface) :=
+    {
+    Mmem :> MayProvide ix MEMORY;
+    Hmem :> @Provide ix MEMORY Mmem;
 
-Class Core (ix: interface) `{Hc0 : Core0} :=
-{
-  Mmem :> MayProvide ix MEMORY;
-  Hmem :> @Provide ix MEMORY Mmem;
+    Mpc: MayProvide ix (STORE Addr);
+    Hpc : @Provide ix (STORE Addr) Mpc;
 
-  Mpc: MayProvide ix (STORE Addr);
-  Hpc : @Provide ix (STORE Addr) Mpc;
+    Msp : MayProvide ix (STORE Addr);
+    Hsp : @Provide ix (STORE Addr) Msp;
+    }.
 
-  Msp : MayProvide ix (STORE Addr);
-  Hsp : @Provide ix (STORE Addr) Msp;
-}.
-
-Section pc_sp_section.
-
-  Context ix `{Hc: Core ix}.
-
-  Definition getPC : impure ix Addr := @request _ _ Mpc Hpc _ Get.
-  Definition setPC a : impure ix unit := @request _ _ Mpc Hpc _ (Put a).
-
-  Definition getSP : impure ix Addr := @request _ _ Msp Hsp _ Get.
-  Definition setSP a : impure ix unit := @request _ _ Msp Hsp _ (Put a).
-
-  Equations loadMem (n: nat) (_: Addr) : impure ix (Vector.t Cell n) :=
-    loadMem 0 _ := pure Vector.nil;
-    loadMem (S n) a :=
-      do let* x := request (Load a) in
-         let* r := loadMem n (offset 1 a) in
-         pure (Vector.cons x r)
-      end.
-
-  Equations storeMem (_: Addr) (_: list (option Cell)) : impure ix unit :=
-    storeMem _ nil := pure tt;
-    storeMem a (x :: u) :=
-      do request (Store a x);
-         storeMem (offset 1 a) u
-      end.
-
-  Definition next (n: nat) : impure ix (Vector.t Cell n) :=
-    do let* pc := getPC in
-       let* res := loadMem n pc in
-       setPC (offset n pc);
-       pure res
-    end.
-
-  Definition push (u: list Cell) : impure ix unit :=
-    do let* sp := getSP in
-       (* The stack grows downwards. *)
-       let a := offset (- List.length u) sp in
-       setSP a;
-       storeMem a (map Some u)
-    end.
-
-  Definition pop (n: nat) : impure ix (Vector.t Cell n) :=
-    do let* sp := getSP in
-       let* res := loadMem n sp in
-       (* Clear memory! *)
-       storeMem sp (repeat None n);
-       setSP (offset n sp);
-       pure res
-    end.
-
-End pc_sp_section.
+End core_module.
 
 
 (** ** I/O *)
 
-Class Inp0 :=
-{
-  InputColor: Type;
-  allInputImages: list (Image InputColor);
-}.
+Module input_module (M: machine_type).
 
-Section input_section.
-
-  Context `{Hi0: Inp0}.
+  Import M.
 
   Inductive INPUT: interface :=
   | ReadFrame (i: nat) : INPUT (nat * nat)%type
@@ -309,39 +297,32 @@ Section input_section.
     callee_obligation := o_callee_input;
   |}.
 
-End input_section.
+End input_module.
 
-Class Out0 :=
-{
-  OutputColor: Type;
-  Char: Type;
-  Byte: Type;
-  Sample: Type;
-}.
 
-Section output_section.
+Module output_module (M: machine_type).
 
-  Context `{Ho0: Out0}.
+  Import M.
 
   Record Sound := mkSound
-    {
+  {
     rate: nat;
     samples (Hr: rate <> 0) : list (Sample * Sample); (* reversed *)
-    }.
+  }.
 
   Definition addSample (l r: Sample) (sn: Sound) :=
-    {|
+  {|
     rate := rate sn;
     samples Hr := (l, r) :: (samples sn Hr);
-    |}.
+  |}.
 
   Record Frame (C: Type) := mkFrame
-    {
+  {
     image: Image C;
     sound: Sound;
     chars: list Char;  (* reversed *)
     bytes: list Byte;  (* reversed *)
-    }.
+  }.
 
   Definition similarFrames {C D} (f: Frame C) (g: Frame D) (e: C -> D -> Prop) :=
     (let i := image f in
@@ -415,35 +396,13 @@ Section output_section.
     callee_obligation := o_callee_output;
     |}.
 
-End output_section.
+End output_module.
 
 
 (** ** Integration *)
 
-Class Machine (ix: interface) `{Hc0 : Core0} `{Hi0 : Inp0} `{Ho0 : Out0} :=
-{
-  Hc :> @Core ix Hc0;
-
-  Minp :> MayProvide ix INPUT;
-  Hinp :> @Provide ix INPUT Minp;
-
-  Mout :> MayProvide ix OUTPUT;
-  Hout :> @Provide ix OUTPUT Mout;
-
-  Mcon :> MayProvide ix (LOG (Frame OutputColor));
-  Hcon :> @Provide ix (LOG (Frame OutputColor)) Mcon;
-
-  Mf :> MayProvide ix ERROR;
-  Hf :> @Provide ix ERROR Mf;
-}.
-
-Definition newFrame {ix} `{Machine ix} (w h r : nat) : impure ix unit :=
-  do
-    let* previous := request (NextFrame w h r) in
-    request (Log previous)
-  end.
-
 Module Instructions.
+
   Open Scope nat_scope.
   Notation EXIT := 0.
   Notation NOP := 1.
@@ -486,135 +445,462 @@ Module Instructions.
   Notation ADD_SAMPLE := 251.
   Notation PUT_CHAR := 250.
   Notation PUT_BYTE := 249.
+
 End Instructions.
 
-Section integration_section.
+(* Global parameters! *)
+Context
+  (memStart: nat) (* TODO: Use B64 instead? *)
+  (memSize: nat)
+  (inputImages : list (Image B8)).
 
-  (** Use notation instead of definition to keep coercions. *)
-  (* #[local] Notation Addr := (Bits 64) (only parsing). *)
-  (* #[local] Notation Cell := (Bits 8) (only parsing). *)
+Module Export M <: machine_type.
+  Definition Addr := B64.
+  Definition H_eqdec := (ltac:(typeclasses eauto) : EqDec B64).
+  Definition available := fun (a: B64) => memStart <= a /\ a < memStart + memSize.
+  Definition offset := fun (z: Z) (a: B64) => toB64 (z + a).
+  Definition Cell := B8.
 
-  Context
-    (memStart: nat) (* Alternative type: Bits 64. *)
-    (memSize: nat)
-    (inputImages : list (Image (Bits 8))).
+  Definition InputColor := B8.
+  Definition allInputImages := inputImages.
 
-  Instance Hc0 : Core0 :=
-  {
-    Addr := Bits 64;
-    available a := memStart <= a /\ a < memStart + memSize;
-    offset z a := to_Bits 64 (z + a);
-    Cell := Bits 64;
-  }.
+  Definition OutputColor : Type := B64 * B64 * B64.
+  Definition Char := B32.
+  Definition Byte := B8.
+  Definition Sample := B16.
+End M.
 
-  Instance Hi0 : Inp0 :=
-  {
-    InputColor := Bits 8;
-    allInputImages := inputImages;
-  }.
+Module CM := core_module M.
+Export CM.
 
-  Instance Ho0 : Out0 :=
-  {
-    OutputColor := (Bits 64) * (Bits 64) * (Bits 64);
-    Char := Bits 32;
-    Byte := Bits 8;
-    Sample := Bits 16;
-  }.
+Module IM := input_module M.
+Export IM.
 
-  Context ix `{@Machine ix Hc0 Hi0 Ho0}.
+Module OM := output_module M.
+Export OM.
 
-  Definition littleEndian (u: list Cell) : nat :=
-    bitListToNat (concat (map to_BitList u)).
+Class Machine (ix: interface) :=
+{
+  Hc :> Core ix;
 
-  Definition next' n : impure ix nat :=
-    do
-      (* Coq/FreeSpec hangs if the typing is dropped. *)
-      let* (bytes : Vector.t Cell n) := next n in
-      pure (littleEndian bytes)
+  Minp :> MayProvide ix INPUT;
+  Hinp :> @Provide ix INPUT Minp;
+
+  Mout :> MayProvide ix OUTPUT;
+  Hout :> @Provide ix OUTPUT Mout;
+
+  Mcon :> MayProvide ix (LOG (Frame OutputColor));
+  Hcon :> @Provide ix (LOG (Frame OutputColor)) Mcon;
+
+  Mf :> MayProvide ix ERROR;
+  Hf :> @Provide ix ERROR Mf;
+}.
+
+(* More global parameters! *)
+Context
+  (ix: interface)
+  (Hm: Machine ix).
+
+
+(** ** PC and SP (generic) *)
+
+Definition getPC : impure ix Addr := @request _ _ Mpc Hpc _ Get.
+Definition setPC a : impure ix unit := @request _ _ Mpc Hpc _ (Put a).
+
+Definition getSP : impure ix Addr := @request _ _ Msp Hsp _ Get.
+Definition setSP a : impure ix unit := @request _ _ Msp Hsp _ (Put a).
+
+Equations loadMem (n: nat) (_: Addr) : impure ix (Vector.t Cell n) :=
+  loadMem 0 _ := pure Vector.nil;
+  loadMem (S n) a :=
+    do let* x := request (Load a) in
+       let* r := loadMem n (offset 1 a) in
+       pure (Vector.cons x r)
     end.
 
-  Definition pop' : impure ix (Bits 64) :=
-    do
-      let* (bytes: Vector.t Cell 8) := pop 8 in
-      pure (to_Bits 64 (littleEndian bytes))
+Equations storeMem (_: Addr) (_: list (option Cell)) : impure ix unit :=
+  storeMem _ nil := pure tt;
+  storeMem a (x :: u) :=
+    do request (Store a x);
+       storeMem (offset 1 a) u
     end.
+
+Definition next (n: nat) : impure ix (Vector.t Cell n) :=
+  do let* pc := getPC in
+     let* res := loadMem n pc in
+     setPC (offset n pc);
+     pure res
+  end.
+
+Definition push (u: list Cell) : impure ix unit :=
+  do let* sp := getSP in
+     (* The stack grows downwards. *)
+     let a := offset (- List.length u) sp in
+     setSP a;
+     storeMem a (map Some u)
+  end.
+
+Definition pop (n: nat) : impure ix (Vector.t Cell n) :=
+  do let* sp := getSP in
+     let* res := loadMem n sp in
+     (* Mark memory as undefined *)
+     storeMem sp (repeat None n);
+     setSP (offset n sp);
+     pure res
+  end.
+
+
+(** ** Non-generic *)
+
+Definition newFrame (w h r : nat) : impure ix unit :=
+  do
+    let* previous := request (NextFrame w h r) in
+    request (Log previous)
+  end.
+
+Definition nextN n : impure ix nat :=
+  do
+    (* Coq/FreeSpec hangs if the typing is dropped. *)
+    let* (bytes : Vector.t Cell n) := next n in
+    pure (fromLittleEndian bytes)
+  end.
+
+Definition popN : impure ix nat :=
+  do
+    let* (bytes: Vector.t Cell 8) := pop 8 in
+    pure (fromLittleEndian bytes)
+  end.
+
+Definition pop64 : impure ix B64 :=
+  do
+    let* (x: nat) := popN in
+    pure (toB64 x)
+  end.
+
+Definition push64 (z: Z) : impure ix unit :=
+  push (toLittleEndian 8 z).
+
+Definition load (n: nat) (a: Z) : impure ix nat :=
+  do
+    let* (bytes: Vector.t B8 n) := loadMem n (toB64 a) in
+    pure (fromLittleEndian bytes)
+  end.
+
+Definition store (n: nat) (a: Z) (x: Z) : impure ix unit :=
+  storeMem (toB64 a) (map Some (toLittleEndian n x)).
+
+
+(** ** Semantics *)
+
+Section limit_scope.
 
   Import Instructions.
 
-  Set Printing Coercions.
-
   Definition oneStep : impure ix bool :=
+    let exit := pure false : impure ix bool in
+    let continue := pure true : impure ix bool in
+    let error := request Error : impure ix bool in
     do
-      let continue := pure true : impure ix bool in
-      let stop := pure false : impure ix bool in
-      let error := request Error : impure ix bool in
 
-      let* opcode := next' 1 in
+      let* opcode := nextN 1 in
       match opcode with
-      | EXIT => stop
+      | EXIT => exit
       | NOP => continue
+
       | JUMP =>
         do
-          let* (a: Bits 64) := pop' in
-          setPC a;
+          let* (a: nat) := popN in
+          setPC (toB64 a);
           continue
         end
+
       | JUMP_ZERO =>
         do
-          let* (o: nat) := next' 1 in
-          let* x := pop' in
-          if x =? 0
-          then
-            do
-              let* (pc: Bits 64) := getPC in
-              setPC (offset o pc)
-            end : impure ix unit
-          else
-            pure tt;
+          let* (o: nat) := nextN 1 in
+          let* (x: nat) := popN in
+          when (x =? 0)
+          do
+            let* (pc: B64) := getPC in
+            setPC (offset (signed (toB8 o)) pc : Addr)
+          end;
           continue
         end
 
-      | SET_SP => continue
-      | GET_PC => continue
-      | GET_SP => continue
-      | PUSH0 => continue
-      | PUSH1 => continue
-      | PUSH2 => continue
-      | PUSH4 => continue
-      | PUSH8 => continue
-      | SIGX1 => continue
-      | SIGX2 => continue
-      | SIGX4 => continue
-      | LOAD1 => continue
-      | LOAD2 => continue
-      | LOAD4 => continue
-      | LOAD8 => continue
-      | STORE1 => continue
-      | STORE2 => continue
-      | STORE4 => continue
-      | STORE8 => continue
-      | ADD => continue
-      | MULT => continue
-      | DIV => continue
-      | REM => continue
-      | LT => continue
-      | AND => continue
-      | OR => continue
-      | NOT => continue
-      | XOR => continue
+      | SET_SP =>
+        do
+          let* (a: nat) := popN in
+          setSP (toB64 a);
+          continue
+        end
 
-      | READ_FRAME => continue
-      | READ_PIXEL => continue
-      | NEW_FRAME => continue
-      | SET_PIXEL => continue
-      | ADD_SAMPLE => continue
-      | PUT_CHAR => continue
-      | PUT_BYTE => continue
+      | GET_PC =>
+        do
+          let* (a: B64) := getPC in
+          push64 a;
+          continue
+        end
+
+      | GET_SP =>
+        do
+          let* (a: B64) := getSP in
+          push64 a;
+          continue
+        end
+
+      | PUSH0 =>
+        do
+          push64 0;
+          continue
+        end
+
+      | PUSH1 =>
+        do
+          let* (x: nat) := nextN 1 in
+          push64 x;
+          continue
+        end
+
+      | PUSH2 =>
+        do
+          let* (x: nat) := nextN 2 in
+          push64 x;
+          continue
+        end
+
+      | PUSH4 =>
+        do
+          let* (x: nat) := nextN 4 in
+          push64 x;
+          continue
+        end
+
+      | PUSH8 =>
+        do
+          let* (x: nat) := nextN 8 in
+          push64 x;
+          continue
+        end
+
+      | SIGX1 =>
+        do
+          let* (x: nat) := popN in
+          push64 (signed (toB8 x));
+          continue
+        end
+
+      | SIGX2 =>
+        do
+          let* (x: nat) := popN in
+          push64 (signed (toB16 x));
+          continue
+        end
+
+      | SIGX4 =>
+        do
+          let* (x: nat) := popN in
+          push64 (signed (toB32 x));
+          continue
+        end
+
+      | LOAD1 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := load 1 a in
+          push64 x;
+          continue
+        end
+
+      | LOAD2 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := load 2 a in
+          push64 x;
+          continue
+        end
+
+      | LOAD4 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := load 4 a in
+          push64 x;
+          continue
+        end
+
+      | LOAD8 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := load 8 a in
+          push64 x;
+          continue
+        end
+
+      | STORE1 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := popN in
+          store 1 a x;
+          continue
+        end
+
+      | STORE2 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := popN in
+          store 2 a x;
+          continue
+        end
+
+      | STORE4 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := popN in
+          store 4 a x;
+          continue
+        end
+
+      | STORE8 =>
+        do
+          let* (a: nat) := popN in
+          let* (x: nat) := popN in
+          store 8 a x;
+          continue
+        end
+
+      | ADD =>
+        do
+          let* (x: nat) := popN in
+          let* (y: nat) := popN in
+          push64 (x + y);
+          continue
+        end
+
+      | MULT =>
+        do
+          let* (x: nat) := popN in
+          let* (y: nat) := popN in
+          push64 (x * y);
+          continue
+        end
+
+      | DIV =>
+        do
+          let* (x: nat) := popN in
+          let* (y: nat) := popN in
+          push64 (if x =? 0 then 0 else y / x);
+          continue
+        end
+
+      | REM =>
+        do
+          let* (x: nat) := popN in
+          let* (y: nat) := popN in
+          push64 (if x =? 0 then 0 else y mod x);
+          continue
+        end
+
+      | LT =>
+        do
+          let* (x: nat) := popN in
+          let* (y: nat) := popN in
+          push64 (if y <? x then -1 else 0);
+          continue
+        end
+
+      | AND =>
+        do
+          let* (x: B64) := pop64 in
+          let* (y: B64) := pop64 in
+          push64 (Vector.map2 andb x y : B64);
+          continue
+        end
+
+      | OR =>
+        do
+          let* (x: B64) := pop64 in
+          let* (y: B64) := pop64 in
+          push64 (Vector.map2 orb x y : B64);
+          continue
+        end
+
+      | NOT =>
+        do
+          let* (x: B64) := pop64 in
+          push64 (Vector.map negb x : B64);
+          continue
+        end
+
+      | XOR =>
+        do
+          let* (x: B64) := pop64 in
+          let* (y: B64) := pop64 in
+          push64 (Vector.map2 xorb x y : B64);
+          continue
+        end
+
+      (* *** *)
+
+      | READ_FRAME =>
+        do
+          let* (i: nat) := popN in
+          let* (pair: (nat * nat)%type) := request (ReadFrame i) in
+          push64 (fst pair);
+          push64 (snd pair);
+          continue
+        end
+
+      | READ_PIXEL =>
+        do
+          let* (y: nat) := popN in
+          let* (x: nat) := popN in
+          let* (c: B8) := request (ReadPixel x y) in
+          push64 c;
+          continue
+        end
+
+      | NEW_FRAME =>
+        do
+          let* (r: nat) := popN in
+          let* (h: nat) := popN in
+          let* (w: nat) := popN in
+          newFrame w h r;
+          continue
+        end
+
+      | SET_PIXEL =>
+        do
+          let* (b: B64) := pop64 in
+          let* (g: B64) := pop64 in
+          let* (r: B64) := pop64 in
+          let* (y: nat) := popN in
+          let* (x: nat) := popN in
+          request (SetPixel x y (r, g, b));
+          continue
+        end
+
+      | ADD_SAMPLE =>
+        do
+          let* (r: nat) := popN in
+          let* (l: nat) := popN in
+          request (AddSample (toB16 l) (toB16 r));
+          continue
+        end
+
+      | PUT_CHAR =>
+        do
+          let* (c: nat) := popN in
+          request (PutChar (toB32 c));
+          continue
+        end
+
+      | PUT_BYTE =>
+        do
+          let* (b: nat) := popN in
+          request (PutByte (toB8 b));
+          continue
+        end
 
       | _ => error
       end
     end.
 
-
-
-End integration_section.
+End limit_scope.
