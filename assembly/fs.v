@@ -28,6 +28,12 @@ Coercion is_true : bool >-> Sortclass.
 Coercion Z.of_nat : nat >-> Z.
 
 
+(** Prelude.Control only provides an uptyped version. *)
+Notation "'let*' ( a : t ) ':=' p 'in' q" := (bind p%monad (fun (a:t) => q%monad))
+  (in custom monad at level 0, a ident, p constr, q at level 10, right associativity, only parsing).
+
+
+
 (** ** Lists and vectors *)
 
 Definition map := List.map. (* Prelude binds this. *)
@@ -69,8 +75,7 @@ Defined.
 (** ** Bits *)
 
 Definition BitList := list bool.
-Definition Id_BitList_List (u: BitList) : list bool := u.
-Coercion Id_BitList_List : BitList >-> list.
+Identity Coercion Id_BitList_List : BitList >-> list.
 
 Definition boolToNat (x: bool) : nat := if x then 1 else 0.
 Coercion boolToNat : bool >-> nat.
@@ -82,19 +87,36 @@ Equations bitListToNat (_: BitList) : nat :=
 
 Coercion bitListToNat : BitList >-> nat.
 
+(** Specialize [to_list] to get coercion [Bits >-> nat]. *)
+Definition Bits: nat -> Type := Vector.t bool.
+Definition to_BitList {n} (u: Bits n) : BitList := u.
+Coercion to_BitList : Bits >-> BitList.
+
+Open Scope vector.
+Open Scope Z_scope.
+
+Equations to_Bits (n: nat) (_: Z) : Bits n :=
+  to_Bits O _ := [];
+  to_Bits (S n) z := (z mod 2 =? 1) :: to_Bits n (z / 2).
+
+Close Scope Z_scope.
+Close Scope vector.
+
 
 (** ** Core *)
 
-Section core_section.
+Class Core0 :=
+{
+  Addr: Type;
+  H_eqdec :> EqDec Addr;
+  available: Addr -> Prop;
+  offset: Z -> Addr -> Addr; (* This should be a group action. *)
+  Cell: Type;
+}.
 
-  Context
-    (Addr: Type) `{EqDec Addr} (available: Addr -> Prop)
-    (offset: Z -> Addr -> Addr) (* This should be a group action. *)
-    (Cell: Type).
+Section memory_section.
 
-  (* Definition TERMINATED := STORE bool. *)
-  Definition PC := STORE Addr.
-  Definition SP := STORE Addr.
+  Context `{Hc0: Core0}.
 
   Inductive MEMORY : interface :=
   | Load (a: Addr) : MEMORY Cell
@@ -103,15 +125,16 @@ Section core_section.
   Definition Memory := forall (a: Addr), available a -> option Cell.
 
   Equations o_caller_memory (mem: Memory) {A: Type} (op: MEMORY A) : Prop :=
-    o_caller_memory mem (Load a) := exists (Ha: available a), mem a Ha <> None;
+    o_caller_memory mem (Load a) := available a;
     o_caller_memory _ (Store a _) := available a.
 
-  Equations o_callee_memory (mem: Memory) {A: Type} (op: MEMORY A) (x: A) : Prop :=
-    o_callee_memory mem (Load a) x := exists (Ha: available a), mem a Ha = Some x;
+  (* For "undefined" memory addresses Load can return any value. *)
+  Equations o_callee_memory (mem: Memory) {A: Type} (op: MEMORY A) (y: A) : Prop :=
+    o_callee_memory mem (Load a) y := exists (Ha: available a), match mem a Ha with Some x => y = x | _ => True end;
     o_callee_memory _ _ _ := True.
 
-  Definition memory_contract (A: Type) : contract MEMORY Memory :=
-    {|
+  Definition memory_contract: contract MEMORY Memory :=
+  {|
     witness_update mem _ op _ :=
       match op with
       | Store a x => fun a' Ha => if eq_dec a a' then x else mem a' Ha
@@ -119,19 +142,31 @@ Section core_section.
       end;
     caller_obligation := o_caller_memory;
     callee_obligation := o_callee_memory;
-    |}.
+  |}.
 
-  Context
-    `{ix: interface}
-    `{Hpc: Provide ix PC}
-    `{Hsp: Provide ix SP}
-    `{Hmem: Provide ix MEMORY}.
+End memory_section.
 
-  Definition getPC : impure ix Addr := request (Get : PC Addr).
-  Definition setPC a : impure ix unit := request (Put a : PC unit).
+Class Core (ix: interface) `{Hc0 : Core0} :=
+{
+  Mmem :> MayProvide ix MEMORY;
+  Hmem :> @Provide ix MEMORY Mmem;
 
-  Definition getSP : impure ix Addr := request (Get : SP Addr).
-  Definition setSP a : impure ix unit := request (Put a : SP unit).
+  Mpc: MayProvide ix (STORE Addr);
+  Hpc : @Provide ix (STORE Addr) Mpc;
+
+  Msp : MayProvide ix (STORE Addr);
+  Hsp : @Provide ix (STORE Addr) Msp;
+}.
+
+Section pc_sp_section.
+
+  Context ix `{Hc: Core ix}.
+
+  Definition getPC : impure ix Addr := @request _ _ Mpc Hpc _ Get.
+  Definition setPC a : impure ix unit := @request _ _ Mpc Hpc _ (Put a).
+
+  Definition getSP : impure ix Addr := @request _ _ Msp Hsp _ Get.
+  Definition setSP a : impure ix unit := @request _ _ Msp Hsp _ (Put a).
 
   Equations loadMem (n: nat) (_: Addr) : impure ix (Vector.t Cell n) :=
     loadMem 0 _ := pure Vector.nil;
@@ -157,18 +192,22 @@ Section core_section.
 
   Definition push (u: list Cell) : impure ix unit :=
     do let* sp := getSP in
-       let a := offset (- List.length u) sp in (* The stack grows downwards. *)
+       (* The stack grows downwards. *)
+       let a := offset (- List.length u) sp in
        setSP a;
        storeMem a (map Some u)
     end.
 
-  Definition pop (n: nat) : impure ix unit :=
+  Definition pop (n: nat) : impure ix (Vector.t Cell n) :=
     do let* sp := getSP in
-       storeMem sp (repeat None n); (* Clear memory! *)
-       setSP (offset n sp)
+       let* res := loadMem n sp in
+       (* Clear memory! *)
+       storeMem sp (repeat None n);
+       setSP (offset n sp);
+       pure res
     end.
 
-End core_section.
+End pc_sp_section.
 
 
 (** ** I/O *)
@@ -191,25 +230,29 @@ Defined.
 
 (* It seems RecordUpdate does not handle dependent types. *)
 Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
-  {|
+{|
   width := width im;
   height := height im;
   pixel x' Hx y' Hy :=
     if (x' =? x) && (y' =? y) then c
     else pixel im Hx Hy
-  |}.
+|}.
+
+Class Inp0 :=
+{
+  InputColor: Type;
+  allInputImages: list (Image InputColor);
+}.
 
 Section input_section.
 
-  Context
-    (Color: Type)
-    (allImages: list (Image Color)).
+  Context `{Hi0: Inp0}.
 
   Inductive INPUT: interface :=
   | ReadFrame (i: nat) : INPUT (nat * nat)%type
-  | ReadPixel (x y: nat) : INPUT Color.
+  | ReadPixel (x y: nat) : INPUT InputColor.
 
-  Local Definition Input := Image Color.
+  Local Definition Input := Image InputColor.
 
   Equations o_caller_input (inp: Input) {A: Type} (op: INPUT A) : Prop :=
     o_caller_input inp (ReadPixel x y) := x < width inp /\ y < height inp;
@@ -220,42 +263,30 @@ Section input_section.
       forall (Hx: x < width inp) (Hy: y < height inp), pixel inp Hx Hy = c;
     o_callee_input _ _ _ := True.
 
-  Definition input_contract : contract INPUT Input :=
-    {|
+  Definition input_contract: contract INPUT Input :=
+  {|
     witness_update inp _ op _ :=
       match op with
-      | ReadFrame i => nth i allImages noImage
+      | ReadFrame i => nth i allInputImages noImage
       | _ => inp
       end;
     caller_obligation := o_caller_input;
     callee_obligation := o_callee_input;
-    |}.
+  |}.
 
 End input_section.
 
-Section consumer_section.
-
-  Context (Value: Type).
-
-  Inductive CONSUMER : interface :=
-  | Consume (x: Value) : CONSUMER unit.
-
-  Definition consumer_contract : contract CONSUMER (list Value) :=
-    {|
-    witness_update lst _ op _ := match op with Consume x => x :: lst end;
-    caller_obligation := no_caller_obligation;
-    callee_obligation := no_callee_obligation;
-    |}.
-
-End consumer_section.
+Class Out0 :=
+{
+  OutputColor: Type;
+  Char: Type;
+  Byte: Type;
+  Sample: Type;
+}.
 
 Section output_section.
 
-  Context
-    (Color: Type)
-    (Char: Type)
-    (Byte: Type)
-    (Sample: Type).
+  Context `{Ho0: Out0}.
 
   Record Sound := mkSound
     {
@@ -293,18 +324,18 @@ Section output_section.
     /\ chars f = chars g
     /\ bytes f = bytes g.
 
-  Local Definition OC := option Color.
+  Local Definition OC := option OutputColor.
 
   Instance etaFrame : Settable _ := settable! (@mkFrame OC) <(@image OC); (@sound OC); (@chars OC); (@bytes OC)>.
 
   Inductive OUTPUT: interface :=
-  | NextFrame (width heigth rate : nat) : OUTPUT (Frame Color) (* Returns the previous frame *)
-  | SetPixel (x y: nat) (c: Color) : OUTPUT unit
+  | NextFrame (width heigth rate : nat) : OUTPUT (Frame OutputColor) (* Returns the previous frame *)
+  | SetPixel (x y: nat) (c: OutputColor) : OUTPUT unit
   | AddSample (l: Sample) (r: Sample) : OUTPUT unit
   | PutChar (c: Char) : OUTPUT unit
   | PutByte (b: Byte) : OUTPUT unit.
 
-  Definition newFrame (w h r: nat) : Frame OC :=
+  Definition freshFrame (w h r: nat) : Frame OC :=
     {|
     image :=
       {|
@@ -325,11 +356,11 @@ Section output_section.
     o_callee_output fr (NextFrame _ _ _) res := similarFrames fr res (fun oc c => oc = Some c);
     o_callee_output _ _ _ := True.
 
-  Definition output_contract : contract OUTPUT (Frame OC) :=
+  Definition output_contract: contract OUTPUT (Frame OC) :=
     {|
     witness_update fr _ op _ :=
       match op with
-      | NextFrame w h r => newFrame w h r
+      | NextFrame w h r => freshFrame w h r
       | SetPixel x y c => set (@image OC) (updatePixel x y (Some c)) fr
       | AddSample l r => set (@sound OC) (addSample l r) fr
       | PutChar c => set (@chars OC) (cons c) fr
@@ -351,49 +382,233 @@ Section output_section.
 
 End output_section.
 
+Section consumer_section.
+
+  Context (Value: Type).
+
+  Inductive CONSUMER : interface :=
+  | Consume (x: Value) : CONSUMER unit.
+
+  Definition consumer_contract: contract CONSUMER (list Value) :=
+  {|
+    witness_update lst _ op _ := match op with Consume x => x :: lst end;
+    caller_obligation := no_caller_obligation;
+    callee_obligation := no_callee_obligation;
+  |}.
+
+End consumer_section.
+
 
 (** ** Integration *)
 
+Section failure_section.
+
+  Inductive FAILURE : interface :=
+  | Fail {A: Type} : FAILURE A.
+
+  Definition failure_contract: contract FAILURE unit :=
+    {|
+    witness_update _ _ _ _ := tt;
+    caller_obligation _ _ _ := False;
+    callee_obligation := no_callee_obligation;
+    |}.
+
+End failure_section.
+
+Class Machine (ix: interface) `{Hc0 : Core0} `{Hi0 : Inp0} `{Ho0 : Out0} :=
+{
+  Hc :> @Core ix Hc0;
+
+  Minp :> MayProvide ix INPUT;
+  Hinp :> @Provide ix INPUT Minp;
+
+  Mout :> MayProvide ix OUTPUT;
+  Hout :> @Provide ix OUTPUT Mout;
+
+  Mcon :> MayProvide ix (CONSUMER (Frame OutputColor));
+  Hcon :> @Provide ix (CONSUMER (Frame OutputColor)) Mcon;
+
+  Mf :> MayProvide ix FAILURE;
+  Hf :> @Provide ix FAILURE Mf;
+}.
+
+Definition newFrame {ix} `{Machine ix} (w h r : nat) : impure ix unit :=
+  do
+    let* previous := request (NextFrame w h r) in
+    request (Consume previous)
+  end.
+
+Module Instructions.
+  Open Scope nat_scope.
+  Notation EXIT := 0.
+  Notation NOP := 1.
+  Notation JUMP := 2.
+  Notation JUMP_ZERO := 3.
+  Notation SET_SP := 4.
+  Notation GET_PC := 5.
+  Notation GET_SP := 6.
+  Notation PUSH0 := 7.
+  Notation PUSH1 := 8.
+  Notation PUSH2 := 9.
+  Notation PUSH4 := 10.
+  Notation PUSH8 := 11.
+  Notation SIGX1 := 12.
+  Notation SIGX2 := 13.
+  Notation SIGX4 := 14.
+  Notation LOAD1 := 16.
+  Notation LOAD2 := 17.
+  Notation LOAD4 := 18.
+  Notation LOAD8 := 19.
+  Notation STORE1 := 20.
+  Notation STORE2 := 21.
+  Notation STORE4 := 22.
+  Notation STORE8 := 23.
+  Notation ADD := 32.
+  Notation MULT := 33.
+  Notation DIV := 34.
+  Notation REM := 35.
+  Notation LT := 36.
+  Notation AND := 40.
+  Notation OR := 41.
+  Notation NOT := 42.
+  Notation XOR := 43.
+  Notation POW2 := 44.
+
+  Notation READ_FRAME := 255.
+  Notation READ_PIXEL := 254.
+  Notation NEW_FRAME := 253.
+  Notation SET_PIXEL := 252.
+  Notation ADD_SAMPLE := 251.
+  Notation PUT_CHAR := 250.
+  Notation PUT_BYTE := 249.
+End Instructions.
+
 Section integration_section.
 
-  (** Specialize [to_list] to get coercion [Bits >-> nat]. *)
-  Definition Bits: nat -> Type := Vector.t bool.
-  Definition to_BitList {n} (u: Bits n) : BitList := u.
-  Coercion to_BitList : Bits >-> BitList.
-
   (** Use notation instead of definition to keep coercions. *)
-  #[local] Notation Addr := (Bits 64) (only parsing).
-  #[local] Notation Cell := (Bits 8) (only parsing).
-  #[local] Notation InputColor := (Bits 8) (only parsing).
-  Definition OutputColor: Type := (Bits 64) * (Bits 64) * (Bits 64).
-
-  #[local] Notation Char := (Bits 32) (only parsing).
-  #[local] Notation Byte := (Bits 8) (only parsing).
-  #[local] Notation Sample := (Bits 16) (only parsing).
+  (* #[local] Notation Addr := (Bits 64) (only parsing). *)
+  (* #[local] Notation Cell := (Bits 8) (only parsing). *)
 
   Context
-    (memStart: Addr)
+    (memStart: nat) (* Alternative type: Bits 64. *)
     (memSize: nat)
+    (inputImages : list (Image (Bits 8))).
 
-    (* The available memory should not "wrap". *)
-    (Hsize: memStart + memSize <= 2 ^ 64)
+  Instance Hc0 : Core0 :=
+  {
+    Addr := Bits 64;
+    available a := memStart <= a /\ a < memStart + memSize;
+    offset z a := to_Bits 64 (z + a);
+    Cell := Bits 64;
+  }.
 
-    (ix: interface)
-    `{Hpc: Provide ix (PC Addr)}
-    `{Hsp: Provide ix (SP Addr)}
-    `{Hmem: Provide ix (MEMORY Addr Cell)}
+  Instance Hi0 : Inp0 :=
+  {
+    InputColor := Bits 8;
+    allInputImages := inputImages;
+  }.
 
-    (allInputImages: list (Image InputColor))
-    `{Hinp: Provide ix (INPUT InputColor)}.
+  Instance Ho0 : Out0 :=
+  {
+    OutputColor := (Bits 64) * (Bits 64) * (Bits 64);
+    Char := Bits 32;
+    Byte := Bits 8;
+    Sample := Bits 16;
+  }.
 
-  Instance Addr_eqdec : EqDec Addr.
-  Proof.
-    eqdec_proof.
-  Defined.
+  Context ix `{@Machine ix Hc0 Hi0 Ho0}.
 
-  Definition available (a: Addr) : Prop := memStart <= a /\ a < memStart + memSize.
+  Definition littleEndian (u: list Cell) : nat :=
+    bitListToNat (concat (map to_BitList u)).
 
-  Definition littleEndian (u: list Cell) : nat := bitListToNat (concat (map to_BitList u)).
+  Definition next' n : impure ix nat :=
+    do
+      (* Coq/FreeSpec hangs if the typing is dropped. *)
+      let* (bytes : Vector.t Cell n) := next n in
+      pure (littleEndian bytes)
+    end.
+
+  Definition pop' : impure ix (Bits 64) :=
+    do
+      let* (bytes: Vector.t Cell 8) := pop 8 in
+      pure (to_Bits 64 (littleEndian bytes))
+    end.
+
+  Import Instructions.
+
+  Set Printing Coercions.
+
+  Definition oneStep : impure ix bool :=
+    do
+      let continue := pure true : impure ix bool in
+      let stop := pure false : impure ix bool in
+      let fail := request Fail : impure ix bool in
+
+      let* opcode := next' 1 in
+      match opcode with
+      | EXIT => stop
+      | NOP => continue
+      | JUMP =>
+        do
+          let* (a: Bits 64) := pop' in
+          setPC a;
+          continue
+        end
+      | JUMP_ZERO =>
+        do
+          let* (o: nat) := next' 1 in
+          let* x := pop' in
+          if x =? 0
+          then
+            do
+              let* (pc: Bits 64) := getPC in
+              setPC (offset o pc)
+            end : impure ix unit
+          else
+            pure tt;
+          continue
+        end
+
+      | SET_SP => continue
+      | GET_PC => continue
+      | GET_SP => continue
+      | PUSH0 => continue
+      | PUSH1 => continue
+      | PUSH2 => continue
+      | PUSH4 => continue
+      | PUSH8 => continue
+      | SIGX1 => continue
+      | SIGX2 => continue
+      | SIGX4 => continue
+      | LOAD1 => continue
+      | LOAD2 => continue
+      | LOAD4 => continue
+      | LOAD8 => continue
+      | STORE1 => continue
+      | STORE2 => continue
+      | STORE4 => continue
+      | STORE8 => continue
+      | ADD => continue
+      | MULT => continue
+      | DIV => continue
+      | REM => continue
+      | LT => continue
+      | AND => continue
+      | OR => continue
+      | NOT => continue
+      | XOR => continue
+
+      | READ_FRAME => continue
+      | READ_PIXEL => continue
+      | NEW_FRAME => continue
+      | SET_PIXEL => continue
+      | ADD_SAMPLE => continue
+      | PUT_CHAR => continue
+      | PUT_BYTE => continue
+
+      | _ => fail
+      end
+    end.
 
 
 
