@@ -202,6 +202,9 @@ End log_section.
 
 Module Type machine_type.
 
+  (** This abstraction simplifies some of the definitions below (that
+      otherwise tend to hang), possibly because we avoid coercions. *)
+
   Context
     (Addr: Type)
     `{H_eqdec: EqDec Addr}
@@ -904,3 +907,51 @@ Section limit_scope.
     end.
 
 End limit_scope.
+
+
+(** ** Next steps
+
+The return value of [oneStep] indicates of the machine has stopped
+(normally). In addition, the machine state consists of:
+
+* The memory state/witness of type: [Memory].
+* The input state: [Image InputColor]
+* The current output state: [Frame (option OutputColor)]
+* The output log state: [list (Frame OutputColor)]
+
+Let [ActiveState] denote their product (as a record) except for the log.
+*)
+
+Record ActiveState : Type :=
+  mkActiveState
+    {
+      A_mem: Memory;
+      A_inp: Image InputColor;
+      A_out: Frame (option OutputColor)
+    }.
+
+(** Below, we shall prove what happens when the machine is started in
+various states [s:ActiveState]. In each case there will be:
+
+* A predicate [pre: ActiveState -> Prop] saying which initial states [s0] we
+  consider. [pre] can also refer to the parameters of the machine such as
+  [memSize]. Most importantly, [pre] will usually describe the
+  instructions immediately following the PC.
+
+* A decidable predicate [end: ActiveState -> ActiveState -> bool] relating the
+  initial state to the states [s] at which we should continue running.
+  Thus, [end s0 s = true] for the final state [s]. Initially, we will just
+  check that whether the PC is still within program fragment we are
+  interested in.
+
+* A predicate [outcome: ActiveState -> Outcome -> Prop] relating the initial
+  state to a sequence describing the effect of running [cont] holds or the
+  machine stops.
+
+Given such a triple of predicates, we want to show that starting the
+machine in an accepted initial state [s0] will always lead to an accepted
+terminal state. *)
+
+Definition Outcome : Type := ActiveState * list (Frame OutputColor).
+
+(** We will not be interested in computations do not terminate. *)
