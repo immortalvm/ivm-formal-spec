@@ -231,12 +231,12 @@ Module core_module (M: machine_type).
   Definition Memory := forall (a: Addr), available a -> option Cell.
 
   Equations o_caller_memory (mem: Memory) {A: Type} (op: MEMORY A) : Prop :=
-    o_caller_memory mem (Load a) := available a;
+    o_caller_memory mem (Load a) := exists (H: available a), mem a H <> None;
     o_caller_memory _ (Store a _) := available a.
 
   (* For "undefined" memory addresses Load can return any value. *)
   Equations o_callee_memory (mem: Memory) {A: Type} (op: MEMORY A) (y: A) : Prop :=
-    o_callee_memory mem (Load a) y := exists (Ha: available a), match mem a Ha with Some x => y = x | _ => True end;
+    o_callee_memory mem (Load a) y := forall (Ha: available a), mem a Ha = Some y;
     o_callee_memory _ _ _ := True.
 
   Definition memory_contract: contract MEMORY Memory :=
