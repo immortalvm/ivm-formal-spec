@@ -957,3 +957,44 @@ terminal state. *)
 Definition Outcome : Type := ActiveState * list (Frame OutputColor).
 
 (** We will not be interested in computations do not terminate. *)
+
+
+(** ** Combined contract
+
+[cplus] appears to be useless, or at least not very convenient to use. *)
+
+Definition combined_contract : contract ix Outcome :=
+  {|
+  witness_update (oc: Outcome) _ op x :=
+    let (a, log) := oc in
+    (
+      {|
+        A_pc := gen_witness_update (H:=Mpc) (store_specs Addr) (A_pc a) op x;
+        A_sp := gen_witness_update (H:=Msp) (store_specs Addr) (A_sp a) op x;
+        A_mem := gen_witness_update memory_specs (A_mem a) op x;
+        A_inp := gen_witness_update input_specs (A_inp a) op x;
+        A_out := gen_witness_update output_specs (A_out a) op x;
+      |},
+      gen_witness_update (log_specs (Frame OutputColor)) log op x
+    );
+
+  caller_obligation (oc: Outcome) _ op :=
+    let (a, log) := oc in
+    gen_caller_obligation (H:=Mpc) (store_specs Addr) (A_pc a) op
+    /\ gen_caller_obligation (H:=Msp) (store_specs Addr) (A_sp a) op
+    /\ gen_caller_obligation memory_specs (A_mem a) op
+    /\ gen_caller_obligation input_specs (A_inp a) op
+    /\ gen_caller_obligation output_specs (A_out a) op
+    /\ gen_caller_obligation (log_specs (Frame OutputColor)) log op
+    /\ gen_caller_obligation error_specs tt op;
+
+  callee_obligation (oc: Outcome) _ op x :=
+    let (a, log) := oc in
+    gen_callee_obligation (H:=Mpc) (store_specs Addr) (A_pc a) op x
+    /\ gen_callee_obligation (H:=Msp) (store_specs Addr) (A_sp a) op x
+    /\ gen_callee_obligation memory_specs (A_mem a) op x
+    /\ gen_callee_obligation input_specs (A_inp a) op x
+    /\ gen_callee_obligation output_specs (A_out a) op x
+    /\ gen_callee_obligation (log_specs (Frame OutputColor)) log op x
+    /\ gen_callee_obligation error_specs tt op x;
+  |}.
