@@ -925,6 +925,8 @@ Let [ActiveState] denote their product (as a record) except for the log.
 Record ActiveState : Type :=
   mkActiveState
     {
+      A_pc: Addr;
+      A_sp: Addr;
       A_mem: Memory;
       A_inp: Image InputColor;
       A_out: Frame (option OutputColor)
