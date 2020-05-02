@@ -171,7 +171,7 @@ Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
 Inductive ERROR : interface :=
 | Error {A: Type} : ERROR A.
 
-Definition error_contract: contract ERROR unit :=
+Definition error_specs: contract ERROR unit :=
   {|
   witness_update _ _ _ _ := tt;
   caller_obligation _ _ _ := False;
@@ -186,7 +186,7 @@ Section log_section.
   Inductive LOG : interface :=
   | Log (x: Value) : LOG unit.
 
-  Definition log_contract: contract LOG (list Value) :=
+  Definition log_specs: contract LOG (list Value) :=
   {|
     witness_update lst _ op _ := match op with Log x => x :: lst end;
     caller_obligation := no_caller_obligation;
@@ -242,7 +242,7 @@ Module core_module (M: machine_type).
     o_callee_memory mem (Load a) y := forall (Ha: available a), mem a Ha = Some y;
     o_callee_memory _ _ _ := True.
 
-  Definition memory_contract: contract MEMORY Memory :=
+  Definition memory_specs: contract MEMORY Memory :=
   {|
     witness_update mem _ op _ :=
       match op with
@@ -289,7 +289,7 @@ Module input_module (M: machine_type).
       forall (Hx: x < width inp) (Hy: y < height inp), pixel inp Hx Hy = c;
     o_callee_input _ _ _ := True.
 
-  Definition input_contract: contract INPUT Input :=
+  Definition input_specs: contract INPUT Input :=
   {|
     witness_update inp _ op _ :=
       match op with
@@ -375,7 +375,7 @@ Module output_module (M: machine_type).
     o_callee_output fr (NextFrame _ _ _) res := similarFrames fr res (fun oc c => oc = Some c);
     o_callee_output _ _ _ := True.
 
-  Definition output_contract: contract OUTPUT (Frame OC) :=
+  Definition output_specs: contract OUTPUT (Frame OC) :=
     {|
     witness_update fr _ op _ :=
       match op with
