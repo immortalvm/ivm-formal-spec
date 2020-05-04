@@ -19,7 +19,7 @@ Reserved Notation "ma >>= f" (at level 69, left associativity).
 Class SMonad (S: Type) (m: Type -> Type): Type :=
 {
   ret {A} : A -> m A;
-  bind {A} (_: m A) {B} : (A -> m B) -> m B
+  bind {A B} (_: m A) : (A -> m B) -> m B
     where "ma >>= f" := (bind ma f);
 
   monad_right A (ma: m A) : ma >>= ret = ma;
@@ -39,7 +39,10 @@ Class SMonad (S: Type) (m: Type -> Type): Type :=
   get_get B (f: S -> S -> m B) : get >>= (fun s => get >>= (fun s' => f s s')) = get >>= (fun s => f s s);
 }.
 
-(* Note to self: Order of associativity switched since ivm.v. *)
+(* Note to self:
+* Order of associativity switched since ivm.v.
+* I had to move the [B] argument to [bind] to make it an instance of [Proper] (see below).
+*)
 
 Notation "ma >>= f" := (bind ma f) : monad_scope.
 
@@ -58,18 +61,30 @@ Section state_section.
 
   Open Scope monad_scope.
 
-  Global Instance bind_proper m `{SM: SMonad S m} {A} (ma: m A) {B}:
-    Proper ( pointwise_relation A (@eq (m B)) ==> (@eq (m B)) ) (@bind S m SM A ma B).
-  Proof.
-    intros f f' H_f. f_equal.
-    apply functional_extensionality. intros a. f_equal.
-  Qed.
+  Section m_section.
 
-  (* TODO: Is this really needed (or even useful)? *)
-  Global Instance put_proper m `{SM: SMonad S m} : Proper ( (@eq S) ==> (@eq (m unit)) ) (@put S m SM).
-  Proof.
-    intros s s' Hs. f_equal. exact Hs.
-  Qed.
+    Context m `{SM: SMonad S m}.
+
+    Global Instance bind_proper {A B}:
+      Proper ( eq ==> pointwise_relation A eq ==> eq ) (@bind S m SM A B).
+    Proof.
+      intros ma ma' H_ma f f' H_f. f_equal.
+      - exact H_ma.
+      - apply functional_extensionality. intros a. f_equal.
+    Qed.
+
+    (* TODO: Is this really needed (or even useful)? *)
+    Global Instance put_proper : Proper ( eq ==> eq ) (@put S m SM).
+    Proof.
+      intros s s' Hs. f_equal. exact Hs.
+    Qed.
+
+    Global Instance ret_proper A : Proper ( eq ==> eq ) (@ret S m SM A).
+    Proof.
+      intros a a' Ha. f_equal. exact Ha.
+    Qed.
+
+  End m_section.
 
 
   Class SMorphism m0 `{SM0: SMonad S m0} m1 `{SM1: SMonad S m1} (F: forall {A}, m0 A -> m1 A) :=
@@ -90,7 +105,7 @@ Section state_section.
   Instance est_smonad : SMonad S EST :=
   {
     ret A a s := Some (s, a);
-    bind A ma B f s :=
+    bind A B ma f s :=
       match ma s with
       | None => None
       | Some (s', a) => f a s'
@@ -177,18 +192,19 @@ Section state_section.
 
 End state_section.
 
+
+(** ** Projections *)
+
 Section proj_section.
 
   Open Scope monad_scope.
-
-  (** ** Projections *)
 
   Context (S: Type)
           {X: Type}
           (proj: S -> X)
           (update: S -> X -> S).
 
-  Class Proj :=
+  Class Proj : Prop :=
   {
     proj_update (s: S) (x: X) : proj (update s x) = x;
     update_proj (s: S) : update s (proj s) = s;
@@ -230,61 +246,19 @@ Section proj_section.
       repeat setoid_rewrite monad_assoc.
       setoid_rewrite monad_left.
       rewrite get_get.
-Set Typeclasses Debug.
-
       setoid_rewrite update_proj.
+      setoid_rewrite get_put.
+      reflexivity.
+    - intros B mb.
+      rewrite monad_assoc.
+      setoid_rewrite monad_left.
+      rewrite get_ret.
+      reflexivity.
+    - intros B f.
+      repeat setoid_rewrite monad_assoc.
+      repeat setoid_rewrite monad_left.
+      rewrite get_get.
+      reflexivity.
+  Defined.
 
-
-      rewrite_strat (innermost update_proj).
-
-      Print Instances Proper.
-
-      setoid_rewrite update_proj.
-      Set Printing All.
-
-
-      setoid_rewrite update_proj.
-
-
-      f_equal. apply functional_extensionality. intros s.
-
-
-
-
-      setoid_rewrite <- monad_assoc at 2.
-
-
-      transitivity (let* s := get in f (proj (update s (proj s)))).
-
-
-      transitivity (let* s := get in f (proj s)).
-
-
-      +
-
-
-
-      match goal with
-        [ |- _ = ?rhs ] => assert (rhs = let* s := get in f (proj s)) as H_rhs
-      end.
-      + f_equal. apply functional_extensionality. intros s.
-        rewrite monad_left. reflexivity.
-      +
-        match goal with
-
-        rewrite H_rhs. clear H_rhs.
-        rewrite monad_left.
-
-
-        f_equal. apply functional_extensionality. intros s.
-        rewrite monad_left.
-        rewrite
-
-rewrite <- monad_assoc.
-
-      rewrite <- monad_assoc at 1.
-
-      rewrite monad_left.
-
-      simpl.
-      f_equal. apply functional_extensionality. intros s.
+End proj_section.
