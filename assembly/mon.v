@@ -6,12 +6,17 @@ Set Equations With UIP.
 Require Import Coq.Logic.PropExtensionality.
 Require Import Coq.Logic.FunctionalExtensionality.
 
+Require Import Coq.Classes.Morphisms.
+Require Import Coq.Setoids.Setoid.
 
-(** ** Error monad *)
+
+(** ** Error/state monad *)
+
+Declare Scope monad_scope.
 
 Reserved Notation "ma >>= f" (at level 69, left associativity).
 
-Class EMonad (m: Type -> Type): Type :=
+Class SMonad (S: Type) (m: Type -> Type): Type :=
 {
   ret {A} : A -> m A;
   bind {A} (_: m A) {B} : (A -> m B) -> m B
@@ -22,163 +27,264 @@ Class EMonad (m: Type -> Type): Type :=
   monad_assoc A (ma: m A) B f C (g: B -> m C) : (ma >>= f) >>= g = ma >>= (fun a => f a >>= g);
 
   err {A} : m A;
-  err_terminal A B (f: A -> m B) : err >>= f = err;
-}.
+  err_right A (ma: m A) B : ma >>= (fun _ => err) = (err : m B);
+  err_left A B (f: A -> m B) : err >>= f = err;
 
-Declare Scope monad_scope.
-Notation "ma >>= f" := (bind ma f) : monad_scope.
-Open Scope monad_scope.
+  get : m S;
+  put (s: S) : m unit;
+  put_put s s' : put s >>= (fun _ => put s') = put s';
+  put_get s B (f: S -> m B) : put s >>= (fun _ => get >>= f) = put s >>= fun _ => f s;
+  get_put B (f: S -> m B) : get >>= (fun s => put s >>= (fun _ => f s)) = get >>= f;
+  get_ret B (mb: m B) : get >>= (fun _ => mb) = mb;
+  get_get B (f: S -> S -> m B) : get >>= (fun s => get >>= (fun s' => f s s')) = get >>= (fun s => f s s);
+}.
 
 (* Note to self: Order of associativity switched since ivm.v. *)
 
-Class EMorphism m0 `{EMonad m0} m1 `{EMonad m1} (F: forall {A}, m0 A -> m1 A) :=
-{
-  morph_ret A (x: A) : F (ret x) = ret x;
-  morph_bind A (ma: m0 A) B (f: A -> m0 B) : F (ma >>= f) = (F ma) >>= (fun x => F (f x));
-  morph_err A : F (err : m0 A) = err;
-}.
-
-Class SMonad (S: Type) (m: Type -> Type): Type :=
-{
-  emonad :> EMonad m;
-  get : m S;
-  put (s: S) : m unit;
-}.
-
-(** NB. Observe that [SMonad] is not fully axiomatized. *)
-
-Class SMorphism S m0 `{SMonad S m0} m1 `{SMonad S m1} (F: forall {A}, m0 A -> m1 A) :=
-{
-  emorphism :> EMorphism m0 m1 (@F);
-  morph_get : F get = get;
-  morph_put s : F (put s) = put s;
-}.
-
-
-(** Error/State monad *)
-
-Definition EST S A : Type := S -> option (A * S).
-
-#[refine]
-Instance est_emonad S : EMonad (EST S) :=
-{
-  ret A a s := Some (a, s);
-  bind A ma _ f s :=
-    match ma s with
-    | None => None
-    | Some (a, s') => f a s'
-    end;
-    err _ _ := None;
-}.
-Proof.
-  - intros A ma.
-    apply functional_extensionality. intro s.
-    destruct (ma s) as [[a s']|]; reflexivity.
-  - intros A a B f.
-    apply functional_extensionality. intro s.
-    reflexivity.
-  - intros A ma B f C g.
-    apply functional_extensionality. intro s.
-    destruct (ma s) as [[a s']|]; reflexivity.
-  - reflexivity.
-Defined.
-
-Instance est_smonad S : SMonad S (EST S) :=
-{
-  emonad := est_emonad S;
-  get s := Some (s, s);
-  put s _ := Some (tt, s);
-}.
-
-
-(** Abstract syntax *)
-
-(* Inspired by FreeSpec's [impure].*)
-Inductive EST0 (S: Type) : Type -> Type :=
-| ret0 {A} : A -> EST0 S A
-| err0 {A} : EST0 S A
-| get0 {A} : (S -> EST0 S A) -> EST0 S A
-| put0 : S -> forall {A}, EST0 S A -> EST0 S A.
-
-Equations bind0 S {A} (ma: EST0 S A) {B} (_: A -> EST0 S B) : EST0 S B :=
-  bind0 _ (ret0 S a) g := g a;
-  bind0 _ (err0 S) _ := err0 S;
-  bind0 _ (get0 S f) g := get0 S (fun a => bind0 S (f a) g);
-  bind0 _ (put0 S s ma) g := put0 S s (bind0 S ma g).
-
-#[refine]
-Instance est0_emonad S : EMonad (EST0 S) :=
-  {
-  ret _ a := ret0 S a;
-  bind _ ma _ f := bind0 S ma f;
-  err _ := err0 S;
-  }.
-Proof.
-  - intros A ma.
-    induction ma as [A a|A|A g IH|s A ma IH]; simp bind0.
-    + reflexivity.
-    + reflexivity.
-    + f_equal. apply functional_extensionality. exact IH.
-    + f_equal. exact IH.
-
-  - intros A a B f. simp bind0. reflexivity.
-
-  - intros A ma B f C g.
-    induction ma as [A a|A|A h IH|s A ma IH]; simp bind0.
-    + reflexivity.
-    + reflexivity.
-    + f_equal.
-      apply functional_extensionality. intro s. apply IH.
-    + f_equal. apply IH.
-
-  - intros A B f. simp bind0. reflexivity.
-Defined.
-
-Instance est0_smonad S : SMonad S (EST0 S) :=
-{
-  emonad := est0_emonad S;
-  get := get0 S (ret0 S);
-  put s := put0 S s (ret0 S tt);
-}.
+Notation "ma >>= f" := (bind ma f) : monad_scope.
 
 (* We prefer a notation which does not require do-end blocks. *)
-Notation "let* a := ma 'in' mb" := (bind ma (fun a => mb)) (at level 60, right associativity) : monad_scope.
-Notation "ma ;; mb" := (bind ma (fun _ => mb)) (at level 60, right associativity) : monad_scope.
-
-Equations interp {S M} `{_: SMonad S M} {A} (_: EST0 S A) : M A :=
-  interp (ret0 S a) := ret a;
-  interp (err0 S) := err;
-  interp (get0 S f) := let* s := get in interp (f s);
-  interp (put0 S s ma) := put s;; interp ma.
-
-#[refine]
-Instance interp_smorphism S M `(_: SMonad S M) : SMorphism S (EST0 S) M (@interp S M _) := {}.
-Proof.
-  - split.
-    + intros A x. reflexivity.
-    + intros A ma B f. simpl.
-      induction ma as [A a|A|A h IH|s A ma IH]; simp bind0.
-      * simp interp. rewrite monad_left. reflexivity.
-      * simp interp. rewrite err_terminal. reflexivity.
-      * simp interp. rewrite monad_assoc. f_equal.
-        apply functional_extensionality. intro s. apply IH.
-      * simp interp. rewrite monad_assoc. f_equal.
-        apply functional_extensionality. rewrite IH. intros _. reflexivity.
-    + intro A. reflexivity.
-
-  - simpl. simp interp.
-    rewrite <- monad_right. (* Hack since, rewrite does not work under fun binder. *)
-    reflexivity.
-  - intro s. simpl. simp interp. rewrite <- monad_right. (* Similar hack. *)
-    f_equal.
-    apply functional_extensionality. intros []. reflexivity.
-Defined.
+Notation "'let*' a := ma 'in' mb" := (bind ma (fun a => mb))
+                                       (at level 60, right associativity,
+                                        format "'[hv' let*  a  :=  ma  'in'  '//' mb ']'") : monad_scope.
+Notation "ma ;; mb" := (bind ma (fun _ => mb))
+                         (at level 60, right associativity,
+                          format "'[hv' ma ;;  '//' mb ']'") : monad_scope.
 
 
-(** Product state *)
+Section state_section.
 
-Definition prod_morph
-           S1 M1 `{SMonad S1}
-           S2 M2 `{SMonad (S1 * S2) M2}
-           {A} (ma: M1 A) : M2 A.
-{A} (ma: SMonad
+  Context (S: Type).
+
+  Open Scope monad_scope.
+
+  Global Instance bind_proper m `{SM: SMonad S m} {A} (ma: m A) {B}:
+    Proper ( pointwise_relation A (@eq (m B)) ==> (@eq (m B)) ) (@bind S m SM A ma B).
+  Proof.
+    intros f f' H_f. f_equal.
+    apply functional_extensionality. intros a. f_equal.
+  Qed.
+
+  (* TODO: Is this really needed (or even useful)? *)
+  Global Instance put_proper m `{SM: SMonad S m} : Proper ( (@eq S) ==> (@eq (m unit)) ) (@put S m SM).
+  Proof.
+    intros s s' Hs. f_equal. exact Hs.
+  Qed.
+
+
+  Class SMorphism m0 `{SM0: SMonad S m0} m1 `{SM1: SMonad S m1} (F: forall {A}, m0 A -> m1 A) :=
+  {
+    morph_ret A (a: A) : F (ret a) = ret a;
+    morph_bind A (ma: m0 A) B (f: A -> m0 B) : F (ma >>= f) = (F ma) >>= (fun x => F (f x));
+    morph_err A : F (err : m0 A) = err;
+    morph_get : F get = get;
+    morph_put s : F (put s) = put s;
+  }.
+
+
+  (** Initial SMonad *)
+
+  Definition EST A : Type := S -> option (S * A).
+
+  #[refine]
+  Instance est_smonad : SMonad S EST :=
+  {
+    ret A a s := Some (s, a);
+    bind A ma B f s :=
+      match ma s with
+      | None => None
+      | Some (s', a) => f a s'
+      end;
+    err _ _ := None;
+    get s := Some (s, s);
+    put s _ := Some (s, tt);
+  }.
+  Proof.
+    - intros A ma.
+      apply functional_extensionality. intros s.
+      destruct (ma s) as [[s' a]|]; reflexivity.
+    - intros A a B f.
+      apply functional_extensionality. intros s.
+      reflexivity.
+    - intros A ma B f C g.
+      apply functional_extensionality. intros s.
+      destruct (ma s) as [[s' a]|]; reflexivity.
+    - intros A ma B.
+      apply functional_extensionality. intros s.
+      destruct (ma s) as [[s' a]|]; reflexivity.
+    - reflexivity.
+    - reflexivity.
+    - reflexivity.
+    - reflexivity.
+    - reflexivity.
+    - reflexivity.
+  Defined.
+
+  Definition from_est {m} `{SMonad S m} {A} (ma: EST A) : m A :=
+    let* s := get in
+    match ma s with
+    | None => err
+    | Some (s', a) => put s';; ret a
+    end.
+
+  Lemma est_characterization A (ma: EST A) : from_est ma = ma.
+  Proof.
+    unfold from_est.
+    simpl.
+    apply functional_extensionality. intros s.
+    destruct (ma s) as [[s' a]|]; reflexivity.
+  Qed.
+
+  Lemma est_unique m `{SMonad S m} F `{SMorphism EST (SM0:=est_smonad) m F} A (ma: EST A) : F A ma = from_est ma.
+  Proof.
+    rewrite <- est_characterization at 1.
+    unfold from_est at 1.
+    rewrite morph_bind, morph_get. unfold from_est. f_equal.
+    apply functional_extensionality. intros s.
+    destruct (ma s) as [[s' a]|].
+    - rewrite morph_bind, morph_put. f_equal.
+      apply functional_extensionality. intros [].
+      rewrite morph_ret. reflexivity.
+    - rewrite morph_err. reflexivity.
+  Qed.
+
+  Instance est_morphism m `{SMonad S m}: SMorphism EST m (@from_est m _).
+  Proof.
+    split.
+    - intros A a. unfold from_est. simpl.
+      rewrite get_put, get_ret. reflexivity.
+    - intros A ma B f.
+      unfold from_est.
+      simpl.
+      rewrite monad_assoc.
+      f_equal.
+      apply functional_extensionality. intros s.
+      destruct (ma s) as [[s' a]|].
+      + rewrite -> monad_assoc, monad_left, put_get.
+        destruct (f a s') as [[s'' b]|].
+        * rewrite <- monad_assoc, put_put. reflexivity.
+        * rewrite err_right. reflexivity.
+      + rewrite err_left. reflexivity.
+    - intros A.
+      unfold from_est. simpl. rewrite err_right. reflexivity.
+    - unfold from_est. simpl.
+      rewrite get_put, monad_right. reflexivity.
+    - intros s.
+      unfold from_est. simpl.
+      rewrite get_ret, <- monad_right. f_equal.
+      apply functional_extensionality. intros []. reflexivity.
+  Qed.
+
+End state_section.
+
+Section proj_section.
+
+  Open Scope monad_scope.
+
+  (** ** Projections *)
+
+  Context (S: Type)
+          {X: Type}
+          (proj: S -> X)
+          (update: S -> X -> S).
+
+  Class Proj :=
+  {
+    proj_update (s: S) (x: X) : proj (update s x) = x;
+    update_proj (s: S) : update s (proj s) = s;
+    update_update (s: S) (x: X) (x': X) : update (update s x) x' = update s x';
+  }.
+
+  Context `{H_proj: Proj}
+          (MS: Type -> Type)
+          `{H_ms: SMonad S MS}.
+
+  #[refine]
+  Instance proj_smonad: SMonad X MS :=
+  {
+    ret := @ret S MS H_ms;
+    bind := @bind S MS H_ms;
+    err := @err S MS H_ms;
+    get := let* s := get in ret (proj s);
+    put x := let* s := get in put (update s x);
+  }.
+  Proof.
+    (* Trivial *)
+    - intros A ma. rewrite monad_right. reflexivity.
+    - intros A a B f. rewrite monad_left. reflexivity.
+    - intros A ma B f C g. rewrite monad_assoc. reflexivity.
+    - intros A ma B. rewrite err_right. reflexivity.
+    - intros A ma B. rewrite err_left. reflexivity.
+
+    (* Almost trivial *)
+    - intros x x'.
+      rewrite monad_assoc.
+      f_equal. apply functional_extensionality. intros s.
+      rewrite put_get, put_put, update_update. reflexivity.
+    - intros x B f.
+      repeat rewrite monad_assoc.
+      f_equal. apply functional_extensionality. intros s.
+      rewrite put_get, proj_update, monad_left.
+      reflexivity.
+    - intros B f.
+      repeat setoid_rewrite monad_assoc.
+      setoid_rewrite monad_left.
+      rewrite get_get.
+Set Typeclasses Debug.
+
+      setoid_rewrite update_proj.
+
+
+      rewrite_strat (innermost update_proj).
+
+      Print Instances Proper.
+
+      setoid_rewrite update_proj.
+      Set Printing All.
+
+
+      setoid_rewrite update_proj.
+
+
+      f_equal. apply functional_extensionality. intros s.
+
+
+
+
+      setoid_rewrite <- monad_assoc at 2.
+
+
+      transitivity (let* s := get in f (proj (update s (proj s)))).
+
+
+      transitivity (let* s := get in f (proj s)).
+
+
+      +
+
+
+
+      match goal with
+        [ |- _ = ?rhs ] => assert (rhs = let* s := get in f (proj s)) as H_rhs
+      end.
+      + f_equal. apply functional_extensionality. intros s.
+        rewrite monad_left. reflexivity.
+      +
+        match goal with
+
+        rewrite H_rhs. clear H_rhs.
+        rewrite monad_left.
+
+
+        f_equal. apply functional_extensionality. intros s.
+        rewrite monad_left.
+        rewrite
+
+rewrite <- monad_assoc.
+
+      rewrite <- monad_assoc at 1.
+
+      rewrite monad_left.
+
+      simpl.
+      f_equal. apply functional_extensionality. intros s.
