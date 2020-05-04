@@ -195,32 +195,29 @@ End state_section.
 
 (** ** Projections *)
 
+Class Part (S: Type) (X: Type) :=
+{
+  proj: S -> X;
+  update: S -> X -> S;
+  proj_update (s: S) (x: X) : proj (update s x) = x;
+  update_proj (s: S) : update s (proj s) = s;
+  update_update (s: S) (x: X) (x': X) : update (update s x) x' = update s x';
+}.
+
 Section proj_section.
 
   Open Scope monad_scope.
 
-  Context (S: Type)
-          {X: Type}
-          (proj: S -> X)
-          (update: S -> X -> S).
-
-  Class Proj : Prop :=
-  {
-    proj_update (s: S) (x: X) : proj (update s x) = x;
-    update_proj (s: S) : update s (proj s) = s;
-    update_update (s: S) (x: X) (x': X) : update (update s x) x' = update s x';
-  }.
-
-  Context `{H_proj: Proj}
-          (MS: Type -> Type)
-          `{H_ms: SMonad S MS}.
+  Context {S: Type}
+          (m: Type -> Type) `{SM: SMonad S m}
+          (X: Type) `{PM: Part S X}.
 
   #[refine]
-  Instance proj_smonad: SMonad X MS :=
+  Instance proj_smonad: SMonad X m :=
   {
-    ret := @ret S MS H_ms;
-    bind := @bind S MS H_ms;
-    err := @err S MS H_ms;
+    ret := @ret S m SM;
+    bind := @bind S m SM;
+    err := @err S m SM;
     get := let* s := get in ret (proj s);
     put x := let* s := get in put (update s x);
   }.
@@ -262,3 +259,34 @@ Section proj_section.
   Defined.
 
 End proj_section.
+
+Class Disjoint {S: Type}
+      {X: Type} `(PX: Part S X)
+      {Y: Type} `(PY: Part S Y) : Prop :=
+{
+  projY_updateX (s: S) (x: X) : proj (update s x) = proj s :> Y;
+  projX_updateY (s: S) (y: Y) : proj (update s y) = proj s :> X;
+}.
+
+Section product_section.
+
+  Context (X Y: Type).
+
+  (* Since this instance is in a section and not marked global,
+     it is removed from the instance database below. *)
+
+  Program Instance part_fst : Part (X * Y) X :=
+  {
+    proj := fst;
+    update s x := (x, snd s);
+  }.
+
+  Program Instance part_snd : Part (X * Y) Y :=
+  {
+    proj := snd;
+    update s y := (fst s, y);
+  }.
+
+  Program Instance disjoint_parts : Disjoint part_fst part_snd.
+
+End product_section.
