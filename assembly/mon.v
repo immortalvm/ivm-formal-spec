@@ -195,7 +195,7 @@ End state_section.
 
 (** ** Projections *)
 
-Class Part (S: Type) (X: Type) :=
+Class Proj (S: Type) (X: Type) :=
 {
   proj: S -> X;
   update: S -> X -> S;
@@ -210,7 +210,7 @@ Section proj_section.
 
   Context {S: Type}
           (m: Type -> Type) `{SM: SMonad S m}
-          (X: Type) `{PM: Part S X}.
+          (X: Type) `{PM: Proj S X}.
 
   #[refine]
   Instance proj_smonad: SMonad X m :=
@@ -261,8 +261,8 @@ Section proj_section.
 End proj_section.
 
 Class Disjoint {S: Type}
-      {X: Type} `(PX: Part S X)
-      {Y: Type} `(PY: Part S Y) : Prop :=
+      {X: Type} `(PX: Proj S X)
+      {Y: Type} `(PY: Proj S Y) : Prop :=
 {
   projY_updateX (s: S) (x: X) : proj (update s x) = proj s :> Y;
   projX_updateY (s: S) (y: Y) : proj (update s y) = proj s :> X;
@@ -275,18 +275,23 @@ Section product_section.
   (* Since this instance is in a section and not marked global,
      it is removed from the instance database below. *)
 
-  Program Instance part_fst : Part (X * Y) X :=
+  Program Instance proj_fst : Proj (X * Y) X :=
   {
     proj := fst;
     update s x := (x, snd s);
   }.
 
-  Program Instance part_snd : Part (X * Y) Y :=
+  Program Instance proj_snd : Proj (X * Y) Y :=
   {
     proj := snd;
     update s y := (fst s, y);
   }.
 
-  Program Instance disjoint_parts : Disjoint part_fst part_snd.
+  Program Instance disjoint_projs : Disjoint proj_fst proj_snd.
 
 End product_section.
+
+(** It follows that the projections from a record type have the same
+property. And since we assume functional extensionality, we also have the
+converse: If [Proj S X] then [S ≅ X * S'] where [S' = { f : X -> S | forall x y,
+update (f x) y = f y }]. *)
