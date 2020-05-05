@@ -1,13 +1,11 @@
 Require Import Utf8.
 
-From Equations Require Import Equations.
+Require Import Equations.Equations.
 Set Equations With UIP.
 
-Require Import Coq.Logic.PropExtensionality.
-Require Import Coq.Logic.FunctionalExtensionality.
-
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Setoids.Setoid.
+Require Export Coq.Logic.FunctionalExtensionality.
+Require Export Coq.Classes.Morphisms.
+Require Export Coq.Setoids.Setoid.
 
 
 (** ** Error/state monad *)

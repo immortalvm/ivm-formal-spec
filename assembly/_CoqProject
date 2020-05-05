@@ -2,3 +2,6 @@
 -Q ../vm-spec VmSpec
 -Q . Assembly
 fs.v
+mon.v
+bits.v
+vm.v
