@@ -18,7 +18,7 @@ Coercion Z.of_nat : nat >-> Z.
 
 (** ** Lists and vectors *)
 
-Import ListNotations.
+Export ListNotations.
 Open Scope list_scope.
 
 Derive Signature NoConfusion NoConfusionHom for Vector.t.

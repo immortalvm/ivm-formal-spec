@@ -208,7 +208,7 @@ Section proj_section.
 
   Context {S: Type}
           (m: Type -> Type) `{SM: SMonad S m}
-          (X: Type) `{PM: Proj S X}.
+          {X: Type} `(PM: Proj S X).
 
   #[refine]
   Instance proj_smonad: SMonad X m :=

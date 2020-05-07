@@ -998,3 +998,21 @@ Definition combined_contract : contract ix Outcome :=
     /\ gen_callee_obligation (log_specs (Frame OutputColor)) log op x
     /\ gen_callee_obligation error_specs tt op x;
   |}.
+
+Record IxSubSpec :=
+  mkIxSubSpec
+    {
+      S_inter : interface;
+      S_mayp : MayProvide ix S_inter;
+      S_witn : Type;
+      S_specs : contract S_inter S_witn;
+    }.
+
+Definition subspecs : list IxSubSpec :=
+  [
+    {| S_inter := STORE Addr; S_mayp := Mpc; S_witn := Addr; S_specs := store_specs Addr |};
+  {| S_inter := STORE Addr; S_mayp := Msp; S_witn := Addr; S_specs := store_specs Addr |};
+  {| S_inter := MEMORY; S_mayp := Mmem; S_witn := Memory; S_specs := memory_specs |};
+  {| S_inter := INPUT; S_mayp := Minp; S_witn := Input; S_specs
+
+  ].
