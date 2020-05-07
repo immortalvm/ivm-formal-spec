@@ -1,8 +1,8 @@
 -Q ../vm-spec/coq-record-update/src RecordUpdate
 -Q ../vm-spec VmSpec
 -Q . Assembly
-fs.v
 Mon.v
 Bits.v
 Dec.v
-Vm.v
+Operations.v
+Machine.v

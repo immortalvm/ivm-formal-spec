@@ -137,13 +137,3 @@ Definition noImage {C}: Image C.
     |}.
   lia.
 Defined.
-
-(* It seems RecordUpdate does not handle dependent types. *)
-Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
-{|
-  width := width im;
-  height := height im;
-  pixel x' Hx y' Hy :=
-    if (x' =? x) && (y' =? y) then c
-    else pixel im Hx Hy
-|}.

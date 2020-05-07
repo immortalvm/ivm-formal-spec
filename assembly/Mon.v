@@ -293,3 +293,19 @@ End product_section.
 property. And since we assume functional extensionality, we also have the
 converse: If [Proj S X] then [S ≅ X * S'] where [S' = { f : X -> S | forall x y,
 update (f x) y = f y }]. *)
+
+(* From Equations.Init. *)
+Notation "&{ x : A & y }" := (@sigma A (fun x : A => y)%type) (x at level 99).
+
+Notation "&( x , .. , y & z )" :=
+  (@sigmaI _ _ x .. (@sigmaI _ _ y z) ..)
+    (right associativity, at level 4,
+     format "&( x ,  .. ,  y  &  z )").
+
+Import Coq.Lists.List.ListNotations.
+Open Scope list_scope.
+
+Equations pairwise_disjoint {S: Type} (Ts: list &{ X : Type & Proj S X }) : Prop :=
+  pairwise_disjoint [] := True;
+  pairwise_disjoint (p :: rest) := List.Forall (fun q => Disjoint (pr2 p) (pr2 q)) rest
+                                  /\ pairwise_disjoint rest.
