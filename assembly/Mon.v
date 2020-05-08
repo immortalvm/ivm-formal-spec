@@ -309,3 +309,58 @@ Equations pairwise_disjoint {S: Type} (Ts: list &{ X : Type & Proj S X }) : Prop
   pairwise_disjoint [] := True;
   pairwise_disjoint (p :: rest) := List.Forall (fun q => Disjoint (pr2 p) (pr2 q)) rest
                                   /\ pairwise_disjoint rest.
+
+
+(** No side-effects *)
+
+Section no_side_effects_section.
+
+  Open Scope monad_scope.
+
+  Context (S: Type)
+          (m: Type -> Type)
+          {M: SMonad S m}.
+
+  Class NoSideEffects {A} (ma: m A) : Prop :=
+    noSideEffects: forall B (mb: m B), ma;; mb = mb.
+
+  Instance noEff_unit {A} (ma: m A) (H: ma;; ret tt = ret tt): NoSideEffects ma.
+  Proof.
+    intros B mb.
+    transitivity (ma;; ret tt;; mb).
+    - setoid_rewrite monad_left. reflexivity.
+    - rewrite <- monad_assoc, H, monad_left. reflexivity.
+  Qed.
+
+  Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
+  Proof.
+    apply noEff_unit. rewrite monad_left. reflexivity.
+  Qed.
+
+  Instance noEff_bind
+           {A B} (ma: m A) (f: A -> m B)
+           {Ha: NoSideEffects ma}
+           {Hb: forall x, NoSideEffects (f x)} : NoSideEffects (bind ma f).
+  Proof.
+    intros C mc.
+    rewrite monad_assoc.
+    setoid_rewrite Hb.
+    rewrite Ha.
+    reflexivity.
+  Qed.
+
+End no_side_effects_section.
+
+Existing Instance est_smonad.
+
+(** [NoSideEffects get] does not hold in general.
+    (Think about logging/monitoring.) *)
+
+Instance noEff_get {S} : NoSideEffects S (EST S) get.
+Proof.
+  intros B mb.
+  simpl.
+  apply functional_extensionality.
+  intros s.
+  reflexivity.
+Qed.
