@@ -364,3 +364,32 @@ Proof.
   intros s.
   reflexivity.
 Qed.
+
+
+(** The trivial [SMonad] *)
+
+Section trivial_smonad_section.
+
+  Context (S: Type).
+
+  Local Ltac crush :=
+    repeat (match goal with
+            | [|- unit] => exact tt
+            | [|- forall (_:unit),_] => intros []
+            | [|- ?x = ?y :> unit] => destruct x; destruct y
+            end
+            || intro
+            || reflexivity
+            || assumption).
+
+  #[refine]
+  Instance trivial_smonad : SMonad S (fun _ => unit) := { }.
+  all: crush.
+  Defined.
+
+  (** Clearly, this is the terminal [SMonad]. Moreover, this means that
+      there are non-trivial "termination properties" that hold in all
+      [SMonads]. Thus, we shall express and prove such properties only for
+      the initial [SMonad]. *)
+
+End trivial_smonad_section.
