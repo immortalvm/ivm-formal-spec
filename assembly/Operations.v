@@ -8,6 +8,7 @@ Import RecordSetNotations.
 Require Import Assembly.Mon.
 Require Import Assembly.Bits.
 Require Import Assembly.Dec.
+Require Import Assembly.Convenience.
 
 (* Cf. the 'sigma' type of Equations. *)
 Set Primitive Projections.
@@ -47,6 +48,10 @@ Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
 Module Type machine_type.
 
   Context
+    (State: Type)
+    (M: Type -> Type)
+    {H_mon: SMonad State M}
+
     (Addr: Type)
     {H_eqdec: EqDec Addr}
     (available: Addr -> bool)
@@ -67,11 +72,8 @@ End machine_type.
 Module core_module (MT: machine_type).
 
   Import MT.
+  Existing Instance H_mon.
   Existing Instance H_eqdec.
-
-  Context {State: Type}
-          {M: Type -> Type}
-          {H_mon: SMonad State M}.
 
   Definition get' {X} (proj: Proj State X) := get (SMonad := proj_smonad M proj).
   Definition put' {X} (proj: Proj State X) := put (SMonad := proj_smonad M proj).
@@ -203,12 +205,12 @@ Module core_module (MT: machine_type).
   Context (OUT: Proj State (Frame OC)).
 
   Definition image_complete (img: Image OC) : Prop :=
-    forall x (Hx: x < width img) y (Hy: y < height img), pixel img Hx Hy <> None.
+    forall x (Hx: x < width img) y (Hy: y < height img), pixel img Hx Hy.
 
-  Definition get_not_none {A} (x: option A) : x <> None -> A :=
-    match x return x <> None -> A with
+  Definition get_some {A} {x: option A} : x -> A :=
+    match x return x -> A with
     | Some y => fun _ => y
-    | None => fun f => False_rect _ (f eq_refl)
+    | None => none_not_some
     end.
 
   Definition extractImage (img: Image OC) : M (Image OutputColor) :=
@@ -216,7 +218,7 @@ Module core_module (MT: machine_type).
     ret {|
         width := width img;
         height := height img;
-        pixel x Hx y Hy := get_not_none (H_complete x Hx y Hy);
+        pixel x Hx y Hy := get_some (H_complete x Hx y Hy);
       |}.
 
   Definition nextOutputFrame (w r h: nat) : M (Frame OutputColor) :=

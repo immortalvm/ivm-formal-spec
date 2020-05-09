@@ -20,10 +20,23 @@ Instance False_decidable : Decidable False := right (@id False).
 Instance equality_decidable {A} `{dec: EqDec A} (x y: A) : Decidable (x = y) := dec x y.
 Instance is_true_decidable (x: bool) : Decidable (is_true x) := equality_decidable x true.
 
-Instance not_none_decidable {A} (x: option A) : Decidable (x = None).
-Proof.
-  destruct x as [x|]; [right|left]; congruence.
-Defined.
+Section option_section.
+
+  Context {A} (x: option A).
+
+  Instance is_none_decidable : Decidable (x = None).
+  Proof.
+    destruct x as [y|]; [right|left]; congruence.
+  Defined.
+
+  Definition is_some : Prop := if x then True else False.
+
+  Global Instance is_some_decidable : Decidable is_some.
+  Proof.
+    unfold is_some. destruct x as [y|]; [left|right]; easy.
+  Defined.
+
+End option_section.
 
 Section decidable_connectives.
 

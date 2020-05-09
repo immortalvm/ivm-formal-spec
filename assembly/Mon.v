@@ -100,7 +100,7 @@ Section state_section.
   Definition EST A : Type := S -> option (S * A).
 
   #[refine]
-  Instance est_smonad : SMonad S EST :=
+  Global Instance est_smonad : SMonad S EST :=
   {
     ret A a s := Some (s, a);
     bind A B ma f s :=
@@ -161,7 +161,7 @@ Section state_section.
     - rewrite morph_err. reflexivity.
   Qed.
 
-  Instance est_morphism m `{SMonad S m}: SMorphism EST m (@from_est m _).
+  Global Instance est_morphism m `{SMonad S m}: SMorphism EST m (@from_est m _).
   Proof.
     split.
     - intros A a. unfold from_est. simpl.
@@ -211,7 +211,7 @@ Section proj_section.
           {X: Type} `(PM: Proj S X).
 
   #[refine]
-  Instance proj_smonad: SMonad X m :=
+  Global Instance proj_smonad: SMonad X m :=
   {
     ret := @ret S m SM;
     bind := @bind S m SM;
@@ -259,12 +259,17 @@ Section proj_section.
 End proj_section.
 
 Class Disjoint {S: Type}
-      {X: Type} `(PX: Proj S X)
-      {Y: Type} `(PY: Proj S Y) : Prop :=
+      {X: Type} (PX: Proj S X)
+      {Y: Type} (PY: Proj S Y) : Prop :=
 {
   projY_updateX (s: S) (x: X) : proj (update s x) = proj s :> Y;
   projX_updateY (s: S) (y: Y) : proj (update s y) = proj s :> X;
+  disjoint_commute (s: S) (x: X) (y: Y) :
+    update (update s x) y = update (update s y) x;
 }.
+
+(** To see that [disjoint_commute] does not follow from the other
+    properties, consider a square staircase. *)
 
 Section product_section.
 
@@ -287,12 +292,57 @@ Section product_section.
 
   Program Instance disjoint_projs : Disjoint proj_fst proj_snd.
 
+  Context S (Hx: Proj S X) (Hy: Proj S Y) (Hd: Disjoint Hx Hy).
+
+  Instance disjoint_symm : Disjoint Hy Hx.
+  Proof.
+    split.
+    - apply projX_updateY.
+    - apply projY_updateX.
+    - symmetry. apply disjoint_commute.
+  Qed.
+
+  #[refine]
+  Instance proj_prod : Proj S (X * Y) :=
+  {
+    proj s := (proj s, proj s);
+    update s pair := update (update s (fst pair)) (snd pair);
+  }.
+  Proof.
+    - intros s [x y]. simpl.
+      rewrite projX_updateY, proj_update, proj_update.
+      reflexivity.
+    - intros. simpl.
+      do 2 rewrite update_proj.
+      reflexivity.
+    - intros s [x y] [x' y']. simpl.
+      do 2 (rewrite disjoint_commute, update_update).
+      reflexivity.
+  Defined.
+
+  Context Z (Hz: Proj S Z) (Hdx: Disjoint Hx Hz) (Hdy: Disjoint Hy Hz).
+
+  Instance disjoint_prod : Disjoint proj_prod Hz.
+  Proof.
+    split.
+    - intros s [x y].
+      simpl.
+      transitivity (proj (update s x)).
+      + rewrite projY_updateX. reflexivity.
+      + rewrite projY_updateX. reflexivity.
+    - intros s z. simpl. f_equal.
+      + rewrite projX_updateY. reflexivity.
+      + rewrite projX_updateY. reflexivity.
+    - intros s [x y] z. simpl.
+      rewrite disjoint_commute, (disjoint_commute (Disjoint:=Hdx)). reflexivity.
+  Qed.
+
 End product_section.
 
-(** It follows that the projections from a record type have the same
-property. And since we assume functional extensionality, we also have the
-converse: If [Proj S X] then [S ≅ X * S'] where [S' = { f : X -> S | forall x y,
-update (f x) y = f y }]. *)
+(** The projections from a record type have the same property. Since we
+assume functional extensionality, we also have the converse: If [Proj S X]
+then [S ≅ X * S'] where [S' = { f : X -> S | forall x y, update (f x) y = f y
+}]. *) (* TODO: Check this claim. *)
 
 (* From Equations.Init. *)
 Notation "&{ x : A & y }" := (@sigma A (fun x : A => y)%type) (x at level 99).
@@ -324,7 +374,7 @@ Section no_side_effects_section.
   Class NoSideEffects {A} (ma: m A) : Prop :=
     noSideEffects: forall B (mb: m B), ma;; mb = mb.
 
-  Instance noEff_unit {A} (ma: m A) (H: ma;; ret tt = ret tt): NoSideEffects ma.
+  Global Instance noEff_unit {A} (ma: m A) (H: ma;; ret tt = ret tt): NoSideEffects ma.
   Proof.
     intros B mb.
     transitivity (ma;; ret tt;; mb).
@@ -332,12 +382,12 @@ Section no_side_effects_section.
     - rewrite <- monad_assoc, H, monad_left. reflexivity.
   Qed.
 
-  Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
+  Global Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
   Proof.
     apply noEff_unit. rewrite monad_left. reflexivity.
   Qed.
 
-  Instance noEff_bind
+  Global Instance noEff_bind
            {A B} (ma: m A) (f: A -> m B)
            {Ha: NoSideEffects ma}
            {Hb: forall x, NoSideEffects (f x)} : NoSideEffects (bind ma f).

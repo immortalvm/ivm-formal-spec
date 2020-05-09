@@ -4,5 +4,6 @@
 Mon.v
 Bits.v
 Dec.v
+Convenience.v
 Operations.v
 Machine.v
