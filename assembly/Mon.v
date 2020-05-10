@@ -273,7 +273,7 @@ Class Disjoint {S: Type}
 
 Section product_section.
 
-  Context (X Y: Type).
+  Context {X Y: Type}.
 
   (* Since this instance is in a section and not marked global,
      it is removed from the instance database below. *)
@@ -292,7 +292,7 @@ Section product_section.
 
   Program Instance disjoint_projs : Disjoint proj_fst proj_snd.
 
-  Context S (Hx: Proj S X) (Hy: Proj S Y) (Hd: Disjoint Hx Hy).
+  Context {S} (Hx: Proj S X) (Hy: Proj S Y) {Hd: Disjoint Hx Hy}.
 
   Instance disjoint_symm : Disjoint Hy Hx.
   Proof.
@@ -339,10 +339,6 @@ Section product_section.
 
 End product_section.
 
-(** The projections from a record type have the same property. Since we
-assume functional extensionality, we also have the converse: If [Proj S X]
-then [S ≅ X * S'] where [S' = { f : X -> S | forall x y, update (f x) y = f y
-}]. *) (* TODO: Check this claim. *)
 
 (* From Equations.Init. *)
 Notation "&{ x : A & y }" := (@sigma A (fun x : A => y)%type) (x at level 99).
@@ -359,6 +355,67 @@ Equations pairwise_disjoint {S: Type} (Ts: list &{ X : Type & Proj S X }) : Prop
   pairwise_disjoint [] := True;
   pairwise_disjoint (p :: rest) := List.Forall (fun q => Disjoint (pr2 p) (pr2 q)) rest
                                   /\ pairwise_disjoint rest.
+
+
+
+(** The projections from a record type have the same property.
+
+Assuming functional extensionality and proof irrelevance, we also have the
+converse: If [Proj S X] then [S ≅ X * S'] where [S' = { f: X -> S | forall x y,
+update (f x) y = f y }]. *)
+
+Require Coq.Logic.ProofIrrelevance.
+
+Section inv_proj_section.
+
+  Import Coq.Logic.ProofIrrelevance.
+
+  Context S X (PX: Proj S X).
+
+  Definition S' := { f: X -> S | forall x y, update (f x) y = f y }.
+
+  #[refine]
+  Instance inv_proj : Proj S S' :=
+  {
+    proj s := exist _ (update s) _;
+    update s f := proj1_sig f (proj s);
+  }.
+  Proof.
+    - intros x y. rewrite update_update. reflexivity.
+    - intros s [f H].
+      simpl.
+      apply eq_sig_hprop.
+      + intros. apply proof_irrelevance.
+      + simpl. apply functional_extensionality. intros x.
+        rewrite H. reflexivity.
+    - intro s. simpl.
+      rewrite update_proj. reflexivity.
+    - intros s [f Hf] [g Hg]. simpl.
+      rewrite <- (Hf (proj s)), proj_update. reflexivity.
+  Defined.
+
+  Instance inv_proj_disjoint : Disjoint inv_proj PX.
+  Proof.
+    split.
+    - intros s [f Hf]. simpl.
+      rewrite <- (Hf (proj s)), proj_update. reflexivity.
+    - intros s x. simpl.
+      apply eq_sig_hprop.
+      + intros. apply proof_irrelevance.
+      + simpl. apply functional_extensionality. intros x'.
+        rewrite update_update. reflexivity.
+    - intros s [f Hf] x. simpl.
+      rewrite proj_update, Hf. reflexivity.
+  Qed.
+
+  Lemma inv_proj_inv (s: S) :
+    let (fH, x) := proj (Proj:=proj_prod _ _) s in
+    proj1_sig fH x = s.
+  Proof.
+    simpl. rewrite update_proj. reflexivity.
+  Qed.
+
+End inv_proj_section.
 
 
 (** No side-effects *)
