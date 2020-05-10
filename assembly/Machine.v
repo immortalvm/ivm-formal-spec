@@ -278,81 +278,30 @@ Proof.
   intros x y z. exact join.
 Qed.
 
-Set Primitive Projections.
-Global Unset Printing Primitive Projection Parameters.
+Definition Verif : Type :=
+  forall (s: State), option { s' : State | Reach s' s }.  (* ! *)
 
-Record Verif :=
-{
-  condition (s: State) : bool;
-  effect (s: State) (Hs: condition s) : State;
-  evidence (s: State) (Hs: condition s) : Reach (effect s Hs) s;
-}.
+Arguments exist {_} {_}.
 
 Example true_verif : Verif :=
-{|
-  condition _ := true;
-  effect s _ := s;
-  evidence s _ := Stop s;
-|}.
+  fun s => Some (exist s (Stop s)).
 
 (** Weakening the claim by strengthening the precondition. *)
-Definition weakened (v: Verif) (c: State -> bool) (Hc: forall s, c s -> condition v s) : Verif :=
-{|
-  condition := c;
-  effect s Hs := effect v s (Hc s Hs);
-  evidence s Hs := evidence v s (Hc s Hs);
-|}.
+Definition weaken (v: Verif) (f: State -> bool) : Verif :=
+  fun s => if f s then v s else None.
 
-Instance bool_ex_decidable (b: bool) (f: b -> bool) : Decidable (exists (x:b), f x).
-Proof.
-  destruct b.
-  - remember (f eq_refl) as c eqn:Hc.
-    destruct c.
-    + left. exists eq_refl. rewrite <- Hc. reflexivity.
-    + right. intros [x Hf].
-      assert (x = eq_refl) as Hx.
-      * assert (UIP bool) as Hu; [typeclasses eauto | apply Hu].
-      * subst x. rewrite <- Hc in Hf. discriminate Hf.
-  - right. intros [x _]. discriminate x.
+Definition join_verifs (v1 v2 : Verif) : Verif.
+  refine (
+      fun s0 => match v1 s0 with
+             | None => None
+             | Some (exist s1 H1) =>
+               match v2 s1 with
+               | None => None
+               | Some (exist s2 H2) => Some (exist s2 _)
+               end
+             end).
+  transitivity s1; [ exact H2 | exact H1 ].
 Defined.
-
-Lemma as_bool_decision {P: Prop} {Hd: Decidable P} (Hb: as_bool (decision P)) : P.
-Proof.
-  destruct (decision P).
-  - assumption.
-  - discriminate Hb.
-Defined.
-
-Ltac derive name term :=
-  let H := fresh in
-  let A := type of term in
-  assert A as H;
-  [ exact term | ];
-  clear name;
-  rename H into name.
-
-Definition join_verifs (v1 v2: Verif) : Verif.
-  refine {|
-      condition s := as_bool (decision (exists (H1: condition v1 s), condition v2 (effect v1 s H1)));
-      effect s Hs := effect v2 (effect v1 s _) _;
-      evidence s Hs := _;
-    |}.
-  shelve. Unshelve.
-  - simpl in Hs. destruct (as_bool_decision Hs) as [H1 _]. exact H1.
-
-  - simpl in Hs.
-    set (P := exists H1 : condition v1 s, condition v2 (effect v1 s H1)) in *.
-    unfold as_bool_decision.
-    destruct (decision P) as [HP|_].
-    + subst P. destruct HP as [H1 H2]. exact H2.
-    + discriminate Hs.
-
-  - set (H1 := match as_bool_decision Hs with ex_intro _ H _ => H end).
-    transitivity (effect v1 s H1); apply evidence.
-Defined.
-
-
-(** ** Basics *)
 
 Arguments proj : clear implicits.
 Arguments proj {_} {_}.
@@ -385,22 +334,21 @@ Proof.
     + typeclasses eauto.
 Qed.
 
-Definition nop_verif : Verif.
+Definition no_verif : Verif.
+  intros s.
   refine (
-      let f s := update PC s (offset 1 (proj PC s)) in
+      let s' := update PC s (offset 1 (proj PC s)) in
       let ops := map (fun (x:nat) => toB8 x) [NOP] in
-      {|
-        condition s := as_bool (decision (opsAtPc ops s));
-        effect s _ := f s;
-        evidence s Hs := More (f s) (f s) s _ (Stop (f s))
-      |}).
+      match decision (opsAtPc ops s) with
+      | right _ => None
+      | left Hs => Some (exist s' (More s' s' s _ (Stop s')))
+      end).
 
   (* TODO: Automate! *)
 
   subst ops. simpl in *.
-  derive Hs (as_bool_decision Hs).
   unfold oneStep. simpl.
-  assert (nextN 1 s = Some (f s, 1)) as H1.
+  assert (nextN 1 s = Some (s', 1)) as H1.
 
   - unfold nextN, next. simpl. unfold load. simpl.
     simp opsAtPc in Hs. simpl in Hs.
