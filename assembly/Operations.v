@@ -263,12 +263,24 @@ Module core_module (MT: machine_type).
 
   (** ** Pairwise disjoint projections *)
 
-  Context (disjoint: pairwise_disjoint
-                       [ &(_ & MEM);
-                         &(_ & PC);
-                         &(_ & SP);
-                         &(_ & INP);
-                         &(_ & OUT);
-                         &(_ & LOG) ]).
+  Context (disjoint_PC_SP:  Disjoint PC SP)
+          (disjoint_PC_MEM: Disjoint PC MEM)
+          (disjoint_PC_INP: Disjoint PC INP)
+          (disjoint_PC_OUT: Disjoint PC OUT)
+          (disjoint_PC_LOG: Disjoint PC LOG)
+
+          (disjoint_SP_MEM: Disjoint SP MEM)
+          (disjoint_SP_INP: Disjoint SP INP)
+          (disjoint_SP_OUT: Disjoint SP OUT)
+          (disjoint_SP_LOG: Disjoint SP LOG)
+
+          (disjoint_MEM_INP: Disjoint MEM INP)
+          (disjoint_MEM_OUT: Disjoint MEM OUT)
+          (disjoint_MEM_LOG: Disjoint MEM LOG)
+
+          (disjoint_INP_OUT: Disjoint INP OUT)
+          (disjoint_INP_LOG: Disjoint INP LOG)
+
+          (disjoint_OUT_LOG: Disjoint OUT LOG).
 
 End core_module.

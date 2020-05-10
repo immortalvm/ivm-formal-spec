@@ -260,75 +260,156 @@ Definition oneStep : M bool :=
   | _ => oneStep' op;; ret true
   end.
 
-(** The machine will reach [doneState]
-    if we start the machine in the given state
-    and run as long as [while] does not fail. *)
 
-Inductive OkFrom (while: M unit) (post: State -> Prop) : State -> Prop :=
-| Done s : not (while s) -> post s -> OkFrom while post s
-| More s (_: while s) s': oneStep s = Some (s', true)
-                          -> OkFrom while post s'
-                          -> OkFrom while post s.
+(** Verification *)
 
-(** Using elements of [M unit] is a quick and dirty way to express the
-    decidable predicates on [State], where side-effects other than [err]
-    are essentially ignored. *)
+Inductive Reach (stop: State) : forall (start: State), Prop :=
+| Stop : Reach stop stop
+| More s' s : oneStep s = Some (s', true)
+              -> Reach stop s'
+              -> Reach stop s.
 
-Definition unconditionally : M unit := ret tt.
+Equations join {s1 s2 s3: State} (r2: Reach s3 s2) (r1: Reach s2 s1) : Reach s3 s1 :=
+  join r2 Stop := r2;
+  join r2 (More _ s' s H r) := More _ s' s H (join r2 r).
 
-Definition opsAtPc (ops: list B8) : M unit :=
-  let* pc := get' PC in
-  let* bytes := loadMany (length ops) pc in
-  assert* ops = bytes in
-  unconditionally.
-
-Definition pcInRegion (n: nat) (s: State) : M unit :=
-  match get' PC s with
-  | None => err (* This will never happen. *)
-  | Some (_, start) =>
-      let* pc := get' PC in
-      let i := Z.to_nat ((pc - start) mod 2^64)%Z in
-      assert* i < n in
-      unconditionally
-  end.
-
-Class Spec (ops: list nat) :=
-{
-  precondition: M unit;
-  postcondition: State -> State -> Prop;
-  witness s : opsAtPc (map (fun (op:nat) => toB8 op) ops) s
-              -> precondition s
-              -> OkFrom (pcInRegion (length ops) s) (postcondition s) s;
-}.
-
-#[refine]
-Instance trivial_spec : Spec [] :=
-{
-  precondition := unconditionally;
-  postcondition := eq;
-  witness s _ _ := Done _ _ s _ _;
-}.
+Instance reach_transitive : Transitive Reach.
 Proof.
-  all: tauto.
+  intros x y z. exact join.
 Qed.
 
-#[refine]
-Instance nop_spec : Spec [NOP] :=
+Set Primitive Projections.
+Global Unset Printing Primitive Projection Parameters.
+
+Record Verif :=
 {
-  precondition := unconditionally;
-  postcondition s := eq (update (Proj:=PC) s (offset 1 (proj (Proj:=PC) s)));
-  witness s _ _ := _;
+  condition (s: State) : bool;
+  effect (s: State) (Hs: condition s) : State;
+  evidence (s: State) (Hs: condition s) : Reach (effect s Hs) s;
 }.
+
+Example true_verif : Verif :=
+{|
+  condition _ := true;
+  effect s _ := s;
+  evidence s _ := Stop s;
+|}.
+
+(** Weakening the claim by strengthening the precondition. *)
+Definition weakened (v: Verif) (c: State -> bool) (Hc: forall s, c s -> condition v s) : Verif :=
+{|
+  condition := c;
+  effect s Hs := effect v s (Hc s Hs);
+  evidence s Hs := evidence v s (Hc s Hs);
+|}.
+
+Instance bool_ex_decidable (b: bool) (f: b -> bool) : Decidable (exists (x:b), f x).
 Proof.
-  match goal with
-    [|- OkFrom ?x (eq ?y) s] => set (w:=x); set (s':=y) end.
-  apply (More w unconditionally s _ s').
+  destruct b.
+  - remember (f eq_refl) as c eqn:Hc.
+    destruct c.
+    + left. exists eq_refl. rewrite <- Hc. reflexivity.
+    + right. intros [x Hf].
+      assert (x = eq_refl) as Hx.
+      * assert (UIP bool) as Hu; [typeclasses eauto | apply Hu].
+      * subst x. rewrite <- Hc in Hf. discriminate Hf.
+  - right. intros [x _]. discriminate x.
+Defined.
+
+Lemma as_bool_decision {P: Prop} {Hd: Decidable P} (Hb: as_bool (decision P)) : P.
+Proof.
+  destruct (decision P).
+  - assumption.
+  - discriminate Hb.
+Defined.
+
+Ltac derive name term :=
+  let H := fresh in
+  let A := type of term in
+  assert A as H;
+  [ exact term | ];
+  clear name;
+  rename H into name.
+
+Definition join_verifs (v1 v2: Verif) : Verif.
+  refine {|
+      condition s := as_bool (decision (exists (H1: condition v1 s), condition v2 (effect v1 s H1)));
+      effect s Hs := effect v2 (effect v1 s _) _;
+      evidence s Hs := _;
+    |}.
+  shelve. Unshelve.
+  - simpl in Hs. destruct (as_bool_decision Hs) as [H1 _]. exact H1.
+
+  - simpl in Hs.
+    set (P := exists H1 : condition v1 s, condition v2 (effect v1 s H1)) in *.
+    unfold as_bool_decision.
+    destruct (decision P) as [HP|_].
+    + subst P. destruct HP as [H1 H2]. exact H2.
+    + discriminate Hs.
+
+  - set (H1 := match as_bool_decision Hs with ex_intro _ H _ => H end).
+    transitivity (effect v1 s H1); apply evidence.
+Defined.
 
 
-  set (s' := @update State Addr PC s (offset (Zpos xH) (@proj State Addr PC s))).
+(** ** Basics *)
 
-  set (s' := update s (Proj:=PC) (offset 1 (proj s))).
-  Set Printing All.
+Arguments proj : clear implicits.
+Arguments proj {_} {_}.
+Arguments update : clear implicits.
+Arguments update {_} {_}.
 
+Equations opsAtPc (ops: list B8) (s: State) : Prop :=
+  opsAtPc [] _ := True;
+  opsAtPc (x :: r) s :=
+    let pc := proj PC s in
+    match decision (available pc) with
+    | right _ => False
+    | left H =>
+      match proj MEM s pc H with
+      | None => False
+      | Some x' => x' = x /\ opsAtPc r (update PC s (offset 1 pc))
+      end
+    end.
 
-  set (s' := update (Proj:=PC) s (offset 1 (proj (Proj:=PC) s))).
+Instance opsAtPc_decidable ops s : Decidable (opsAtPc ops s).
+Proof.
+  revert s.
+  induction ops; intros s.
+  - simp opsAtPc. typeclasses eauto.
+  - simp opsAtPc.
+    simpl.
+    destruct (decision (available (proj PC s))) as [H|H].
+    + destruct (proj MEM s (proj PC s) H) as [x|];
+      typeclasses eauto.
+    + typeclasses eauto.
+Qed.
+
+Definition nop_verif : Verif.
+  refine (
+      let f s := update PC s (offset 1 (proj PC s)) in
+      let ops := map (fun (x:nat) => toB8 x) [NOP] in
+      {|
+        condition s := as_bool (decision (opsAtPc ops s));
+        effect s _ := f s;
+        evidence s Hs := More (f s) (f s) s _ (Stop (f s))
+      |}).
+
+  (* TODO: Automate! *)
+
+  subst ops. simpl in *.
+  derive Hs (as_bool_decision Hs).
+  unfold oneStep. simpl.
+  assert (nextN 1 s = Some (f s, 1)) as H1.
+
+  - unfold nextN, next. simpl. unfold load. simpl.
+    simp opsAtPc in Hs. simpl in Hs.
+    set (pc := proj PC s) in *.
+    destruct (decision (available pc)) as [HA|HA].
+    + destruct (proj MEM s pc HA) as [x|].
+      * destruct Hs as [? _]. subst x. reflexivity.
+      * destruct Hs.
+    + destruct Hs.
+
+  - rewrite H1. simp oneStep'. reflexivity.
+Defined.
