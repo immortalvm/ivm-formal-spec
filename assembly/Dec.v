@@ -2,8 +2,6 @@ Require Import Utf8.
 
 Require Export Assembly.Convenience.
 Require Export Coq.ZArith.ZArith.
-Require Export Coq.micromega.Lia.
-
 Require Import Coq.Bool.Sumbool.
 
 
@@ -90,9 +88,6 @@ Instance Z_lt_decidable (x y: Z) : Decidable (x < y)%Z := Z_lt_dec x y.
 Instance Z_le_decidable (x y: Z) : Decidable (x <= y)%Z := Z_le_dec x y.
 Instance Z_ge_decidable (x y: Z) : Decidable (x >= y)%Z := Z_ge_dec x y.
 Instance Z_gt_decidable (x y: Z) : Decidable (x > y)%Z := Z_gt_dec x y.
-
-
-Tactic Notation "by_lia" constr(P) "as" ident(H) := assert P as H; [lia|].
 
 Instance bounded_all_decidable0 (P: forall (x: nat), Prop) `{DP: forall x, Decidable (P x)} (n: nat) : Decidable (forall x, x < n -> P x).
 Proof.
