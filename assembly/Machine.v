@@ -262,15 +262,125 @@ Definition oneStep : M bool :=
 
 (** Verification *)
 
+Arguments proj : clear implicits.
+Arguments proj {_} {_}.
+Arguments update : clear implicits.
+Arguments update {_} {_}.
+
+Definition memGuard (m m': Memory) : Memory :=
+  fun a H => match m a H with None => None | _ => m' a H end.
+
+(* When [s] and [s'] are identical, except that the memory of [s'] can be
+   more defined. *)
+Definition Specializes (s s': State) : Prop :=
+  update MEM s' (memGuard (proj MEM s) (proj MEM s')) = s.
+
+(* Infix "⊑" := Specializes (at level 99). *)
+
+Instance specializes_reflexive : Reflexive Specializes.
+Proof.
+  intro s.
+  unfold Specializes.
+  match goal with [|- update _ _ ?m = s ] => assert (m = proj MEM s) as Hm end.
+  - apply functional_extensionality_dep. intros a.
+    apply functional_extensionality_dep. intros H.
+    unfold memGuard. destruct (proj MEM s a H); reflexivity.
+  - rewrite Hm, update_proj. reflexivity.
+Qed.
+
+Lemma specializes_lemma {s s'} (Hsp: Specializes s s') {a Ha x} :
+  proj MEM s a Ha = Some x -> proj MEM s' a Ha = Some x.
+Proof.
+  rewrite <- Hsp.
+  rewrite proj_update.
+  unfold memGuard.
+  destruct (proj MEM s a Ha) as [H|H].
+  - tauto.
+  - discriminate.
+Qed.
+
+Instance specializes_transitive : Transitive Specializes.
+Proof.
+  unfold Specializes.
+  intros s1 s2 s3 H12 H23.
+  rewrite <- H12 at 2.
+  rewrite <- H23 at 1.
+  rewrite update_update.
+  f_equal.
+  apply functional_extensionality_dep. intros a.
+  apply functional_extensionality_dep. intros H.
+  unfold memGuard.
+  destruct (decision (proj MEM s1 a H)) as [Hd|Hd].
+  - derive Hd (some_some Hd).
+    destruct Hd as [x H1].
+    rewrite H1.
+    set (H2 := specializes_lemma H12 H1).
+    rewrite H2.
+    exact (specializes_lemma H23 H2).
+  - derive Hd (not_some_none Hd).
+    rewrite Hd.
+    reflexivity.
+Qed.
+
+
+(************** CONTINUE FROM HERE *****************)
+
+
+Add Relation State Specializes
+    reflexivity proved by specializes_reflexive
+    transitivity proved by specializes_transitive as specializes_rel.
+
+Definition Specializes' {A} (p p': option (State * A)) :=
+  match p with
+  | Some (s, a) => exists s', p' = Some (s', a) /\ Specializes s s'
+  | _ => False
+  end.
+
+
+
+Definition Monotone {A} (ma: M A) :=
+  forall {s1 s2 a} (H1: ma s1 = Some (s2, a))
+    {s1'} (Hs: Specializes s1 s1'),
+  exists s2', ma s1' = Some (s2', a) /\ Specializes s2 s2'.
+
+
+    s s',  ->
+
+Lemma oneStep_monotone
+      {s1 s2} (Hst: oneStep s1 = Some (s2, true))
+      {s1'} (Hsp: Specializes s1 s1') :
+  { s2' | oneStep s1' = Some (s2', true) /\ Specializes s2 s2' }.
+Proof.
+
+
+
+
 Inductive Reach (stop: State) : forall (start: State), Prop :=
-| Stop : Reach stop stop
+| Stop s : Specializes stop s -> Reach stop s
 | More s' s : oneStep s = Some (s', true)
               -> Reach stop s'
               -> Reach stop s.
 
-Equations join {s1 s2 s3: State} (r2: Reach s3 s2) (r1: Reach s2 s1) : Reach s3 s1 :=
-  join r2 Stop := r2;
-  join r2 (More _ s' s H r) := More _ s' s H (join r2 r).
+Arguments Stop {_} {_}.
+Arguments More {_} {_} {_}.
+
+Lemma generalize_stop {s1 s2 s3} (Hs: Specializes s3 s2) (Hr: Reach s2 s1) : Reach s3 s1.
+Proof.
+  induction Hr as [s1 H | s1' s1 H Hr IH].
+  - apply Stop. transitivity s2; assumption.
+  - exact (More H IH).
+Qed.
+
+Lemma specialize_start {s1 s2 s3} (Hr: Reach s3 s2) (Hs: Specializes s2 s1) : Reach s3 s1.
+Proof.
+  induction Hr as [s2 H | s2' s2 H Hr IH].
+  - apply Stop. transitivity s2; assumption.
+  -
+
+
+Equations join {s1 s2 s3: State} (Hr2: Reach s3 s2) (Hr1: Reach s2 s1) : Reach s3 s1 :=
+  join Hr2 (Stop Hs) := specializes_reach Hs Hr2;
+  join Hr2 (More H Hr) := More H (join Hr2 Hr).
 
 Instance reach_transitive : Transitive Reach.
 Proof.
@@ -279,8 +389,6 @@ Qed.
 
 Definition Cert : Type :=
   forall (s: State), option { s' : State | Reach s' s }.  (* ! *)
-
-Arguments exist {_} {_}.
 
 Example true_verif : Cert :=
   fun s => Some (exist s (Stop s)).
@@ -301,11 +409,6 @@ Definition join_verifs (v1 v2 : Cert) : Cert.
              end).
   transitivity s1; [ exact H2 | exact H1 ].
 Defined.
-
-Arguments proj : clear implicits.
-Arguments proj {_} {_}.
-Arguments update : clear implicits.
-Arguments update {_} {_}.
 
 Equations opsAtPc (ops: list B8) (s: State) : Prop :=
   opsAtPc [] _ := True;
@@ -367,7 +470,7 @@ Qed.
 
  *)
 
-Definition nop_verif : Cert.
+Definition nop_cert : Cert.
   intros s.
   refine (
       let s' := update PC s (offset 1 (proj PC s)) in
