@@ -1,7 +1,6 @@
 Require Import Utf8.
 
-Require Import Equations.Equations.
-Require Export Coq.Lists.List.
+Require Export Assembly.Convenience.
 Require Export Coq.ZArith.ZArith.
 Require Export Coq.micromega.Lia.
 
@@ -14,45 +13,6 @@ Open Scope bool_scope.
 Coercion is_true : bool >-> Sortclass.
 
 Coercion Z.of_nat : nat >-> Z.
-
-
-(** ** Lists and vectors *)
-
-Export ListNotations.
-Open Scope list_scope.
-
-Derive Signature NoConfusion NoConfusionHom for Vector.t.
-Arguments Vector.nil {A}.
-Arguments Vector.cons : default implicits.
-Coercion Vector.to_list : Vector.t >-> list.
-
-Import Coq.Vectors.Vector.VectorNotations.
-Close Scope vector.
-
-Lemma to_list_equation_1: forall A, nil%vector = nil :> list A.
-Proof. reflexivity. Qed.
-
-Lemma to_list_equation_2: forall A n (x: A) (u: Vector.t A n), (x :: u)%vector = x :: u :> list A.
-Proof. reflexivity. Qed.
-
-Hint Rewrite to_list_equation_1 : to_list.
-Hint Rewrite to_list_equation_2 : to_list.
-
-Lemma to_list_injective {A n} (u v: Vector.t A n) : u = v :> list A -> u = v.
-Proof.
-  induction n as [|n IH]; depelim u; depelim v.
-  - easy.
-  - simp to_list. intro Heq.
-    f_equal; [|apply (IH u v)]; congruence.
-Qed.
-
-Instance vector_eqdec {A n} `(EqDec A) : EqDec (Vector.t A n).
-Proof.
-  intros u v.
-  destruct (@eq_dec (list A) _ u v).
-  - left. now apply to_list_injective.
-  - right. congruence.
-Defined.
 
 
 (** ** Bits *)
@@ -92,11 +52,6 @@ Equations signed (_: list bool) : Z :=
                     | _ => 2 * signed u + x
                     end.
 
-(*
-Definition fromLittleEndian (u: list Cell) : nat :=
-  bitListToNat (concat (map to_BitList u)).
- *)
-
 Notation B8 := (Bits 8).
 Notation B16 := (Bits 16).
 Notation B32 := (Bits 32).
@@ -106,6 +61,11 @@ Notation toB8 := (toBits 8).
 Notation toB16 := (toBits 16).
 Notation toB32 := (toBits 32).
 Notation toB64 := (toBits 64).
+
+(*
+Definition fromLittleEndian (u: list Cell) : nat :=
+  bitListToNat (concat (map to_BitList u)).
+ *)
 
 Equations fromLittleEndian (_: list B8): nat :=
   fromLittleEndian [] := 0;

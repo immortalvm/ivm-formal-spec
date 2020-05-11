@@ -1,11 +1,38 @@
 Require Import Utf8.
 
-Require Import Equations.Equations.
-Require Export Coq.Lists.List.
+Require Export Assembly.Convenience.
 Require Export Coq.ZArith.ZArith.
 Require Export Coq.micromega.Lia.
 
 Require Import Coq.Bool.Sumbool.
+
+
+(** ** Decidable equality (as in coq-equations) *)
+
+Section eqdec_section.
+
+  Context {A} {Ha: EqDec A}.
+
+  Global Instance option_eqdec : EqDec (option A).
+  Proof.
+    intros [x|] [y|].
+    - destruct (Ha x y) as [H|H].
+      + left. f_equal. exact H.
+      + right. congruence.
+    - right. congruence.
+    - right. congruence.
+    - left. exact eq_refl.
+  Defined.
+
+  Global Instance vector_eqdec {n} : EqDec (Vector.t A n).
+  Proof.
+    intros u v.
+    destruct (@eq_dec (list A) _ (Vector.to_list u) (Vector.to_list v)).
+    - left. now apply to_list_injective.
+    - right. congruence.
+  Defined.
+
+End eqdec_section.
 
 
 (** ** Decidable propositions *)
@@ -29,9 +56,7 @@ Section option_section.
     destruct x as [y|]; [right|left]; congruence.
   Defined.
 
-  Definition is_some : Prop := if x then True else False.
-
-  Global Instance is_some_decidable : Decidable is_some.
+  Global Instance is_some_decidable : Decidable (is_some x).
   Proof.
     unfold is_some. destruct x as [y|]; [left|right]; easy.
   Defined.
@@ -69,7 +94,7 @@ Instance Z_gt_decidable (x y: Z) : Decidable (x > y)%Z := Z_gt_dec x y.
 
 Tactic Notation "by_lia" constr(P) "as" ident(H) := assert P as H; [lia|].
 
-Definition bounded_all_decidable0 (P: forall (x: nat), Prop) `{DP: forall x, Decidable (P x)} (n: nat) : Decidable (forall x, x < n -> P x).
+Instance bounded_all_decidable0 (P: forall (x: nat), Prop) `{DP: forall x, Decidable (P x)} (n: nat) : Decidable (forall x, x < n -> P x).
 Proof.
   induction n as [|n IH].
   - left. lia.
@@ -85,14 +110,12 @@ Proof.
     + right. contradict IH. intros x H. apply IH. lia.
 Defined.
 
-Existing Instance bounded_all_decidable0.
-
 (** Presumably, this instance of proof irrelevance will be provable when
 the Coq standard library has been rehauled, cf. the article "Definitional
 Proof-Irrelevance without K" (2019). *)
 Axiom le_proofs_unique : forall {m n: nat} (H1 H2: m <= n), H1 = H2.
 
-Definition bounded_all_decidable1
+Instance bounded_all_decidable1
            (n: nat) (P: forall (x: nat), x < n -> Prop)
            `{DP: forall x (H: x < n), Decidable (P x H)} : Decidable (forall x (H: x < n), P x H).
 Proof.
@@ -114,5 +137,3 @@ Proof.
   - destruct (bounded_all_decidable0 (fun x => forall (H: x < n), P x H) n) as [H|H];
       [left|right]; firstorder.
 Defined.
-
-Existing Instance bounded_all_decidable1.

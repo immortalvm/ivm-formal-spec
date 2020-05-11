@@ -3,7 +3,6 @@ Require Import Equations.Equations.
 Require Import Assembly.Mon.
 Require Import Assembly.Bits.
 Require Import Assembly.Dec.
-Require Import Assembly.Convenience.
 Require Import Assembly.Operations.
 Require Assembly.OpCodes.
 
@@ -278,19 +277,19 @@ Proof.
   intros x y z. exact join.
 Qed.
 
-Definition Verif : Type :=
+Definition Cert : Type :=
   forall (s: State), option { s' : State | Reach s' s }.  (* ! *)
 
 Arguments exist {_} {_}.
 
-Example true_verif : Verif :=
+Example true_verif : Cert :=
   fun s => Some (exist s (Stop s)).
 
 (** Weakening the claim by strengthening the precondition. *)
-Definition weaken (v: Verif) (f: State -> bool) : Verif :=
+Definition weaken (v: Cert) (f: State -> bool) : Cert :=
   fun s => if f s then v s else None.
 
-Definition join_verifs (v1 v2 : Verif) : Verif.
+Definition join_verifs (v1 v2 : Cert) : Cert.
   refine (
       fun s0 => match v1 s0 with
              | None => None
@@ -334,7 +333,41 @@ Proof.
     + typeclasses eauto.
 Qed.
 
-Definition no_verif : Verif.
+(* TODO: Is this useful?
+
+Inductive opsAtPc' : list B8 -> State -> Prop :=
+| NilOpsAtPc s : opsAtPc' [] s
+| ConsOpsAtPc x rest s :
+    let pc := proj PC s in
+    (exists (H: available pc), proj MEM s pc H = Some x)
+    -> opsAtPc' rest (update PC s (offset 1 pc))
+    -> opsAtPc' (x :: rest) s.
+
+Lemma inv_opsAtPc {ops s} (Ho: opsAtPc ops s) : opsAtPc' ops s.
+Proof.
+  revert s Ho.
+  induction ops as [|x rest IH]; intros s Ho.
+  - exact (NilOpsAtPc s).
+  - simp opsAtPc in Ho. simpl in Ho.
+    destruct (decision (available (proj PC s))) as [H|H].
+    + assert (exists y, proj MEM s (proj PC s) H = Some y) as Hy.
+      * destruct (proj MEM s (proj PC s) H) as [y|].
+        -- exists y. congruence.
+        -- destruct Ho.
+      * destruct Hy as [y Hy].
+        constructor.
+        -- exists H.
+           rewrite Hy in *. clear Hy.
+           destruct Ho as [Ho _]. congruence.
+        -- rewrite Hy in *. clear Hy.
+           destruct Ho as [_ Ho].
+           exact (IH _ Ho).
+    + destruct Ho.
+Qed.
+
+ *)
+
+Definition nop_verif : Cert.
   intros s.
   refine (
       let s' := update PC s (offset 1 (proj PC s)) in

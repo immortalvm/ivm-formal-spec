@@ -8,7 +8,6 @@ Import RecordSetNotations.
 Require Import Assembly.Mon.
 Require Import Assembly.Bits.
 Require Import Assembly.Dec.
-Require Import Assembly.Convenience.
 
 (* Cf. the 'sigma' type of Equations. *)
 Set Primitive Projections.
@@ -108,7 +107,7 @@ Module core_module (MT: machine_type).
       ret (Vector.cons x r).
 
   Equations storeMany (_: Addr) (_: list (option Cell)) : M unit :=
-    storeMany _ nil := ret tt;
+    storeMany _ [] := ret tt;
     storeMany a (x :: u) :=
       store a x;;
       storeMany (offset 1 a) u.
