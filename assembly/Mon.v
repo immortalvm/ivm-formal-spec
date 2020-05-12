@@ -258,17 +258,17 @@ Section proj_section.
 
 End proj_section.
 
-Class Disjoint {S: Type}
+Class Independent {S: Type}
       {X: Type} (PX: Proj S X)
       {Y: Type} (PY: Proj S Y) : Prop :=
 {
   projY_updateX (s: S) (x: X) : proj (update s x) = proj s :> Y;
   projX_updateY (s: S) (y: Y) : proj (update s y) = proj s :> X;
-  disjoint_commute (s: S) (x: X) (y: Y) :
+  independent_commute (s: S) (x: X) (y: Y) :
     update (update s x) y = update (update s y) x;
 }.
 
-(** To see that [disjoint_commute] does not follow from the other
+(** To see that [independent_commute] does not follow from the other
     properties, consider a square staircase. *)
 
 Section product_section.
@@ -290,16 +290,16 @@ Section product_section.
     update s y := (fst s, y);
   }.
 
-  Program Instance disjoint_projs : Disjoint proj_fst proj_snd.
+  Program Instance independent_projs : Independent proj_fst proj_snd.
 
-  Context {S} (Hx: Proj S X) (Hy: Proj S Y) {Hd: Disjoint Hx Hy}.
+  Context {S} (Hx: Proj S X) (Hy: Proj S Y) {Hd: Independent Hx Hy}.
 
-  Instance disjoint_symm : Disjoint Hy Hx.
+  Instance independent_symm : Independent Hy Hx.
   Proof.
     split.
     - apply projX_updateY.
     - apply projY_updateX.
-    - symmetry. apply disjoint_commute.
+    - symmetry. apply independent_commute.
   Qed.
 
   #[refine]
@@ -316,13 +316,13 @@ Section product_section.
       do 2 rewrite update_proj.
       reflexivity.
     - intros s [x y] [x' y']. simpl.
-      do 2 (rewrite disjoint_commute, update_update).
+      do 2 (rewrite independent_commute, update_update).
       reflexivity.
   Defined.
 
-  Context Z (Hz: Proj S Z) (Hdx: Disjoint Hx Hz) (Hdy: Disjoint Hy Hz).
+  Context Z (Hz: Proj S Z) (Hdx: Independent Hx Hz) (Hdy: Independent Hy Hz).
 
-  Instance disjoint_prod : Disjoint proj_prod Hz.
+  Instance independent_prod : Independent proj_prod Hz.
   Proof.
     split.
     - intros s [x y].
@@ -334,7 +334,7 @@ Section product_section.
       + rewrite projX_updateY. reflexivity.
       + rewrite projX_updateY. reflexivity.
     - intros s [x y] z. simpl.
-      rewrite disjoint_commute, (disjoint_commute (Disjoint:=Hdx)). reflexivity.
+      rewrite independent_commute, (independent_commute (Independent:=Hdx)). reflexivity.
   Qed.
 
 End product_section.
@@ -351,10 +351,10 @@ Notation "&( x , .. , y & z )" :=
 Import Coq.Lists.List.ListNotations.
 Open Scope list_scope.
 
-Equations pairwise_disjoint {S: Type} (Ts: list &{ X : Type & Proj S X }) : Prop :=
-  pairwise_disjoint [] := True;
-  pairwise_disjoint (p :: rest) := List.Forall (fun q => Disjoint (pr2 p) (pr2 q)) rest
-                                  /\ pairwise_disjoint rest.
+Equations pairwise_independent {S: Type} (Ts: list &{ X : Type & Proj S X }) : Prop :=
+  pairwise_independent [] := True;
+  pairwise_independent (p :: rest) := List.Forall (fun q => Independent (pr2 p) (pr2 q)) rest
+                                  /\ pairwise_independent rest.
 
 
 
@@ -394,7 +394,7 @@ Section inv_proj_section.
       rewrite <- (Hf (proj s)), proj_update. reflexivity.
   Defined.
 
-  Instance inv_proj_disjoint : Disjoint inv_proj PX.
+  Instance inv_proj_independent : Independent inv_proj PX.
   Proof.
     split.
     - intros s [f Hf]. simpl.

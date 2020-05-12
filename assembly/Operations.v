@@ -260,26 +260,26 @@ Module core_module (MT: machine_type).
     put' LOG (flushed :: current).
 
 
-  (** ** Pairwise disjoint projections *)
+  (** ** Pairwise independent projections *)
 
-  Context (disjoint_PC_SP:  Disjoint PC SP)
-          (disjoint_PC_MEM: Disjoint PC MEM)
-          (disjoint_PC_INP: Disjoint PC INP)
-          (disjoint_PC_OUT: Disjoint PC OUT)
-          (disjoint_PC_LOG: Disjoint PC LOG)
+  Context (independent_PC_SP:  Independent PC SP)
+          (independent_PC_MEM: Independent PC MEM)
+          (independent_PC_INP: Independent PC INP)
+          (independent_PC_OUT: Independent PC OUT)
+          (independent_PC_LOG: Independent PC LOG)
 
-          (disjoint_SP_MEM: Disjoint SP MEM)
-          (disjoint_SP_INP: Disjoint SP INP)
-          (disjoint_SP_OUT: Disjoint SP OUT)
-          (disjoint_SP_LOG: Disjoint SP LOG)
+          (independent_SP_MEM: Independent SP MEM)
+          (independent_SP_INP: Independent SP INP)
+          (independent_SP_OUT: Independent SP OUT)
+          (independent_SP_LOG: Independent SP LOG)
 
-          (disjoint_MEM_INP: Disjoint MEM INP)
-          (disjoint_MEM_OUT: Disjoint MEM OUT)
-          (disjoint_MEM_LOG: Disjoint MEM LOG)
+          (independent_MEM_INP: Independent MEM INP)
+          (independent_MEM_OUT: Independent MEM OUT)
+          (independent_MEM_LOG: Independent MEM LOG)
 
-          (disjoint_INP_OUT: Disjoint INP OUT)
-          (disjoint_INP_LOG: Disjoint INP LOG)
+          (independent_INP_OUT: Independent INP OUT)
+          (independent_INP_LOG: Independent INP LOG)
 
-          (disjoint_OUT_LOG: Disjoint OUT LOG).
+          (independent_OUT_LOG: Independent OUT LOG).
 
 End core_module.
