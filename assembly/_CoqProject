@@ -2,6 +2,7 @@
 -Q ../vm-spec VmSpec
 -Q . Assembly
 Mon.v
+MonExtras.v
 Bits.v
 Dec.v
 Convenience.v
