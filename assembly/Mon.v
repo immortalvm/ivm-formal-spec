@@ -340,3 +340,51 @@ Section product_section.
 End product_section.
 
 (** The projections from a record type have the same property. *)
+
+Section relation_section.
+
+  Context {S X} (HX: Proj S X).
+
+  Definition aligned (s s' : S) :=
+    update s (proj s') = s'.
+
+  (** Thus, [aligned s s'] means that [s] and [s'] are equal except for
+  their projections onto [X]. *)
+
+  Instance aligned_equivalence : Equivalence aligned.
+  Proof.
+    split.
+    - intros s. unfold aligned. rewrite update_proj. reflexivity.
+    - intros s s'. unfold aligned. intros H. rewrite <- H.
+      rewrite update_update, update_proj. reflexivity.
+    - intros s1 s2 s3. unfold aligned. intros H12 H23.
+      rewrite <- H12 in H23.
+      rewrite update_update in H23.
+      exact H23.
+  Qed.
+
+  Context (R: relation X).
+
+  Definition liftRel : relation S :=
+    fun s s' => aligned s s' /\ R (proj s) (proj s').
+
+  Instance liftRel_reflexive {H_reflexive: Reflexive R} : Reflexive liftRel.
+  Proof.
+    unfold liftRel. intros s. split; reflexivity.
+  Qed.
+
+  Instance liftRel_symmetric {H_symmetric: Symmetric R} : Symmetric liftRel.
+  Proof.
+    unfold liftRel. intros s s' [? ?].
+    split; symmetry; assumption.
+  Qed.
+
+  Instance liftRel_transitive {H_transitive: Transitive R} : Transitive liftRel.
+  Proof.
+    unfold liftRel. intros s1 s2 s3 [? ?] [? ?].
+    split.
+    - transitivity s2; assumption.
+    - transitivity (proj s2); assumption.
+  Qed.
+
+End relation_section.
