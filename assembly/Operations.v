@@ -2,9 +2,6 @@ Require Import Utf8.
 
 Require Import Equations.Equations.
 
-Require Import RecordUpdate.RecordSet.
-Import RecordSetNotations.
-
 Require Import Assembly.Mon.
 Require Import Assembly.Bits.
 Require Import Assembly.Dec.
@@ -134,8 +131,10 @@ Module core_module (MT: machine_type).
   Definition popMany (n: nat): M (Vector.t Cell n) :=
     let* sp := get' SP in
     let* res := loadMany n sp in
-    (* Mark memory as undefined *)
-    storeMany sp (repeat None n);;
+    (* Instead of marking the memory as undefined here,
+       we will express this in the corresponding [Cert]s.
+       [storeMany sp (repeat None n);;]
+    *)
     put' SP (offset n sp);;
     ret res.
 
@@ -172,114 +171,125 @@ Module core_module (MT: machine_type).
     samples Hr := (l, r) :: (samples sn Hr);
   |}.
 
-  Record Frame (C: Type) := mkFrame
+  Context (OUT_CHARS : Proj State (list Char)).
+  Context (OUT_BYTES : Proj State (list Byte)).
+  Context (OUT_SOUND : Proj State Sound).
+  Context (OUT_IMAGE : Proj State (Image (option OutputColor))).
+
+  Definition putChar (c: Char) : M unit :=
+    let* chars := get' OUT_CHARS in
+    put' OUT_CHARS (cons c chars).
+
+  Definition putByte (b: Byte) : M unit :=
+    let* bytes := get' OUT_BYTES in
+    put' OUT_BYTES (cons b bytes).
+
+  Definition addSample (l r: Sample) : M unit :=
+    let* samples := get' OUT_SOUND in
+    put' OUT_SOUND (extendSamples l r samples).
+
+  Definition setPixel (x y: nat) (c: OutputColor) : M unit :=
+    let* img := get' OUT_IMAGE in
+    assert* x < width img in
+    assert* y < height img in
+    put' OUT_IMAGE (updatePixel x y (Some c) img).
+
+
+  (** ** Output log *)
+
+  Record OutputFrame := mkFrame
   {
-    image: Image C;
+    image: Image OutputColor;
     sound: Sound;
     chars: list Char;  (* reversed *)
     bytes: list Byte;  (* reversed *)
   }.
 
-  Local Definition OC := option OutputColor.
+  Context (LOG: Proj State (list OutputFrame)). (* reversed *)
 
-  Instance etaFrame : Settable _ := settable! (@mkFrame OC) <(@image OC); (@sound OC); (@chars OC); (@bytes OC)>.
-
-  Definition freshFrame (w h r: nat) : Frame OC :=
-    {|
-    image :=
-      {|
-        width := w;
-        height := h;
-        pixel _ _ _ _ := None;
-      |};
-    sound :=
-      {|
-        rate := r;
-        samples _ := [];
-      |};
-    chars := [];
-    bytes := [];
-    |}.
-
-  Context (OUT: Proj State (Frame OC)).
-
-  Definition image_complete (img: Image OC) : Prop :=
+  Definition image_complete (img: Image (option OutputColor)) : Prop :=
     forall x (Hx: x < width img) y (Hy: y < height img), pixel img Hx Hy.
 
-  Definition get_some {A} {x: option A} : x -> A :=
-    match x return x -> A with
-    | Some y => fun _ => y
-    | None => none_not_some
-    end.
-
-  Definition extractImage (img: Image OC) : M (Image OutputColor) :=
+  Definition extractImage (img: Image (option OutputColor)) : M (Image OutputColor) :=
     assert* image_complete img as H_complete in
     ret {|
         width := width img;
         height := height img;
-        pixel x Hx y Hy := get_some (H_complete x Hx y Hy);
+        pixel x Hx y Hy := proj1_sig (some_some (H_complete x Hx y Hy));
       |}.
-
-  Definition nextOutputFrame (w r h: nat) : M (Frame OutputColor) :=
-    let* current := get' OUT in
-    let* img := extractImage (image current) in
-    put' OUT (freshFrame w r h);;
-    ret {|
-        bytes := bytes current;
-        chars := chars current;
-        sound := sound current;
-        image := img;
-      |}.
-
-  Definition setPixel (x y: nat) (c: OutputColor) : M unit :=
-    let* current := get' OUT in
-    assert* x < width (image current) in
-    assert* y < height (image current) in
-    put' OUT (set (@image OC) (updatePixel x y (Some c)) current).
-
-  Definition addSample (l r: Sample) : M unit :=
-    let* current := get' OUT in
-    put' OUT (set (@sound OC) (extendSamples l r) current).
-
-  Definition putChar (c: Char) : M unit :=
-    let* current := get' OUT in
-    put' OUT (set (@chars OC) (cons c) current).
-
-  Definition putByte (b: Byte) : M unit :=
-    let* current := get' OUT in
-    put' OUT (set (@bytes OC) (cons b) current).
-
-
-  (** ** Output log *)
-
-  Context (LOG: Proj State (list (Frame OutputColor))).
 
   Definition newFrame (w r h: nat) : M unit :=
+    let* bytes := get' OUT_BYTES in
+    let* chars := get' OUT_CHARS in
+    let* sound := get' OUT_SOUND in
+    let* img := get' OUT_IMAGE in
+    let* image := extractImage img in
+    let frame :=
+        {|
+          bytes := bytes;
+          chars := chars;
+          sound := sound;
+          image := image;
+        |} in
     let* current := get' LOG in
-    let* flushed := nextOutputFrame w r h in
-    put' LOG (flushed :: current).
+    put' LOG (frame :: current);;
+    put' OUT_BYTES [];;
+    put' OUT_CHARS [];;
+    put' OUT_SOUND {|
+           rate := r;
+           samples _ := [];
+         |};;
+    put' OUT_IMAGE {|
+           width := w;
+           height := h;
+           pixel _ _ _ _ := None;
+         |}.
 
 
   (** ** Pairwise independent projections *)
 
-  Context (independent_PC_SP:  Independent PC SP)
-          (independent_PC_MEM: Independent PC MEM)
-          (independent_PC_INP: Independent PC INP)
-          (independent_PC_OUT: Independent PC OUT)
-          (independent_PC_LOG: Independent PC LOG)
+  Context (independent_PC_SP:    Independent PC SP)
+          (independent_PC_MEM:   Independent PC MEM)
+          (independent_PC_INP:   Independent PC INP)
+          (independent_PC_BYTES: Independent PC OUT_BYTES)
+          (independent_PC_CHARS: Independent PC OUT_CHARS)
+          (independent_PC_SOUND: Independent PC OUT_SOUND)
+          (independent_PC_IMAGE: Independent PC OUT_IMAGE)
+          (independent_PC_LOG:   Independent PC LOG)
 
-          (independent_SP_MEM: Independent SP MEM)
-          (independent_SP_INP: Independent SP INP)
-          (independent_SP_OUT: Independent SP OUT)
-          (independent_SP_LOG: Independent SP LOG)
+          (independent_SP_MEM:   Independent SP MEM)
+          (independent_SP_INP:   Independent SP INP)
+          (independent_SP_BYTES: Independent SP OUT_BYTES)
+          (independent_SP_CHARS: Independent SP OUT_CHARS)
+          (independent_SP_SOUND: Independent SP OUT_SOUND)
+          (independent_SP_IMAGE: Independent SP OUT_IMAGE)
+          (independent_SP_LOG:   Independent SP LOG)
 
-          (independent_MEM_INP: Independent MEM INP)
-          (independent_MEM_OUT: Independent MEM OUT)
-          (independent_MEM_LOG: Independent MEM LOG)
+          (independent_MEM_INP:   Independent MEM INP)
+          (independent_MEM_BYTES: Independent MEM OUT_BYTES)
+          (independent_MEM_SOUND: Independent MEM OUT_CHARS)
+          (independent_MEM_CHARS: Independent MEM OUT_SOUND)
+          (independent_MEM_IMAGE: Independent MEM OUT_IMAGE)
+          (independent_MEM_LOG:   Independent MEM LOG)
 
-          (independent_INP_OUT: Independent INP OUT)
-          (independent_INP_LOG: Independent INP LOG)
+          (independent_INP_BYTES: Independent INP OUT_BYTES)
+          (independent_INP_CHARS: Independent INP OUT_CHARS)
+          (independent_INP_SOUND: Independent INP OUT_SOUND)
+          (independent_INP_IMAGE: Independent INP OUT_IMAGE)
+          (independent_INP_LOG:   Independent INP LOG)
 
-          (independent_OUT_LOG: Independent OUT LOG).
+          (independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS)
+          (independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND)
+          (independent_BYTES_IMAGE: Independent OUT_BYTES OUT_IMAGE)
+          (independent_BYTES_LOG:   Independent OUT_BYTES LOG)
+
+          (independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND)
+          (independent_CHARS_IMAGE: Independent OUT_CHARS OUT_IMAGE)
+          (independent_CHARS_LOG:   Independent OUT_CHARS LOG)
+
+          (independent_SOUND_IMAGE: Independent OUT_SOUND OUT_IMAGE)
+          (independent_SOUND_LOG:   Independent OUT_SOUND LOG)
+
+          (independent_IMAGE_LOG: Independent OUT_IMAGE LOG).
 
 End core_module.

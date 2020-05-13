@@ -82,6 +82,9 @@ Close Scope vector_scope.
 
 (** ** Bitmap images *)
 
+Set Primitive Projections.
+Global Unset Printing Primitive Projection Parameters.
+
 Record Image (C: Type) :=
   mkImage {
       width: nat;
@@ -97,3 +100,20 @@ Definition noImage {C}: Image C.
     |}.
   lia.
 Defined.
+
+Local Definition image_telescope {C} (img: Image C) : sigma(fun w=>sigma(fun h=>forall x (Hx:x<w) y (Hy:y<h), C)) :=
+  match img with @mkImage _ w h p => sigmaI _ w (sigmaI _ h p) end.
+
+Lemma inj_right_image {C} {w h p p'} :
+  {|width:=w; height:=h; pixel:=p|} = {|width:=w; height:=h; pixel:=p'|} :> Image C
+  -> p = p'.
+Proof.
+  intros Hi.
+  match type of Hi with
+  | ?i = ?i' => assert (image_telescope i = image_telescope i') as Ht;
+                 [f_equal; exact Hi | ]
+  end.
+  unfold image_telescope in Ht.
+  do 2 derive Ht (EqDec.inj_right_sigma _ _ _ Ht).
+  exact Ht.
+Qed.
