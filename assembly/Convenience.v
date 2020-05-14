@@ -74,10 +74,10 @@ Qed.
 
 (** ** Relations *)
 
-Section relation_section.
+Require Import Coq.Relations.Relations.
+Require Import Coq.Classes.RelationClasses.
 
-  Require Import Coq.Relations.Relations.
-  Require Import Coq.Classes.RelationClasses.
+Section relation_section.
 
   Context {X} (RX: relation X).
 

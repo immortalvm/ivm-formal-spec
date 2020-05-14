@@ -368,18 +368,18 @@ Section relation_section.
   Definition proj_relation : relation S :=
     fun s s' => aligned s s' /\ R (proj s) (proj s').
 
-  Instance proj_relation_reflexive {H_reflexive: Reflexive R} : Reflexive proj_relation.
+  Global Instance proj_relation_reflexive {H_reflexive: Reflexive R} : Reflexive proj_relation.
   Proof.
     unfold proj_relation. intros s. split; reflexivity.
   Qed.
 
-  Instance proj_relation_symmetric {H_symmetric: Symmetric R} : Symmetric proj_relation.
+  Global Instance proj_relation_symmetric {H_symmetric: Symmetric R} : Symmetric proj_relation.
   Proof.
     unfold proj_relation. intros s s' [? ?].
     split; symmetry; assumption.
   Qed.
 
-  Instance proj_relation_transitive {H_transitive: Transitive R} : Transitive proj_relation.
+  Global Instance proj_relation_transitive {H_transitive: Transitive R} : Transitive proj_relation.
   Proof.
     unfold proj_relation. intros s1 s2 s3 [? ?] [? ?].
     split.
@@ -397,10 +397,10 @@ Section proper_section.
 
   Local Notation M := (EST S).
 
-  Definition liftRel {A} (RA: relation A) : relation (M A) :=
+  Definition est_relation {A} (RA: relation A) : relation (M A) :=
     (RS ==> option_relation (prod_relation RS RA))%signature.
 
-  Local Notation RM := (liftRel).
+  Local Notation RM := (est_relation).
 
   Global Instance ret_propR {A} {RA: relation A} : Proper (RA ==> RM RA) (@ret _ M _ A).
   Proof.

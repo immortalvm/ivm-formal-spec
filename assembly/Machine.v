@@ -331,11 +331,72 @@ Section monotonicity_section.
 
   Let RS : relation State := proj_relation (proj_prod MEM OUT_IMAGE) (prod_relation memRel oiRel).
 
-  Let RM {A} (R: relation A) : relation (M A) := liftRel RS R.
+  Let RM {A} (R: relation A) : relation (M A) := est_relation RS R.
+
+  Instance load_propR : Proper (eq ==> RM eq) load.
+  Proof.
+    intros a a' Ha. subst a'.
+    intros s s' Hs.
+    unfold load.
+    destruct (decision (available a)) as [Ha|Ha].
+    - unfold get'.
+      unshelve eapply bind_propR.
+      + exact memRel.
+      + unshelve eapply proper_prf.
+        unshelve eapply bind_propR.
+        * exact RS.
+        * apply get_propR.
+        * intros t t' Ht.
+          unshelve eapply (@ret_propR State RS Memory memRel).
+          destruct Ht as [_ [Ht _]].
+          exact Ht.
+      + intros m m' Hm.
+        specialize (Hm a Ha).
+        destruct (m a Ha) as [x|] eqn:Hx;
+        destruct (m' a Ha) as [x'|] eqn:Hx'.
+        * specialize (Hm I).
+          inversion Hm.
+          subst x'.
+          intros t t' Ht.
+          split; [assumption|reflexivity].
+        * specialize (Hm I).
+          discriminate Hm.
+        * intros t t' Ht. exact I.
+        * intros t t' Ht. exact I.
+      + exact Hs.
+    - exact I.
+  Qed.
+
+  (************* Continue from here ***********)
+
+  (* TODO: Create specialized tactic! *)
 
   Global Instance oneStep_propR : Proper (RM eq) oneStep.
   Proof.
-    (************* Continue from here ***********)
+    unfold oneStep.
+    unshelve eapply bind_propR.
+    - exact eq.
+    - intros s s' Hs.
+      unfold nextN, next.
+      simpl.
+
+      destruct (next 1 s) as [x|]; destruct (next 1 s') as
+
+unfold RS, est_relation.
+      simpl.
+
+
+reflexivity.
+
+
+      Unshelve.
+    3: exact eq.
+    reflexivity.
+repeat shelve. Unshelve.
+
+
+    intros s s' Hs.
+
 
 
 
