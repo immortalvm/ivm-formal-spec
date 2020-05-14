@@ -365,26 +365,78 @@ Section relation_section.
 
   Context (R: relation X).
 
-  Definition liftRel : relation S :=
+  Definition proj_relation : relation S :=
     fun s s' => aligned s s' /\ R (proj s) (proj s').
 
-  Instance liftRel_reflexive {H_reflexive: Reflexive R} : Reflexive liftRel.
+  Instance proj_relation_reflexive {H_reflexive: Reflexive R} : Reflexive proj_relation.
   Proof.
-    unfold liftRel. intros s. split; reflexivity.
+    unfold proj_relation. intros s. split; reflexivity.
   Qed.
 
-  Instance liftRel_symmetric {H_symmetric: Symmetric R} : Symmetric liftRel.
+  Instance proj_relation_symmetric {H_symmetric: Symmetric R} : Symmetric proj_relation.
   Proof.
-    unfold liftRel. intros s s' [? ?].
+    unfold proj_relation. intros s s' [? ?].
     split; symmetry; assumption.
   Qed.
 
-  Instance liftRel_transitive {H_transitive: Transitive R} : Transitive liftRel.
+  Instance proj_relation_transitive {H_transitive: Transitive R} : Transitive proj_relation.
   Proof.
-    unfold liftRel. intros s1 s2 s3 [? ?] [? ?].
+    unfold proj_relation. intros s1 s2 s3 [? ?] [? ?].
     split.
     - transitivity s2; assumption.
     - transitivity (proj s2); assumption.
   Qed.
 
 End relation_section.
+
+Require Import Assembly.Convenience.
+
+Section proper_section.
+
+  Context {S} (RS: relation S).
+
+  Local Notation M := (EST S).
+
+  Definition liftRel {A} (RA: relation A) : relation (M A) :=
+    (RS ==> option_relation (prod_relation RS RA))%signature.
+
+  Local Notation RM := (liftRel).
+
+  Global Instance ret_propR {A} {RA: relation A} : Proper (RA ==> RM RA) (@ret _ M _ A).
+  Proof.
+    intros a a' Ha.
+    intros s s' Hs.
+    simpl.
+    split; assumption.
+  Qed.
+
+  Global Instance bind_propR {A B} {RA: relation A} {RB: relation B} :
+    Proper (RM RA ==> (RA ==> RM RB) ==> RM RB) (@bind _ M _ A B).
+  Proof.
+    intros ma ma' Hma f f' Hf.
+    intros s s' Hs. simpl.
+    specialize (Hma s s' Hs).
+    destruct (ma s) as [(t,a)|]; destruct (ma' s') as [(t',a')|].
+    - destruct Hma as [Ht Ha].
+      exact (Hf _ _ Ha _ _ Ht).
+    - contradict Hma.
+    - exact I.
+    - exact I.
+  Qed.
+
+  Global Instance get_propR : Proper (RM RS) get.
+  Proof.
+    intros s s' Hs.
+    split; assumption.
+  Qed.
+
+  Global Instance put_propR : Proper (RS ==> RM eq) put.
+  Proof.
+    intros s s' Hs.
+    intros t t' Ht.
+    split.
+    - assumption.
+    - reflexivity.
+  Qed.
+
+End proper_section.

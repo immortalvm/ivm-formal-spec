@@ -260,191 +260,87 @@ Definition oneStep : M bool :=
   end.
 
 
-(** Verification *)
+(** ** Specialization *)
 
 Arguments proj : clear implicits.
 Arguments proj {_} {_}.
 Arguments update : clear implicits.
 Arguments update {_} {_}.
 
-Definition memGuard (m m': Memory) : Memory :=
-  fun a H => match m a H with None => None | _ => m' a H end.
+
+(** *** Memory specialization *)
+
+Definition memRel (m m': Memory) := forall a Ha, m a Ha -> m' a Ha = m a Ha.
+
+Instance memRel_reflexive : Reflexive memRel.
+Proof.
+  intros m a Ha H. reflexivity.
+Qed.
+
+Instance memRel_transitive : Transitive memRel.
+Proof.
+  intros m1 m2 m3 H12 H23 a Ha H.
+  derive H (some_some H).
+  destruct H as [x H].
+  specialize (H12 a Ha). rewrite H in H12. specialize (H12 I).
+  specialize (H23 a Ha). rewrite H12 in H23. specialize (H23 I).
+  rewrite H, H23.
+  reflexivity.
+Qed.
+
+
+(** *** Output image specialization *)
 
 Import EqNotations.
 
-Definition pixelGuard {C}
-           {img img': Image (option C)}
-           (Hw: width img = width img')
-           (Hh: height img = height img') : Image (option C) :=
-{|
-  width := width img;
-  height := height img;
-  pixel x Hx y Hy := match pixel img Hx Hy with
-                     | None => None
-                     | _ => pixel img' (rew Hw in Hx) (rew Hh in Hy)
-                     end;
-|}.
-
-Lemma image_extensionality {C}
-      (img img': Image C)
-      (Hw: width img = width img')
-      (Hh: height img = height img')
-      (Hp: forall x Hx y Hy, @pixel C img x Hx y Hy =
-                        @pixel C img' x (rew Hw in Hx) y (rew Hh in Hy)): img = img'.
-Proof.
-  destruct img as [w h p].
-  destruct img' as [w' h' p'].
-  simpl in *.
-  subst w' h'.
-  assert (p = p') as H.
-  - apply functional_extensionality_dep. intros x.
-    apply functional_extensionality_dep. intros Hx.
-    apply functional_extensionality_dep. intros y.
-    apply functional_extensionality_dep. intros Hy.
-    apply Hp.
-  - rewrite H. reflexivity.
-Qed.
-
-(* When [s] and [s'] are identical, except that the memory contents
-   and output pixels of [s'] can be more defined. *)
-Definition Specializes (s s': State) : Prop :=
-  let i  := proj OUT_IMAGE s in
-  let i' := proj OUT_IMAGE s' in
+Definition oiRel (i i': Image (option OutputColor)) :=
   exists (Hw: width i = width i')
     (Hh: height i = height i'),
-    let mem := memGuard (proj MEM s) (proj MEM s') in
-    let img := pixelGuard Hw Hh in
-    update OUT_IMAGE (update MEM s' mem) img = s.
+    forall x Hx y Hy, @pixel _ i x Hx y Hy ->
+                 @pixel _ i x Hx y Hy =
+                 @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
 
-Infix "⊑" := Specializes (at level 99).
-
-Instance specializes_reflexive : Reflexive Specializes.
+Instance oiRel_reflexive : Reflexive oiRel.
 Proof.
-  intro s.
-  unfold Specializes.
+  intros i.
   exists eq_refl, eq_refl.
-  assert (memGuard (proj MEM s) (proj MEM s) = proj MEM s) as Hm.
-  - apply functional_extensionality_dep. intros a.
-    apply functional_extensionality_dep. intros H.
-    unfold memGuard. destruct (proj MEM s a H); reflexivity.
-  - rewrite Hm, update_proj.
-    assert (@pixelGuard _ (proj OUT_IMAGE s) _ eq_refl eq_refl = proj OUT_IMAGE s) as Hi.
-    + eapply image_extensionality. shelve. Unshelve.
-      * reflexivity.
-      * reflexivity.
-      * intros x Hx y Hy.
-        simpl.
-        destruct (pixel (proj OUT_IMAGE s) Hx Hy); reflexivity.
-    + rewrite Hi. rewrite update_proj. reflexivity.
-Qed.
-
-Lemma specializes_mem {s s'} (Hsp: Specializes s s') {a Ha} :
-  proj MEM s a Ha -> proj MEM s' a Ha = proj MEM s a Ha.
-Proof.
-  intro Hx.
-  derive Hx (some_some Hx).
-  destruct Hx as [x Hx].
-  destruct Hsp as [Hw [Hh Hsp]].
-  simpl in Hsp.
-  derive Hsp (f_equal (proj MEM) Hsp).
-  rewrite projX_updateY, proj_update in Hsp.
-  rewrite <- Hsp.
-  unfold memGuard.
-  rewrite Hx.
+  intros x Hx y Hy.
   reflexivity.
 Qed.
 
-Definition specializes_Hw {s s'} (Hsp: Specializes s s') : width (proj OUT_IMAGE s) = width (proj OUT_IMAGE s').
+Instance oiRel_transitive : Transitive oiRel.
 Proof.
-  destruct Hsp as [Hw _].
-  exact Hw.
-Defined.
-
-Definition specializes_Hh {s s'} (Hsp: Specializes s s') : height (proj OUT_IMAGE s) = height (proj OUT_IMAGE s').
-Proof.
-  destruct Hsp as [_ [Hh _]].
-  exact Hh.
-Defined.
-
-Lemma specializes_pix {s s'} (Hsp: Specializes s s') {x Hx y Hy} :
-    let img := proj OUT_IMAGE s in
-    let img' := proj OUT_IMAGE s' in
-    let p := @pixel _ img x Hx y Hy in
-    let p' := pixel img'
-                    (rew (specializes_Hw Hsp) in Hx)
-                    (rew (specializes_Hh Hsp) in Hy) in
-    p -> p' = p.
-Proof.
-  destruct Hsp as [Hw [Hh Hsp]].
-  simpl in *.
-  intros Hc.
-  derive Hc (some_some Hc).
-  destruct Hc as [c Hc].
-  derive Hsp (f_equal (proj OUT_IMAGE) Hsp).
-  rewrite proj_update in Hsp.
-  unfold pixelGuard in Hsp.
-  destruct (proj OUT_IMAGE s) as [w h p].
-  simpl in *.
-  derive Hsp (inj_right_image Hsp).
-  rewrite <- Hsp.
-  rewrite Hc in *.
+  intros i1 i2 i3 [Hw12 [Hh12 H12]] [Hw23 [Hh23 H23]].
+  exists (eq_Transitive _ _ _ Hw12 Hw23).
+  exists (eq_Transitive _ _ _ Hh12 Hh23).
+  intros x Hx y Hy H.
+  derive H (some_some H).
+  destruct H as [c H].
+  specialize (H12 x Hx y Hy). rewrite H in *. specialize (H12 I).
+  specialize (H23 x (rew Hw12 in Hx) y (rew Hh12 in Hy)). rewrite <- H12 in H23. specialize (H23 I).
+  rewrite H23.
+  unfold eq_Transitive.
+  do 2 rewrite rew_compose.
   reflexivity.
-Defined.
-
-Instance specializes_transitive : Transitive Specializes.
-Proof.
-  unfold Specializes.
-  intros s1 s2 s3 H12 H23.
-  rewrite <- H12 at 2.
-  rewrite <- H23 at 1.
-  rewrite update_update.
-  f_equal.
-  apply functional_extensionality_dep. intros a.
-  apply functional_extensionality_dep. intros H.
-  unfold memGuard.
-  destruct (decision (proj MEM s1 a H)) as [Hd|Hd].
-  - derive Hd (some_some Hd).
-    destruct Hd as [x H1].
-    rewrite H1.
-    set (H2 := specializes_lemma H12 H1).
-    rewrite H2.
-    exact (specializes_lemma H23 H2).
-  - derive Hd (not_some_none Hd).
-    rewrite Hd.
-    reflexivity.
 Qed.
 
 
+(** ** Monotonicity *)
 
+Section monotonicity_section.
 
-Add Relation State Specializes
-    reflexivity proved by specializes_reflexive
-    transitivity proved by specializes_transitive as specializes_rel.
+  Let RS : relation State := proj_relation (proj_prod MEM OUT_IMAGE) (prod_relation memRel oiRel).
 
-Definition Specializes' {A} (p p': option (State * A)) :=
-  match p with
-  | Some (s, a) => exists s', p' = Some (s', a) /\ Specializes s s'
-  | _ => False
-  end.
+  Let RM {A} (R: relation A) : relation (M A) := liftRel RS R.
 
-
-
-Definition Monotone {A} (ma: M A) :=
-  forall {s1 s2 a} (H1: ma s1 = Some (s2, a))
-    {s1'} (Hs: Specializes s1 s1'),
-  exists s2', ma s1' = Some (s2', a) /\ Specializes s2 s2'.
-
-
-    s s',  ->
-
-Lemma oneStep_monotone
-      {s1 s2} (Hst: oneStep s1 = Some (s2, true))
-      {s1'} (Hsp: Specializes s1 s1') :
-  { s2' | oneStep s1' = Some (s2', true) /\ Specializes s2 s2' }.
-Proof.
+  Global Instance oneStep_propR : Proper (RM eq) oneStep.
+  Proof.
+    (************* Continue from here ***********)
 
 
 
+
+(*************** Rewrite/remove below *****************)
 
 Inductive Reach (stop: State) : forall (start: State), Prop :=
 | Stop s : Specializes stop s -> Reach stop s

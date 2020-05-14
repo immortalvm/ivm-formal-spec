@@ -70,3 +70,58 @@ Proof.
   - simp to_list. intro Heq.
     f_equal; [|apply (IH u v)]; congruence.
 Qed.
+
+
+(** ** Relations *)
+
+Section relation_section.
+
+  Require Import Coq.Relations.Relations.
+  Require Import Coq.Classes.RelationClasses.
+
+  Context {X} (RX: relation X).
+
+  Definition option_relation : relation (option X) :=
+    fun x x' => match x, x' with
+             | None, _ => True
+             | Some _, None => False
+             | Some x, Some x' => RX x x'
+             end.
+
+  Instance option_relation_reflexive {HrX: Reflexive RX} : Reflexive option_relation.
+  Proof.
+    unfold option_relation. intros [x|]; reflexivity.
+  Qed.
+
+  Instance option_relation_transitive {HtX: Transitive RX} : Transitive option_relation.
+  Proof.
+    unfold option_relation.
+    intros [x|] [y|] [z|] Hxy Hyz; try assumption.
+    - transitivity y; assumption.
+    - exfalso. assumption.
+  Qed.
+
+  Context {Y} (RY: relation Y).
+
+  Definition prod_relation : relation (X * Y) :=
+    fun xy xy' => match xy, xy' with (x,y), (x',y') => RX x x' /\ RY y y' end.
+
+  Instance prod_relation_reflexive {HrX: Reflexive RX} {HrY: Reflexive RY} : Reflexive prod_relation.
+  Proof.
+    intros [x y]. split; reflexivity.
+  Qed.
+
+  Instance prod_relation_symmetric {HrX: Symmetric RX} {HrY: Symmetric RY} : Symmetric prod_relation.
+  Proof.
+    intros [x y] [x1 y1] [Hx Hy]. split; symmetry; assumption.
+  Qed.
+
+  Instance prod_relation_transitive {HrX: Transitive RX} {HrY: Transitive RY} : Transitive prod_relation.
+  Proof.
+    intros [x1 y1] [x2 y2] [x3 y3] [Hx12 Hy12] [Hx23 Hy23].
+    split.
+    - transitivity x2; assumption.
+    - transitivity y2; assumption.
+  Qed.
+
+End relation_section.
