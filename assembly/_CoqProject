@@ -8,3 +8,4 @@ Dec.v
 Convenience.v
 Operations.v
 Machine.v
+Asm.v
