@@ -1,5 +1,8 @@
 Require Import Utf8.
 
+
+(** Options *)
+
 Notation as_bool x := (if x then true else false).
 
 Definition is_some {A} (x: option A) : Prop := if x then True else False.
@@ -25,6 +28,9 @@ Proof.
   - easy.
 Qed.
 
+
+(** Tactics *)
+
 Require Export Coq.micromega.Lia.
 
 Tactic Notation "by_lia" constr(P) "as" ident(H) := assert P as H; [lia|].
@@ -36,6 +42,17 @@ Ltac derive name term :=
   [ exact term | ];
   clear name;
   rename H into name.
+
+(** Borrowed from http://ropas.snu.ac.kr/gmeta/source/html/LibTactics.html. *)
+Ltac destructs H :=
+let X := fresh in
+let Y := fresh in
+first [ destruct H as [X Y]; destructs X; destructs Y | idtac ].
+
+Ltac idestructs := repeat (let X := fresh in intro X; destructs X).
+
+
+(** ** Vectors and lists *)
 
 Require Export Coq.Vectors.Vector.
 
@@ -88,12 +105,12 @@ Section relation_section.
              | Some x, Some x' => RX x x'
              end.
 
-  Instance option_relation_reflexive {HrX: Reflexive RX} : Reflexive option_relation.
+  Global Instance option_relation_reflexive {HrX: Reflexive RX} : Reflexive option_relation.
   Proof.
     unfold option_relation. intros [x|]; reflexivity.
   Qed.
 
-  Instance option_relation_transitive {HtX: Transitive RX} : Transitive option_relation.
+  Global Instance option_relation_transitive {HtX: Transitive RX} : Transitive option_relation.
   Proof.
     unfold option_relation.
     intros [x|] [y|] [z|] Hxy Hyz; try assumption.
@@ -106,17 +123,17 @@ Section relation_section.
   Definition prod_relation : relation (X * Y) :=
     fun xy xy' => match xy, xy' with (x,y), (x',y') => RX x x' /\ RY y y' end.
 
-  Instance prod_relation_reflexive {HrX: Reflexive RX} {HrY: Reflexive RY} : Reflexive prod_relation.
+  Global Instance prod_relation_reflexive {HrX: Reflexive RX} {HrY: Reflexive RY} : Reflexive prod_relation.
   Proof.
     intros [x y]. split; reflexivity.
   Qed.
 
-  Instance prod_relation_symmetric {HrX: Symmetric RX} {HrY: Symmetric RY} : Symmetric prod_relation.
+  Global Instance prod_relation_symmetric {HrX: Symmetric RX} {HrY: Symmetric RY} : Symmetric prod_relation.
   Proof.
     intros [x y] [x1 y1] [Hx Hy]. split; symmetry; assumption.
   Qed.
 
-  Instance prod_relation_transitive {HrX: Transitive RX} {HrY: Transitive RY} : Transitive prod_relation.
+  Global Instance prod_relation_transitive {HrX: Transitive RX} {HrY: Transitive RY} : Transitive prod_relation.
   Proof.
     intros [x1 y1] [x2 y2] [x3 y3] [Hx12 Hy12] [Hx23 Hy23].
     split.

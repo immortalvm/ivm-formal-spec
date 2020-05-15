@@ -6,6 +6,7 @@ Set Equations With UIP.
 Require Export Coq.Logic.FunctionalExtensionality.
 Require Export Coq.Classes.Morphisms.
 Require Export Coq.Setoids.Setoid.
+Require Import Assembly.Convenience.
 
 
 (** ** Error/state monad *)
@@ -13,6 +14,13 @@ Require Export Coq.Setoids.Setoid.
 Declare Scope monad_scope.
 
 Reserved Notation "ma >>= f" (at level 69, left associativity).
+
+(* TODO: Rename?
+   monad_right -> bind_ret
+   monad_left  -> ret_bind
+   monad_assoc -> bind_assoc
+   err_right -> bind_err
+   err_left -> err_bind *)
 
 Class SMonad (S: Type) (m: Type -> Type): Type :=
 {
@@ -53,25 +61,84 @@ Notation "ma ;; mb" := (bind ma (fun _ => mb))
                           format "'[hv' ma ;;  '//' mb ']'") : monad_scope.
 
 
+(** ** Rewriting *)
+
+Open Scope monad_scope.
+
+Instance bind_proper {S m} {SM: SMonad S m} {A B}:
+  Proper ( eq ==> pointwise_relation A eq ==> eq ) (@bind S m SM A B).
+Proof.
+  intros ma ma' H_ma f f' H_f. f_equal.
+  - exact H_ma.
+  - apply functional_extensionality. intros a. f_equal.
+Qed.
+
+Lemma unit_lemma {A} (f: unit -> A) : f = fun _ => f tt.
+Proof.
+  apply functional_extensionality. intros []. reflexivity.
+Qed.
+
+Lemma monad_right' {S m} {SM: SMonad S m} (mu: m unit) : mu;; ret tt = mu.
+Proof.
+  rewrite <- monad_right.
+  setoid_rewrite unit_lemma.
+  reflexivity.
+Qed.
+
+Lemma put_put' {S m} {SM: SMonad S m} (s s' : S) {B} (f: unit -> m B) :
+  put s;; (put s' >>= f) = put s' >>= f.
+Proof.
+  rewrite <- monad_assoc, put_put.
+  reflexivity.
+Qed.
+
+Create HintDb smon discriminated.
+
+(** As of Coq 8.11.1, [rewrite_strat] does not work reliably with "hints"
+    and "repeat", see https://github.com/coq/coq/issues/4197.
+    See also: https://stackoverflow.com/a/39348396 *)
+
+Hint Rewrite @monad_right using (typeclasses eauto) : smon.
+Hint Rewrite @monad_right' using (typeclasses eauto) : smon.
+Hint Rewrite @monad_left using (typeclasses eauto) : smon.
+Hint Rewrite @monad_assoc using (typeclasses eauto) : smon.
+Hint Rewrite @err_right using (typeclasses eauto) : smon.
+Hint Rewrite @err_left using (typeclasses eauto) : smon.
+Hint Rewrite @put_put using (typeclasses eauto) : smon.
+Hint Rewrite @put_put' using (typeclasses eauto) : smon.
+Hint Rewrite @put_get using (typeclasses eauto) : smon.
+Hint Rewrite @get_put using (typeclasses eauto) : smon.
+Hint Rewrite @get_ret using (typeclasses eauto) : smon.
+Hint Rewrite @get_get using (typeclasses eauto) : smon.
+
+(** For some reason [rewrite_strat (repeat (outermost (hints smon)))]
+    stops prematurely. *)
+(* Ltac smon_rewrite := repeat (rewrite_strat (choice (outermost (hints smon)) (outermost unit_lemma))). *)
+
+Ltac smon_rewrite1 := rewrite_strat (choice (outermost (hints smon))
+                                    (* Add more special cases here if necessary. *)
+                                    (choice (outermost get_put)
+                                    (choice (outermost get_get)
+                                            (outermost unit_lemma)))).
+
+Ltac smon_rewrite := repeat smon_rewrite1.
+
+Goal forall {S m A B} {SM: SMonad S m} (g: S -> A) (f: A -> m B),
+    let* s := get in put s;; f (g s) = let* s := get in f (g s).
+  intros S m A B SM g f.
+  smon_rewrite.
+  reflexivity.
+Qed.
+
 Section state_section.
 
   Context (S: Type).
 
-  Open Scope monad_scope.
-
+  (* TODO: Is this really needed (or even useful)?
   Section m_section.
 
     Context m `{SM: SMonad S m}.
 
-    Global Instance bind_proper {A B}:
-      Proper ( eq ==> pointwise_relation A eq ==> eq ) (@bind S m SM A B).
-    Proof.
-      intros ma ma' H_ma f f' H_f. f_equal.
-      - exact H_ma.
-      - apply functional_extensionality. intros a. f_equal.
-    Qed.
-
-    (* TODO: Is this really needed (or even useful)? *)
     Global Instance put_proper : Proper ( eq ==> eq ) (@put S m SM).
     Proof.
       intros s s' Hs. f_equal. exact Hs.
@@ -83,7 +150,7 @@ Section state_section.
     Qed.
 
   End m_section.
-
+   *)
 
   Class SMorphism m0 `{SM0: SMonad S m0} m1 `{SM1: SMonad S m1} (F: forall {A}, m0 A -> m1 A) :=
   {
@@ -173,19 +240,13 @@ Section state_section.
       f_equal.
       apply functional_extensionality. intros s.
       destruct (ma s) as [[s' a]|].
-      + rewrite -> monad_assoc, monad_left, put_get.
-        destruct (f a s') as [[s'' b]|].
-        * rewrite <- monad_assoc, put_put. reflexivity.
-        * rewrite err_right. reflexivity.
-      + rewrite err_left. reflexivity.
+      + smon_rewrite.
+        destruct (f a s') as [[s'' b]|]; now smon_rewrite.
+      + now smon_rewrite.
     - intros A.
-      unfold from_est. simpl. rewrite err_right. reflexivity.
-    - unfold from_est. simpl.
-      rewrite get_put, monad_right. reflexivity.
-    - intros s.
-      unfold from_est. simpl.
-      rewrite get_ret, <- monad_right. f_equal.
-      apply functional_extensionality. intros []. reflexivity.
+      unfold from_est. simpl. now smon_rewrite.
+    - unfold from_est. simpl. now smon_rewrite.
+    - intros s. unfold from_est. simpl. now smon_rewrite.
   Qed.
 
 End state_section.
@@ -202,9 +263,15 @@ Class Proj (S: Type) (X: Type) :=
   update_update (s: S) (x: X) (x': X) : update (update s x) x' = update s x';
 }.
 
-Section proj_section.
+(** Cf. [smon_rewrite] above. *)
+Create HintDb proj discriminated.
+Hint Rewrite @proj_update using (typeclasses eauto) : proj.
+Hint Rewrite @update_proj using (typeclasses eauto) : proj.
+Hint Rewrite @update_update using (typeclasses eauto) : proj.
+Ltac proj_rewrite1 := rewrite_strat (outermost (hints proj)).
+Ltac proj_rewrite := repeat proj_rewrite1.
 
-  Open Scope monad_scope.
+Section proj_section.
 
   Context {S: Type}
           (m: Type -> Type) `{SM: SMonad S m}
@@ -220,40 +287,7 @@ Section proj_section.
     put x := let* s := get in put (update s x);
   }.
   Proof.
-    (* Trivial *)
-    - intros A ma. rewrite monad_right. reflexivity.
-    - intros A a B f. rewrite monad_left. reflexivity.
-    - intros A ma B f C g. rewrite monad_assoc. reflexivity.
-    - intros A ma B. rewrite err_right. reflexivity.
-    - intros A ma B. rewrite err_left. reflexivity.
-
-    (* Almost trivial *)
-    - intros x x'.
-      rewrite monad_assoc.
-      f_equal. apply functional_extensionality. intros s.
-      rewrite put_get, put_put, update_update. reflexivity.
-    - intros x B f.
-      repeat rewrite monad_assoc.
-      f_equal. apply functional_extensionality. intros s.
-      rewrite put_get, proj_update, monad_left.
-      reflexivity.
-    - intros B f.
-      repeat setoid_rewrite monad_assoc.
-      setoid_rewrite monad_left.
-      rewrite get_get.
-      setoid_rewrite update_proj.
-      setoid_rewrite get_put.
-      reflexivity.
-    - intros B mb.
-      rewrite monad_assoc.
-      setoid_rewrite monad_left.
-      rewrite get_ret.
-      reflexivity.
-    - intros B f.
-      repeat setoid_rewrite monad_assoc.
-      repeat setoid_rewrite monad_left.
-      rewrite get_get.
-      reflexivity.
+    all: intros; repeat (proj_rewrite1 || smon_rewrite1); reflexivity.
   Defined.
 
 End proj_section.
@@ -270,6 +304,13 @@ Class Independent {S: Type}
 
 (** To see that [independent_commute] does not follow from the other
     properties, consider a square staircase. *)
+
+Create HintDb independent discriminated.
+Hint Rewrite @projY_updateX using (typeclasses eauto) : independent.
+Hint Rewrite @projX_updateY using (typeclasses eauto) : independent.
+Hint Rewrite @independent_commute using (typeclasses eauto) : independent.
+Ltac independent_rewrite1 := rewrite_strat (outermost (hints independent)).
+Ltac independent_rewrite := repeat independent_rewrite1.
 
 Section product_section.
 
@@ -292,15 +333,7 @@ Section product_section.
 
   Program Instance independent_projs : Independent proj_fst proj_snd.
 
-  Context {S} (Hx: Proj S X) (Hy: Proj S Y) {Hd: Independent Hx Hy}.
-
-  Instance independent_symm : Independent Hy Hx.
-  Proof.
-    split.
-    - apply projX_updateY.
-    - apply projY_updateX.
-    - symmetry. apply independent_commute.
-  Qed.
+  Context {S} (PX: Proj S X) (PY: Proj S Y) {Hd: Independent PX PY}.
 
   #[refine]
   Instance proj_prod : Proj S (X * Y) :=
@@ -309,32 +342,26 @@ Section product_section.
     update s pair := update (update s (fst pair)) (snd pair);
   }.
   Proof.
-    - intros s [x y]. simpl.
-      rewrite projX_updateY, proj_update, proj_update.
-      reflexivity.
-    - intros. simpl.
-      do 2 rewrite update_proj.
-      reflexivity.
-    - intros s [x y] [x' y']. simpl.
-      do 2 (rewrite independent_commute, update_update).
-      reflexivity.
+    all: idestructs; now repeat (independent_rewrite1 || proj_rewrite || simpl).
   Defined.
 
-  Context Z (Hz: Proj S Z) (Hdx: Independent Hx Hz) (Hdy: Independent Hy Hz).
+  Context Z (PZ: Proj S Z) (Hdx: Independent PX PZ) (Hdy: Independent PY PZ).
 
-  Instance independent_prod : Independent proj_prod Hz.
+  Global Instance independent_prod : Independent proj_prod PZ.
   Proof.
     split.
-    - intros s [x y].
-      simpl.
-      transitivity (proj (update s x)).
-      + rewrite projY_updateX. reflexivity.
-      + rewrite projY_updateX. reflexivity.
-    - intros s z. simpl. f_equal.
-      + rewrite projX_updateY. reflexivity.
-      + rewrite projX_updateY. reflexivity.
-    - intros s [x y] z. simpl.
-      rewrite independent_commute, (independent_commute (Independent:=Hdx)). reflexivity.
+    - intros s [x y]. simpl.
+      transitivity (proj (update s x)); now independent_rewrite.
+    - intros s z. simpl. f_equal; now independent_rewrite.
+    - intros s [x y] z. simpl. now independent_rewrite.
+  Qed.
+
+  (** Beware: We do not make this global sine together with
+      [independent_commute] it can send [typeclasses eauto]
+      into an infinite loop. *)
+  Instance independent_symm : Independent PY PX.
+  Proof.
+    split; intros; now independent_rewrite.
   Qed.
 
 End product_section.
@@ -348,8 +375,8 @@ Section relation_section.
   Definition aligned (s s' : S) :=
     update s (proj s') = s'.
 
-  (** Thus, [aligned s s'] means that [s] and [s'] are equal except for
-  their projections onto [X]. *)
+  (** In other words, [aligned s s'] means that [s] and [s'] are equal
+      except for their projections onto [X]. *)
 
   Instance aligned_equivalence : Equivalence aligned.
   Proof.
@@ -393,7 +420,7 @@ Require Import Assembly.Convenience.
 
 Section proper_section.
 
-  Context {S} (RS: relation S).
+  Context {S} {RS: relation S}.
 
   Local Notation M := (EST S).
 
@@ -402,7 +429,7 @@ Section proper_section.
 
   Local Notation RM := (est_relation).
 
-  Global Instance ret_propR {A} {RA: relation A} : Proper (RA ==> RM RA) (@ret _ M _ A).
+  Global Instance ret_propR {A} (RA: relation A) : Proper (RA ==> RM RA) (@ret _ M _ A).
   Proof.
     intros a a' Ha.
     intros s s' Hs.
@@ -410,7 +437,7 @@ Section proper_section.
     split; assumption.
   Qed.
 
-  Global Instance bind_propR {A B} {RA: relation A} {RB: relation B} :
+  Global Instance bind_propR {A B} (RA: relation A) (RB: relation B) :
     Proper (RM RA ==> (RA ==> RM RB) ==> RM RB) (@bind _ M _ A B).
   Proof.
     intros ma ma' Hma f f' Hf.
@@ -422,6 +449,11 @@ Section proper_section.
     - contradict Hma.
     - exact I.
     - exact I.
+  Qed.
+
+  Global Instance err_propR {A} (RA: relation A): Proper (RM RA) err.
+  Proof.
+    intros s s' Hs. exact I.
   Qed.
 
   Global Instance get_propR : Proper (RM RS) get.

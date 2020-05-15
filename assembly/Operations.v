@@ -246,50 +246,54 @@ Module core_module (MT: machine_type).
          |}.
 
 
-  (** ** Pairwise independent projections *)
+  (** ** Pairwise independent projections
 
-  Context (independent_PC_SP:    Independent PC SP)
-          (independent_PC_MEM:   Independent PC MEM)
-          (independent_PC_INP:   Independent PC INP)
-          (independent_PC_BYTES: Independent PC OUT_BYTES)
-          (independent_PC_CHARS: Independent PC OUT_CHARS)
-          (independent_PC_SOUND: Independent PC OUT_SOUND)
-          (independent_PC_IMAGE: Independent PC OUT_IMAGE)
-          (independent_PC_LOG:   Independent PC LOG)
+      We choose the pairs with MEM and OUT_IMAGE on the left to avoid
+      relying on the symmetry of [Independent] later (which easily leads
+      to inifinite loops). *)
 
-          (independent_SP_MEM:   Independent SP MEM)
-          (independent_SP_INP:   Independent SP INP)
-          (independent_SP_BYTES: Independent SP OUT_BYTES)
-          (independent_SP_CHARS: Independent SP OUT_CHARS)
-          (independent_SP_SOUND: Independent SP OUT_SOUND)
-          (independent_SP_IMAGE: Independent SP OUT_IMAGE)
-          (independent_SP_LOG:   Independent SP LOG)
-
-          (independent_MEM_INP:   Independent MEM INP)
+  Context (independent_MEM_IMAGE: Independent MEM OUT_IMAGE)
           (independent_MEM_BYTES: Independent MEM OUT_BYTES)
-          (independent_MEM_SOUND: Independent MEM OUT_CHARS)
-          (independent_MEM_CHARS: Independent MEM OUT_SOUND)
-          (independent_MEM_IMAGE: Independent MEM OUT_IMAGE)
+          (independent_MEM_CHARS: Independent MEM OUT_CHARS)
+          (independent_MEM_SOUND: Independent MEM OUT_SOUND)
           (independent_MEM_LOG:   Independent MEM LOG)
+          (independent_MEM_INP:   Independent MEM INP)
+          (independent_MEM_PC:    Independent MEM PC)
+          (independent_MEM_SP:    Independent MEM SP)
 
-          (independent_INP_BYTES: Independent INP OUT_BYTES)
-          (independent_INP_CHARS: Independent INP OUT_CHARS)
-          (independent_INP_SOUND: Independent INP OUT_SOUND)
-          (independent_INP_IMAGE: Independent INP OUT_IMAGE)
-          (independent_INP_LOG:   Independent INP LOG)
+          (independent_IMAGE_BYTES: Independent OUT_IMAGE OUT_BYTES)
+          (independent_IMAGE_CHARS: Independent OUT_IMAGE OUT_CHARS)
+          (independent_IMAGE_SOUND: Independent OUT_IMAGE OUT_SOUND)
+          (independent_IMAGE_LOG:   Independent OUT_IMAGE LOG)
+          (independent_IMAGE_INP:   Independent OUT_IMAGE INP)
+          (independent_IMAGE_PC:    Independent OUT_IMAGE PC)
+          (independent_IMAGE_SP:    Independent OUT_IMAGE SP)
 
           (independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS)
           (independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND)
-          (independent_BYTES_IMAGE: Independent OUT_BYTES OUT_IMAGE)
           (independent_BYTES_LOG:   Independent OUT_BYTES LOG)
+          (independent_BYTES_INP:   Independent OUT_BYTES INP)
+          (independent_BYTES_PC:    Independent OUT_BYTES PC)
+          (independent_BYTES_SP:    Independent OUT_BYTES SP)
 
           (independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND)
-          (independent_CHARS_IMAGE: Independent OUT_CHARS OUT_IMAGE)
           (independent_CHARS_LOG:   Independent OUT_CHARS LOG)
+          (independent_CHARS_INP:   Independent OUT_CHARS INP)
+          (independent_CHARS_PC:    Independent OUT_CHARS PC)
+          (independent_CHARS_SP:    Independent OUT_CHARS SP)
 
-          (independent_SOUND_IMAGE: Independent OUT_SOUND OUT_IMAGE)
           (independent_SOUND_LOG:   Independent OUT_SOUND LOG)
+          (independent_SOUND_INP:   Independent OUT_SOUND INP)
+          (independent_SOUND_PC:    Independent OUT_SOUND PC)
+          (independent_SOUND_SP:    Independent OUT_SOUND SP)
 
-          (independent_IMAGE_LOG: Independent OUT_IMAGE LOG).
+          (independent_LOG_INP:   Independent LOG INP)
+          (independent_LOG_PC:    Independent LOG PC)
+          (independent_LOG_SP:    Independent LOG SP)
+
+          (independent_INP_PC:    Independent INP PC)
+          (independent_INP_SP:    Independent INP SP)
+
+          (independent_PC_SP:    Independent PC SP).
 
 End core_module.
