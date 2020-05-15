@@ -86,14 +86,38 @@ Section monotonicity_section.
   Let RM {A} (R: relation A) : relation (M A) := est_relation (RS:=RS) R.
 
 
+  (** *** Rel *)
+
+  Class Rel (A: Type) := rel : relation A.
+
+  Infix "⊑" := rel (at level 70).
+  Arguments rel : clear implicits.
+  Arguments rel {_} _.
+
+  Class Rela {A} {HA: Rel A} (a a': A) := rela : a ⊑ a'.
+  Notation PropR a := (Rela a a).
+  (* Instance proper_propR {A} {HA: Rel A} (a: A) {Pa: Proper (rel HA) a} : PropR a | 10 := Pa. *)
+
+  Instance eq_Rel A : Rel A | 20 := { rel := eq }.
+  Instance eq_Rela A (a: A) : @Rela A (eq_Rel A) a a := eq_refl.
+
+  Instance fun_Rela {A B} (HA: Rel A) (HB: Rel B) : Rel (A -> B) | 10 :=
+    fun f f' => forall (a a': A), Rela a a' -> Rela (f a) (f' a').
+
+  Instance mem_Rel : Rel Memory := memRel.
+  Instance oi_Rel : Rel (Image _) := oiRel.
+  Instance rs_Rel : Rel State := RS.
+  Instance rm_Rel {A} (HA: Rel A) : Rel (M A) := RM (rel HA).
+
+
   (** *** Get *)
 
-  Instance getMem_propR : Proper (RM memRel) (get' MEM).
+  Instance getMem_propR : PropR (get' MEM).
   Proof.
     intros s s' Hs. split; [|destruct Hs as [_ [Hs _]]]; exact Hs.
   Qed.
 
-  Instance getOi_propR : Proper (RM oiRel) (get' OUT_IMAGE).
+  Instance getOi_propR : PropR (get' OUT_IMAGE).
   Proof.
     intros s s' Hs. split; [|destruct Hs as [_ [_ Hs]]]; exact Hs.
   Qed.
@@ -105,7 +129,7 @@ Section monotonicity_section.
   Instance getOther_propR X
            (PX: Proj State X)
            (Imem: Independent MEM PX)
-           (Ioi: Independent OUT_IMAGE PX) : Proper (RM eq) (get' PX).
+           (Ioi: Independent OUT_IMAGE PX) : PropR (get' PX).
   Proof.
     intros s s' Hs.
     split; [exact Hs|].
@@ -119,9 +143,8 @@ Section monotonicity_section.
 
   (** *** Put *)
 
-  Local Ltac putTactic PX :=
-    intros x x' Hx;
-    try (subst x);
+  Local Ltac putTactic PX x x' Hx:=
+    try (cbv in Hx; subst x);
     intros s s' Hs;
     (split; [|reflexivity]);
     (split; [|split]);
@@ -133,26 +156,28 @@ Section monotonicity_section.
       now rewr
     | |].
 
-  Instance putMem_propR : Proper (memRel ==> RM eq) (put' MEM).
+  Instance putMem_Rela (m m': Memory) (Hm: Rela m m') : Rela (put' MEM m) (put' MEM m').
   Proof.
-    putTactic MEM.
-    - rewr. exact Hx.
+    putTactic MEM m m' Hm.
+    - rewr. exact Hm.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.
 
-  Instance putOi_propR : Proper (oiRel ==> RM eq) (put' OUT_IMAGE).
+  Instance putOi_Rela (i i': Image _) (Hi: Rela i i') : Rela (put' OUT_IMAGE i) (put' OUT_IMAGE i').
   Proof.
-    putTactic OUT_IMAGE.
+    putTactic OUT_IMAGE i i' Hi.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
-    - rewr. exact Hx.
+    - rewr. exact Hi.
   Qed.
 
-  Instance putOther_propR X
+  Instance putOther_Rela X
            (PX: Proj State X)
            (Imem: Independent MEM PX)
-           (Ioi: Independent OUT_IMAGE PX): Proper (eq ==> RM eq) (put' PX).
+           (Ioi: Independent OUT_IMAGE PX)
+           (x x': X)
+           (Hx: Rela x x') : Rela (put' PX x) (put' PX x').
   Proof.
-    putTactic PX.
+    putTactic PX x x' Hx.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.
@@ -160,85 +185,153 @@ Section monotonicity_section.
 
   (** Load *)
 
-  Instance fun_propR {A B} {RB: relation B} (f: A -> B)
-           (HR: forall (a:A), Proper RB (f a)) : Proper (eq ==> RB) f.
+  Instance fun_propR {A B} {HA: Rel A} {HB: Rel B} (f: A -> B)
+           (HR: forall a a' (HR: Rela a a'), Rela (f a) (f a')) : PropR f.
   Proof.
-    intros a a' Ha. subst a'. apply HR.
+    intros a a' Ha. apply HR. exact Ha.
   Qed.
 
-  Instance load_propR : Proper (eq ==> RM eq) load.
+  Global Instance bind_propR {A B} (HA: Rel A) (HB: Rel B) : PropR (@bind _ M _ A B).
   Proof.
-    unfold load.
-
-    match goal with [|- Proper (_ ==> _) _] => apply fun_propR; intro end.
-    match goal with [|- Proper _ (match ?H with left _ => _ | right _ => _ end)]
-                    => destruct H as [HL|HR]
-    end.
-    match goal with [|- Proper (RM _) (bind ?ma _)]
-                    => let RA := match type of ma with
-                                | M State => RS
-                                | M Memory => memRel
-                                | M (Image OutputColor) => oiRel
-                                end in
-                      unshelve eapply bind_propR; [exact RA | |]
-    end.
-    match goal with [|- ?R ?ma ?ma] =>
-                    let RA := match type of ma with
-                                | M State => RS
-                                | M Memory => memRel
-                                | M (Image OutputColor) => oiRel
-                                end in
-                    enough (Proper (RM RA) ma) end.
-
-
-  (************* Continue from here ***********)
-
-
-    apply fun_propR. intros a.
-    destruct (decision (available a)) as [Ha|Ha].
-    unshelve eapply bind_propR.
-    - exact memRel.
-    - exact getMem_propR.
-    - fold Memory.
-      intros s s' Hs.
-      specialize (Hs a Ha).
-      destruct (s a Ha) as [x|] eqn:Hx.
-      + specialize (Hs I).
-        destruct (s' a Ha) as [x'|] eqn:Hx'.
-        * apply ret_propR. congruence.
-        * discriminate Hs.
-      + exact (err_propR (@eq Cell)).
-    - apply err_propR.
+    intros ma ma' Hma f f' Hf.
+    intros s s' Hs. simpl.
+    specialize (Hma s s' Hs).
+    destruct (ma s) as [(t,a)|]; destruct (ma' s') as [(t',a')|].
+    - destruct Hma as [Ht Ha].
+      exact (Hf _ _ Ha _ _ Ht).
+    - contradict Hma.
+    - exact I.
+    - exact I.
   Qed.
 
+  Global Instance err_propR {A} (HA: Rel A): PropR (err: M A).
+  Proof.
+    intros s s' Hs. exact I.
+  Qed.
 
-  (* TODO: Create specialized tactic! *)
+  Global Instance ret_propR {A} (HA: Rel A) (a a': A) (Ha: @Rela _ HA a a') : @Rela _ (rm_Rel HA) (ret a) (ret a').
+  Proof.
+    intros s s' Hs.
+    simpl.
+    split; assumption.
+  Qed.
 
-  Global Instance oneStep_propR : Proper (RM eq) oneStep.
+  Ltac crush :=
+  match goal with
+  | [|- PropR ?a] =>
+    match type of a with
+    | (_ -> _) -> _ =>
+      apply fun_propR;
+        let f := fresh "f" in
+        let g := fresh "g" in
+        let Hfg := fresh "Hfg" in
+        intros f g Hfg
+    | _ -> _ =>
+      apply fun_propR;
+        let x := fresh "x" in
+        let y := fresh "y" in
+        let Hxy := fresh "Hxy" in
+        intros x y Hxy
+    end
+  | [H : @Rela _ (eq_Rel _) ?x ?x' |- _] => cbv in H; first [subst x|subst x']
+
+  | [|- Rela (match ?H with left _ => _ | right _ => _ end) _] => destruct H as [HL|HR]
+
+  | [|- Rela (bind _ _) (bind _ _)] => unshelve eapply bind_propR
+
+  | [|- Rela (ret _) (ret _)] => unshelve eapply ret_propR
+
+  | [|- Rela err _] => unshelve eapply err_propR
+
+  | [|- PropR _] => typeclasses eauto
+
+  | [|- Rela (match ?H with Some _ => _ | None => _ end) _] =>
+    let u := fresh "u" in
+    let Hu := fresh "Hu" in
+    destruct H as [u|] eqn:Hu
+
+  | [|- Rela _ (match ?H with Some _ => _ | None => _ end)] =>
+    let v := fresh "v" in
+    let Hv := fresh "Hv" in
+    destruct H as [v|] eqn:Hv
+
+  | [|- Rela (put' MEM _) (put' MEM _)] => unshelve eapply putMem_Rela
+  | [|- Rela (put' OUT_IMAGE _) (put' OUT_IMAGE _)] => unshelve eapply putOi_Rela
+  | [|- Rela (put' _ _) (put' _ _)] => unshelve eapply putOther_Rela
+
+  | _ => unfold popMany, pushMany
+
+  end.
+
+  Instance load_propR a : PropR (load a).
+  Proof.
+    repeat (crush || unfold load);
+      specialize (Hfg a HL); rewrite Hu, Hv in *.
+    - injection (Hfg I). congruence.
+    - discriminate (Hfg I).
+  Qed.
+
+  Instance nextN_propR n : PropR (nextN n).
+  Proof.
+    repeat (crush || unfold nextN, next).
+    revert y.
+    induction n as [|n IH];
+      intro a;
+      repeat (crush || simp loadMany).
+  Qed.
+
+  Instance popN_propR: PropR popN.
+  Proof.
+    unfold popN. repeat (crush; unfold loadMany).
+  Qed.
+
+  Instance pop64_propR: PropR pop64.
+  Proof.
+    unfold pop64. repeat crush.
+  Qed.
+
+  Instance storeMany_propR a lst : PropR (storeMany a lst).
+  Proof.
+    revert a.
+    induction lst as [|x r IH]; intro a; repeat (crush || simp storeMany).
+    unfold store.
+    repeat crush.
+    intros a' HL'.
+    destruct (eq_dec a a') as [Ha|Ha]; [easy|].
+    specialize (Hfg a' HL').
+    destruct (f a' HL') as [fa'|] eqn:Hfa.
+    - exact Hfg.
+    - intros [].
+  Qed.
+
+  Instance push64_propR z: PropR (push64 z).
+  Proof.
+    unfold push64. repeat crush.
+  Qed.
+
+  Instance loadN_propR n a : PropR (loadN n a).
+  Proof.
+    unfold loadN. repeat crush.
+    revert a.
+    induction n as [|n IH]; intro a; simp loadMany; repeat crush.
+  Qed.
+
+  Instance storeZ_propR n a z : PropR (storeZ n a z).
+  Proof.
+    unfold storeZ. repeat crush.
+  Qed.
+
+  Global Instance oneStep_propR : PropR oneStep.
   Proof.
     unfold oneStep.
-    unshelve eapply bind_propR.
-    - exact eq.
-    - intros s s' Hs.
-      unfold nextN, next.
-      simpl.
-
-      destruct (next 1 s) as [x|]; destruct (next 1 s') as
-
-unfold RS, est_relation.
-      simpl.
+    repeat crush.
+    destruct y as [|n]; repeat crush.
+    (* TODO: Increase to 256. Beware: It takes a long time! *)
+    do 23 (try (destruct n as [|n]; idtac "."; simp oneStep'; repeat crush)).
 
 
-reflexivity.
 
-
-      Unshelve.
-    3: exact eq.
-    reflexivity.
-repeat shelve. Unshelve.
-
-
-    intros s s' Hs.
+    (********** Continue from here *********)
 
 
 

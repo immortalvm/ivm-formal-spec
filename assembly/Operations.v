@@ -16,15 +16,16 @@ Open Scope monad_scope.
 
 
 Notation "'assert*' P 'in' result" :=
-  (if (decision P%type) then result else err) (at level 70).
+  (if (decision P%type) then result else err) (at level 60, right associativity,
+                                              format "'[hv' assert*  P  'in'  '//' result ']'") : monad_scope.
 
 Notation "'assert*' P 'as' H 'in' result" :=
   (match (decision P%type) with
    | left H => result
    | right _ => err
-   end) (at level 70).
+   end) (at level 60, right associativity,
+         format "'[hv' assert*  P  'as'  H  'in'  '//' result ']'") : monad_scope.
 
-(* It seems RecordUpdate does not handle dependent types. *)
 Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
 {|
   width := width im;
