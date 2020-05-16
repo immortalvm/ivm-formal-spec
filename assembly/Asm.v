@@ -90,19 +90,34 @@ Section monotonicity_section.
 
   Class Rel (A: Type) := rel : relation A.
 
-  Infix "⊑" := rel (at level 70).
   Arguments rel : clear implicits.
   Arguments rel {_} _.
+  Class Rela {A} {HA: Rel A} (a a': A) := rela : rel HA a a'.
+  Infix "⊑" := Rela (at level 70).
 
-  Class Rela {A} {HA: Rel A} (a a': A) := rela : a ⊑ a'.
-  Notation PropR a := (Rela a a).
+  Notation PropR a := (a ⊑ a).
   (* Instance proper_propR {A} {HA: Rel A} (a: A) {Pa: Proper (rel HA) a} : PropR a | 10 := Pa. *)
 
   Instance eq_Rel A : Rel A | 20 := { rel := eq }.
   Instance eq_Rela A (a: A) : @Rela A (eq_Rel A) a a := eq_refl.
 
-  Instance fun_Rela {A B} (HA: Rel A) (HB: Rel B) : Rel (A -> B) | 10 :=
-    fun f f' => forall (a a': A), Rela a a' -> Rela (f a) (f' a').
+  Instance fun_Rel {A B} (HA: Rel A) (HB: Rel B) : Rel (A -> B) | 10 :=
+    fun f f' => forall (a a': A), a ⊑ a' -> f a ⊑ f' a'.
+
+  (* TODO: Coordinate with option_relation and prod_relation!! *)
+  Instance opt_Rel {A} (HA: Rel A) : Rel (option A) | 5 :=
+    fun x x' =>
+      match x, x' with
+      | None, _ => True
+      | Some _, None => False
+      | Some x, Some x' => x ⊑ x'
+      end.
+
+  Instance prod_Rel {A B} (HA: Rel A) (HB: Rel B) : Rel (A * B) | 5 :=
+    fun p p' =>
+      match p, p' with
+      | (a, b), (a', b') => a ⊑ a' /\ b ⊑ b'
+      end.
 
   Instance mem_Rel : Rel Memory := memRel.
   Instance oi_Rel : Rel (Image _) := oiRel.
@@ -156,14 +171,14 @@ Section monotonicity_section.
       now rewr
     | |].
 
-  Instance putMem_Rela (m m': Memory) (Hm: Rela m m') : Rela (put' MEM m) (put' MEM m').
+  Instance putMem_Rela (m m': Memory) (Hm: m ⊑ m') : put' MEM m ⊑ put' MEM m'.
   Proof.
     putTactic MEM m m' Hm.
     - rewr. exact Hm.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.
 
-  Instance putOi_Rela (i i': Image _) (Hi: Rela i i') : Rela (put' OUT_IMAGE i) (put' OUT_IMAGE i').
+  Instance putOi_Rela (i i': Image _) (Hi: i ⊑ i') : put' OUT_IMAGE i ⊑ put' OUT_IMAGE i'.
   Proof.
     putTactic OUT_IMAGE i i' Hi.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
@@ -175,7 +190,7 @@ Section monotonicity_section.
            (Imem: Independent MEM PX)
            (Ioi: Independent OUT_IMAGE PX)
            (x x': X)
-           (Hx: Rela x x') : Rela (put' PX x) (put' PX x').
+           (Hx: x ⊑ x') : put' PX x ⊑ put' PX x'.
   Proof.
     putTactic PX x x' Hx.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
@@ -273,16 +288,17 @@ Section monotonicity_section.
 
   Instance nextN_propR n : PropR (nextN n).
   Proof.
-    repeat (crush || unfold nextN, next).
+    repeat (unfold nextN, next; crush).
     revert y.
     induction n as [|n IH];
       intro a;
-      repeat (crush || simp loadMany).
+      simp loadMany;
+      repeat crush.
   Qed.
 
   Instance popN_propR: PropR popN.
   Proof.
-    unfold popN. repeat (crush; unfold loadMany).
+    repeat (unfold popN, loadMany; crush).
   Qed.
 
   Instance pop64_propR: PropR pop64.
@@ -326,73 +342,86 @@ Section monotonicity_section.
     unfold oneStep.
     repeat crush.
     destruct y as [|n]; repeat crush.
-    (* TODO: Increase to 256. Beware: It takes a long time! *)
-    do 23 (try (destruct n as [|n]; idtac "."; simp oneStep'; repeat crush)).
-
+    (* TODO: Increase to 256. Beware: It will take a long time! *)
+    Ltac print := match goal with [|- _ (_ ?i)] => idtac i end.
+    do 23 (try (destruct n as [|n]; print; simp oneStep'; repeat crush)).
 
 
     (********** Continue from here *********)
 
+  Admitted.
 
 
+(** ** Certified programs *)
 
-
-(*************** Rewrite/remove below *****************)
-
-Inductive Reach (stop: State) : forall (start: State), Prop :=
-| Stop s : Specializes stop s -> Reach stop s
-| More s' s : oneStep s = Some (s', true)
-              -> Reach stop s'
-              -> Reach stop s.
+Inductive Reach (stop: State) : forall (cont: bool) (start: State), Prop :=
+| Stop s : stop ⊑ s -> Reach stop true s
+| Exit s' s : oneStep s = Some (s', false) -> stop ⊑ s' -> Reach stop false s
+| More c s' s : oneStep s = Some (s', true) -> Reach stop c s' -> Reach stop c s.
 
 Arguments Stop {_} {_}.
-Arguments More {_} {_} {_}.
+Arguments Exit {_} {_} {_}.
+Arguments More {_} {_} {_} {_}.
 
-Lemma generalize_stop {s1 s2 s3} (Hs: Specializes s3 s2) (Hr: Reach s2 s1) : Reach s3 s1.
+Lemma generalize_stop {s1 s2 s3 c} (Hs: s3 ⊑ s2) (Hr: Reach s2 c s1) : Reach s3 c s1.
 Proof.
-  induction Hr as [s1 H | s1' s1 H Hr IH].
-  - apply Stop. transitivity s2; assumption.
-  - exact (More H IH).
+  induction Hr as [s1 H | s1' s1 Ho H | c s1' s1 Ho Hr IH];
+    [apply Stop | apply (Exit Ho) | exact (More Ho IH)];
+    unfold Rela in *; transitivity s2; assumption.
 Qed.
 
-Lemma specialize_start {s1 s2 s3} (Hr: Reach s3 s2) (Hs: Specializes s2 s1) : Reach s3 s1.
-Proof.
-  induction Hr as [s2 H | s2' s2 H Hr IH].
-  - apply Stop. transitivity s2; assumption.
-  -
+Lemma generalize_start {s1 s2 s3 c} (Hr: Reach s3 c s2) (Hs: Rela s2 s1) : Reach s3 c s1.
+Proof. (* TODO: clean up *)
+  revert s1 Hs.
+  induction Hr as [s2 H | s2' s2 Ho H | c s2' s2 Ho Hr IH]; intros s1 Hs.
+  - apply Stop; unfold Rela in *; transitivity s2; assumption.
+  - assert (Rela (oneStep s2) (oneStep s1)) as H_one.
+    + unfold Rela, rel, opt_Rel.
+      exact (oneStep_propR s2 s1 Hs).
+    + clear Hs.
+      rewrite Ho in H_one. clear Ho.
+      destruct (oneStep s1) as [[s1' b]|] eqn:H1.
+      * cbn in H_one.
+        destruct H_one as [Ho1 Ho2].
+        unfold Rela, rel, eq_Rel in Ho2.
+        subst b.
+        apply (Exit H1).
+        unfold Rela in*.
+        transitivity s2'; assumption.
+      * contradict H_one.
 
-
-Equations join {s1 s2 s3: State} (Hr2: Reach s3 s2) (Hr1: Reach s2 s1) : Reach s3 s1 :=
-  join Hr2 (Stop Hs) := specializes_reach Hs Hr2;
-  join Hr2 (More H Hr) := More H (join Hr2 Hr).
-
-Instance reach_transitive : Transitive Reach.
-Proof.
-  intros x y z. exact join.
+  - assert (Rela (oneStep s2) (oneStep s1)) as H_one.
+    + unfold Rela, rel, opt_Rel.
+      exact (oneStep_propR s2 s1 Hs).
+    + clear Hs.
+      rewrite Ho in H_one. clear Ho.
+      destruct (oneStep s1) as [[s1' b]|] eqn:H1.
+      * cbn in H_one.
+        destruct H_one as [Ho1 Ho2].
+        unfold Rela, rel, eq_Rel in Ho2.
+        subst b.
+        specialize (IH s1' Ho1).
+        apply (More H1 IH).
+      * contradict H_one.
 Qed.
 
-Definition Cert : Type :=
-  forall (s: State), option { s' : State | Reach s' s }.  (* ! *)
+Class Cert (spec: M bool) :=
+  evidence s:
+    match spec s with
+    | Some (s', b) => Reach s' b s
+    | None => True
+    end.
 
-Example true_verif : Cert :=
-  fun s => Some (exist s (Stop s)).
+Example true_cert : Cert (ret true).
+Proof.
+  intros s.
+  simpl.
+  apply Stop.
+  unfold PropR.
+  reflexivity.
+Qed.
 
-(** Weakening the claim by strengthening the precondition. *)
-Definition weaken (v: Cert) (f: State -> bool) : Cert :=
-  fun s => if f s then v s else None.
-
-Definition join_verifs (v1 v2 : Cert) : Cert.
-  refine (
-      fun s0 => match v1 s0 with
-             | None => None
-             | Some (exist s1 H1) =>
-               match v2 s1 with
-               | None => None
-               | Some (exist s2 H2) => Some (exist s2 _)
-               end
-             end).
-  transitivity s1; [ exact H2 | exact H1 ].
-Defined.
+Notation PC := (Machine.PC).
 
 Equations opsAtPc (ops: list B8) (s: State) : Prop :=
   opsAtPc [] _ := True;
@@ -420,54 +449,19 @@ Proof.
     + typeclasses eauto.
 Qed.
 
-(* TODO: Is this useful?
+Require Import Assembly.OpCodes.
 
-Inductive opsAtPc' : list B8 -> State -> Prop :=
-| NilOpsAtPc s : opsAtPc' [] s
-| ConsOpsAtPc x rest s :
-    let pc := proj PC s in
-    (exists (H: available pc), proj MEM s pc H = Some x)
-    -> opsAtPc' rest (update PC s (offset 1 pc))
-    -> opsAtPc' (x :: rest) s.
+Instance nop_cert:
+  Cert (let* s := get in
+        assert* opsAtPc [toB8 NOP] s in
+        let* pc := get' PC in
+        put' PC (offset 1 pc);;
+        ret true).
+Proof. (* TODO: clean up / automate *)
+  intros s. simpl.
+  destruct (decision (opsAtPc [toB8 1] s)) as [Hs|Hs]; [|exact I].
 
-Lemma inv_opsAtPc {ops s} (Ho: opsAtPc ops s) : opsAtPc' ops s.
-Proof.
-  revert s Ho.
-  induction ops as [|x rest IH]; intros s Ho.
-  - exact (NilOpsAtPc s).
-  - simp opsAtPc in Ho. simpl in Ho.
-    destruct (decision (available (proj PC s))) as [H|H].
-    + assert (exists y, proj MEM s (proj PC s) H = Some y) as Hy.
-      * destruct (proj MEM s (proj PC s) H) as [y|].
-        -- exists y. congruence.
-        -- destruct Ho.
-      * destruct Hy as [y Hy].
-        constructor.
-        -- exists H.
-           rewrite Hy in *. clear Hy.
-           destruct Ho as [Ho _]. congruence.
-        -- rewrite Hy in *. clear Hy.
-           destruct Ho as [_ Ho].
-           exact (IH _ Ho).
-    + destruct Ho.
-Qed.
-
- *)
-
-Definition nop_cert : Cert.
-  intros s.
-  refine (
-      let s' := update PC s (offset 1 (proj PC s)) in
-      let ops := map (fun (x:nat) => toB8 x) [NOP] in
-      match decision (opsAtPc ops s) with
-      | right _ => None
-      | left Hs => Some (exist s' (More s' s' s _ (Stop s')))
-      end).
-
-  (* TODO: Automate! *)
-
-  subst ops. simpl in *.
-  unfold oneStep. simpl.
+  set (s' := update PC s (offset 1 (proj PC s))).
   assert (nextN 1 s = Some (s', 1)) as H1.
 
   - unfold nextN, next. simpl. unfold load. simpl.
@@ -479,5 +473,9 @@ Definition nop_cert : Cert.
       * destruct Hs.
     + destruct Hs.
 
-  - rewrite H1. simp oneStep'. reflexivity.
-Defined.
+  - refine (@More s' true _ s _ _).
+    + unfold oneStep. simpl.
+      rewrite H1. simp oneStep'.
+      reflexivity.
+    + apply Stop. unfold PropR. reflexivity.
+Qed.
