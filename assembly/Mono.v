@@ -345,9 +345,63 @@ Section monotonicity_section.
     destruct y as [|n]; repeat crush.
     (* TODO: Increase to 256. Beware: It will take a long time! *)
     Ltac print := match goal with [|- _ (_ ?i)] => idtac i end.
-    do 23 (try (destruct n as [|n]; print; simp oneStep'; repeat crush)).
+    do 256 (try (destruct n as [|n]; print; simp oneStep'; repeat crush)).
 
+    - unfold putByte. repeat crush.
+    - unfold putChar. repeat crush.
+    - unfold addSample. repeat crush.
+    - (* PropR (setPixel y3 y2 (y1, y0, y)) *)
+      unfold setPixel. repeat crush.
+      unfold updatePixel. simpl.
+      rename
+        y1 into r,
+        y0 into g,
+        y  into b,
+        x  into i,
+        y4 into i',
+        y3 into x,
+        y2 into y.
+      assert (width i' = width i) as Hw.
+      (* ... *)
+      admit.
+      admit.
+    - unfold newFrame. repeat crush.
+      + (* extractImage x ⊑ extractImage y5 *)
+        admit.
+      + unfold PropR.
+        unfold oi_Rel.
+        unfold oiRel.
+        unfold rel.
+        simpl.
+        exists eq_refl.
+        exists eq_refl.
+        intros.
+        reflexivity.
+    - unfold readPixel. repeat crush.
+      destruct (decision (y < height y1)) as [Hh|Hh].
+      repeat crush. crush. (* TODO: weird! *)
 
+    - unfold readFrame. repeat crush.
+      unfold PropR, prod_Rel, rel.
+      split; crush.
+
+    - (* push64 (fst x) ⊑ push64 (fst y0) *)
+      clear y.
+      destruct x as [x y].
+      destruct y0 as [x' y'].
+      simpl.
+      unfold Rela, rel in Hxy.
+      destruct Hxy as [Hxy _].
+      repeat crush.
+
+    - clear y.
+      destruct x as [x y].
+      destruct y0 as [x' y'].
+      simpl.
+      unfold Rela, rel in Hxy.
+      destruct Hxy as [_ Hxy].
+      repeat crush.
   Admitted.
+
 
 End monotonicity_section.
