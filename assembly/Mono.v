@@ -5,10 +5,9 @@ Require Import Assembly.Bits.
 Require Import Assembly.Dec.
 Require Import Assembly.Operations.
 Require Import Assembly.Machine.
-Require Assembly.OpCodes.
+Require Import Assembly.Rel.
 
-
-(** ** Specialization *)
+Require Import Coq.Logic.PropExtensionality.
 
 Arguments proj : clear implicits.
 Arguments proj {_} {_}.
@@ -16,41 +15,44 @@ Arguments update : clear implicits.
 Arguments update {_} {_}.
 
 Notation MEM := (Machine.MEM).
-Notation OUT_IMAGE := (Machine.OUT_IMAGE).
+Notation OI := (Machine.OUT_IMAGE).
 
-(** *** Memory specialization *)
 
-Definition memRel (m m': Memory) := forall a Ha, m a Ha -> m' a Ha = m a Ha.
+(** ** Memory relation *)
 
-Instance memRel_reflexive : Reflexive memRel.
+(** Observe that [memory_relation] and [oi_relation] (defined below) are
+    (implicitly) defined in terms of [option_relation]. *)
+
+Instance memory_relation : Rel Memory :=
+  fun m m' => forall a Ha, m a Ha ⊑ m' a Ha.
+
+Instance memory_relation_reflexive : Reflexive memory_relation.
 Proof.
-  intros m a Ha H. reflexivity.
+  intros m a Ha. reflexivity.
 Qed.
 
-Instance memRel_transitive : Transitive memRel.
+Instance memory_relation_transitive : Transitive memory_relation.
 Proof.
-  intros m1 m2 m3 H12 H23 a Ha H.
-  derive H (some_some H).
-  destruct H as [x H].
-  specialize (H12 a Ha). rewrite H in H12. specialize (H12 I).
-  specialize (H23 a Ha). rewrite H12 in H23. specialize (H23 I).
-  rewrite H, H23.
-  reflexivity.
+  intros m1 m2 m3 H12 H23 a Ha.
+  specialize (H12 a Ha).
+  specialize (H23 a Ha).
+  transitivity (m2 a Ha); assumption.
 Qed.
 
 
-(** *** Output image specialization *)
+(** *** Output image relation *)
 
 Import EqNotations.
 
-Definition oiRel (i i': Image (option OutputColor)) :=
-  exists (Hw: width i = width i')
-    (Hh: height i = height i'),
-    forall x Hx y Hy, @pixel _ i x Hx y Hy ->
-                 @pixel _ i x Hx y Hy =
-                 @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
+Instance oi_relation : Rel (Image (option OutputColor)) :=
+  fun i i' =>
+    exists (Hw: width i = width i')
+      (Hh: height i = height i'),
+    forall x Hx y Hy,
+      @pixel _ i x Hx y Hy ⊑
+      @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
 
-Instance oiRel_reflexive : Reflexive oiRel.
+Instance oi_relation_reflexive : Reflexive oi_relation.
 Proof.
   intros i.
   exists eq_refl, eq_refl.
@@ -58,72 +60,39 @@ Proof.
   reflexivity.
 Qed.
 
-Instance oiRel_transitive : Transitive oiRel.
+Instance oi_relation_transitive : Transitive oi_relation.
 Proof.
   intros i1 i2 i3 [Hw12 [Hh12 H12]] [Hw23 [Hh23 H23]].
   exists (eq_Transitive _ _ _ Hw12 Hw23).
   exists (eq_Transitive _ _ _ Hh12 Hh23).
-  intros x Hx y Hy H.
-  derive H (some_some H).
-  destruct H as [c H].
-  specialize (H12 x Hx y Hy). rewrite H in *. specialize (H12 I).
-  specialize (H23 x (rew Hw12 in Hx) y (rew Hh12 in Hy)). rewrite <- H12 in H23. specialize (H23 I).
-  rewrite H23.
-  unfold eq_Transitive.
-  do 2 rewrite rew_compose.
-  reflexivity.
+  intros x Hx y Hy.
+  specialize (H12 x Hx y Hy).
+  specialize (H23 x (rew Hw12 in Hx) y (rew Hh12 in Hy)).
+  unfold eq_Transitive in H23.
+  do 2 rewrite rew_compose in H23.
+  transitivity (pixel i2 (rew Hw12 in Hx) (rew  Hh12 in Hy)); assumption.
 Qed.
 
 
 (** ** Monotonicity *)
 
+Instance state_relation : Rel State :=
+  proj_relation (proj_prod MEM OI)
+                (prod_relation memory_relation oi_relation).
+
+Instance sm_relation {A} (RA: Rel A) : Rel (M A).
+Proof.
+  typeclasses eauto.
+Defined.
+
+(** Make sure we got what we want. *)
+Goal forall {A} (RA: Rel A), sm_relation RA = @est_relation _ state_relation _ RA.
+  reflexivity.
+Qed.
+
 Section monotonicity_section.
 
   Local Ltac rewr := repeat (independent_rewrite1 || proj_rewrite1 || simpl).
-
-  Let RS : relation State := proj_relation (proj_prod MEM OUT_IMAGE) (prod_relation memRel oiRel).
-
-  Let RM {A} (R: relation A) : relation (M A) := est_relation (RS:=RS) R.
-
-
-  (** *** Rel *)
-
-  Class Rel (A: Type) := rel : relation A.
-
-  Arguments rel : clear implicits.
-  Arguments rel {_} _.
-  Class Rela {A} {HA: Rel A} (a a': A) := rela : rel HA a a'.
-  Infix "⊑" := Rela (at level 70).
-
-  Notation PropR a := (a ⊑ a).
-  (* Instance proper_propR {A} {HA: Rel A} (a: A) {Pa: Proper (rel HA) a} : PropR a | 10 := Pa. *)
-
-  Instance eq_Rel A : Rel A | 20 := { rel := eq }.
-  Instance eq_Rela A (a: A) : @Rela A (eq_Rel A) a a := eq_refl.
-
-  Instance fun_Rel {A B} (HA: Rel A) (HB: Rel B) : Rel (A -> B) | 10 :=
-    fun f f' => forall (a a': A), a ⊑ a' -> f a ⊑ f' a'.
-
-  (* TODO: Coordinate with option_relation and prod_relation!! *)
-  Instance opt_Rel {A} (HA: Rel A) : Rel (option A) | 5 :=
-    fun x x' =>
-      match x, x' with
-      | None, _ => True
-      | Some _, None => False
-      | Some x, Some x' => x ⊑ x'
-      end.
-
-  Instance prod_Rel {A B} (HA: Rel A) (HB: Rel B) : Rel (A * B) | 5 :=
-    fun p p' =>
-      match p, p' with
-      | (a, b), (a', b') => a ⊑ a' /\ b ⊑ b'
-      end.
-
-  Instance mem_Rel : Rel Memory := memRel.
-  Instance oi_Rel : Rel (Image _) := oiRel.
-  Instance rs_Rel : Rel State := RS.
-  Instance rm_Rel {A} (HA: Rel A) : Rel (M A) := RM (rel HA).
-
 
   (** *** Get *)
 
@@ -132,7 +101,7 @@ Section monotonicity_section.
     intros s s' Hs. split; [|destruct Hs as [_ [Hs _]]]; exact Hs.
   Qed.
 
-  Instance getOi_propR : PropR (get' OUT_IMAGE).
+  Instance getOi_propR : PropR (get' OI).
   Proof.
     intros s s' Hs. split; [|destruct Hs as [_ [_ Hs]]]; exact Hs.
   Qed.
@@ -144,7 +113,7 @@ Section monotonicity_section.
   Instance getOther_propR X
            (PX: Proj State X)
            (Imem: Independent MEM PX)
-           (Ioi: Independent OUT_IMAGE PX) : PropR (get' PX).
+           (Ioi: Independent OI PX) : PropR (get' PX).
   Proof.
     intros s s' Hs.
     split; [exact Hs|].
@@ -158,7 +127,8 @@ Section monotonicity_section.
 
   (** *** Put *)
 
-  Local Ltac putTactic PX x x' Hx:=
+  Local Ltac putTactic PX :=
+    intros x x' Hx;
     try (cbv in Hx; subst x);
     intros s s' Hs;
     (split; [|reflexivity]);
@@ -171,28 +141,26 @@ Section monotonicity_section.
       now rewr
     | |].
 
-  Instance putMem_Rela (m m': Memory) (Hm: m ⊑ m') : put' MEM m ⊑ put' MEM m'.
+  Instance putMem_PropR : PropR (put' MEM).
   Proof.
-    putTactic MEM m m' Hm.
-    - rewr. exact Hm.
+    putTactic MEM.
+    - rewr. exact Hx.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.
 
-  Instance putOi_Rela (i i': Image _) (Hi: i ⊑ i') : put' OUT_IMAGE i ⊑ put' OUT_IMAGE i'.
+  Instance putOi_PropR : PropR (put' OI).
   Proof.
-    putTactic OUT_IMAGE i i' Hi.
+    putTactic OI.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
-    - rewr. exact Hi.
+    - rewr. exact Hx.
   Qed.
 
-  Instance putOther_Rela X
+  Instance putOther_PropR X
            (PX: Proj State X)
            (Imem: Independent MEM PX)
-           (Ioi: Independent OUT_IMAGE PX)
-           (x x': X)
-           (Hx: x ⊑ x') : put' PX x ⊑ put' PX x'.
+           (Ioi: Independent OI PX) : PropR (put' PX).
   Proof.
-    putTactic PX x x' Hx.
+    putTactic PX.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.
@@ -200,90 +168,69 @@ Section monotonicity_section.
 
   (** Load *)
 
-  Instance fun_propR {A B} {HA: Rel A} {HB: Rel B} (f: A -> B)
-           (HR: forall a a' (HR: Rela a a'), Rela (f a) (f a')) : PropR f.
-  Proof.
-    intros a a' Ha. apply HR. exact Ha.
-  Qed.
-
-  Global Instance bind_propR {A B} (HA: Rel A) (HB: Rel B) : PropR (@bind _ M _ A B).
-  Proof.
-    intros ma ma' Hma f f' Hf.
-    intros s s' Hs. simpl.
-    specialize (Hma s s' Hs).
-    destruct (ma s) as [(t,a)|]; destruct (ma' s') as [(t',a')|].
-    - destruct Hma as [Ht Ha].
-      exact (Hf _ _ Ha _ _ Ht).
-    - contradict Hma.
-    - exact I.
-    - exact I.
-  Qed.
-
-  Global Instance err_propR {A} (HA: Rel A): PropR (err: M A).
-  Proof.
-    intros s s' Hs. exact I.
-  Qed.
-
-  Global Instance ret_propR {A} (HA: Rel A) (a a': A) (Ha: @Rela _ HA a a') : @Rela _ (rm_Rel HA) (ret a) (ret a').
-  Proof.
-    intros s s' Hs.
-    simpl.
-    split; assumption.
-  Qed.
-
   Ltac crush :=
-  match goal with
-  | [|- PropR ?a] =>
-    match type of a with
-    | (_ -> _) -> _ =>
-      apply fun_propR;
+    match goal with
+
+    (* | [|- ?X] => idtac X; fail *)
+
+    | [|- rel (option_relation _) None _] => exact I
+    | [H: rel (option_relation _) (Some _) None |- _] => destruct H
+
+    | [|- put' MEM _ ⊑ put' MEM _] => unshelve eapply putMem_PropR
+    | [|- put' OI _ ⊑ put' OI _] => unshelve eapply putOi_PropR
+    | [|- put' _ _ ⊑ put' _ _] => unshelve eapply putOther_PropR
+
+    | [|- bind _ _ ⊑ bind _ _] => unshelve eapply bind_propR
+    | [|- ret _ ⊑ ret _] => unshelve eapply ret_propR
+    | [|- err ⊑ _] => unshelve eapply err_propR
+
+    | [|- ?x ⊑ ?x] => try reflexivity;
+                    unshelve eapply propR;
+                    match goal with [|- PropR x] => fail end
+
+    | [H : rel eq_relation ?x ?x' |- _] => cbv in H; first [subst x|subst x']
+
+    | [|- match ?H with left _ => _ | right _ => _ end ⊑ _] => destruct H as [HL|HR]
+
+
+    | [|- match ?H with Some _ => _ | None => _ end ⊑ _] =>
+      let u := fresh "u" in
+      let Hu := fresh "Hu" in
+      destruct H as [u|] eqn:Hu
+
+    | [|- _ ⊑ match ?H with Some _ => _ | None => _ end] =>
+      let v := fresh "v" in
+      let Hv := fresh "Hv" in
+      destruct H as [v|] eqn:Hv
+
+    | [|- rel (fun_relation _ _) ?a _] =>
+      match type of a with
+      | (_ -> _) -> _ =>
         let f := fresh "f" in
         let g := fresh "g" in
         let Hfg := fresh "Hfg" in
         intros f g Hfg
-    | _ -> _ =>
-      apply fun_propR;
+      | _ -> _ =>
         let x := fresh "x" in
         let y := fresh "y" in
         let Hxy := fresh "Hxy" in
         intros x y Hxy
-    end
-  | [H : @Rela _ (eq_Rel _) ?x ?x' |- _] => cbv in H; first [subst x|subst x']
+      end
 
-  | [|- Rela (match ?H with left _ => _ | right _ => _ end) _] => destruct H as [HL|HR]
+    | _ => try (exact eq_refl);
+          try assumption;
+          try typeclasses eauto;
+          unfold PropR, popMany, pushMany (* never fails *)
 
-  | [|- Rela (bind _ _) (bind _ _)] => unshelve eapply bind_propR
-
-  | [|- Rela (ret _) (ret _)] => unshelve eapply ret_propR
-
-  | [|- Rela err _] => unshelve eapply err_propR
-
-  | [|- PropR _] => typeclasses eauto
-
-  | [|- Rela (match ?H with Some _ => _ | None => _ end) _] =>
-    let u := fresh "u" in
-    let Hu := fresh "Hu" in
-    destruct H as [u|] eqn:Hu
-
-  | [|- Rela _ (match ?H with Some _ => _ | None => _ end)] =>
-    let v := fresh "v" in
-    let Hv := fresh "Hv" in
-    destruct H as [v|] eqn:Hv
-
-  | [|- Rela (put' MEM _) (put' MEM _)] => unshelve eapply putMem_Rela
-  | [|- Rela (put' OUT_IMAGE _) (put' OUT_IMAGE _)] => unshelve eapply putOi_Rela
-  | [|- Rela (put' _ _) (put' _ _)] => unshelve eapply putOther_Rela
-
-  | _ => unfold popMany, pushMany
-
-  end.
+    end.
 
   Instance load_propR a : PropR (load a).
   Proof.
-    repeat (crush || unfold load);
-      specialize (Hfg a HL); rewrite Hu, Hv in *.
-    - injection (Hfg I). congruence.
-    - discriminate (Hfg I).
+    unfold load.
+    repeat crush; specialize (Hfg a HL);
+      rewrite Hu, Hv in *.
+    - exact Hfg.
+    - destruct Hfg.
   Qed.
 
   Instance nextN_propR n : PropR (nextN n).
@@ -294,6 +241,7 @@ Section monotonicity_section.
       intro a;
       simp loadMany;
       repeat crush.
+    apply IH.
   Qed.
 
   Instance popN_propR: PropR popN.
@@ -315,9 +263,7 @@ Section monotonicity_section.
     intros a' HL'.
     destruct (eq_dec a a') as [Ha|Ha]; [easy|].
     specialize (Hfg a' HL').
-    destruct (f a' HL') as [fa'|] eqn:Hfa.
-    - exact Hfg.
-    - intros [].
+    destruct (f a' HL') as [fa'|] eqn:Hfa; crush.
   Qed.
 
   Instance push64_propR z: PropR (push64 z).
@@ -330,6 +276,7 @@ Section monotonicity_section.
     unfold loadN. repeat crush.
     revert a.
     induction n as [|n IH]; intro a; simp loadMany; repeat crush.
+    apply IH.
   Qed.
 
   Instance storeZ_propR n a z : PropR (storeZ n a z).
@@ -337,71 +284,116 @@ Section monotonicity_section.
     unfold storeZ. repeat crush.
   Qed.
 
+  Instance setPixel_propR x y r g b : PropR (setPixel x y (r, g, b)).
+  Proof.
+    (** Presumably, there is some way to automate more of this,
+        but I am not sure whether it is worth the effort.*)
+    repeat (unfold setPixel, updatePixel; crush).
+    simpl.
+    rename x0 into i, y0 into i', Hxy into Hi, HL into Hx.
+    destruct (decision (y < height i)) as [Hy|Hy];
+      [|repeat crush].
+    destruct Hi as [Hw [Hh Hi]].
+
+    destruct (decision (x < width i')) as [Hw'|Hw'];
+      [| contradict Hw'; rewrite <- Hw; exact Hx ].
+    destruct (decision (y < height i')) as [Hh'|Hh'];
+      [| contradict Hh'; rewrite <- Hh; exact Hy ].
+
+    apply putOi_PropR. exists Hw. exists Hh.
+    intros x' Hx' y' Hy'. simpl.
+
+    destruct (decision (x' = x /\ y' = y)).
+    - reflexivity.
+    - exact (Hi x' Hx' y' Hy').
+  Qed.
+
+  Instance readPixel_propR x y : PropR (readPixel x y).
+  Proof.
+    unfold readPixel. repeat crush.
+    destruct (decision (y < height y0)) as [Hh|Hh];
+      repeat crush.
+  Qed.
+
+  Lemma image_complete_lemma
+        {i i': Image (option OutputColor)}
+        (Hi: i ⊑ i') (Hc: image_complete i) : i = i'.
+  Proof.
+    destruct i as [w h p].
+    destruct i' as [w' h' p'].
+    destruct Hi as [Hw [Hh Hp]].
+    simpl in *. subst w'. subst h'.
+    apply f_equal.
+    apply functional_extensionality_dep. intros x.
+    apply functional_extensionality_dep. intros Hx.
+    apply functional_extensionality_dep. intros y.
+    apply functional_extensionality_dep. intros Hy.
+    specialize (Hp x Hx y Hy).
+    simpl in Hp.
+    specialize (Hc x Hx y Hy).
+    derive Hc (some_some Hc).
+    destruct Hc as [c Hc].
+    simpl in Hc.
+    rewrite Hc in *.
+    destruct (p' x Hx y Hy) as [c'|].
+    - unfold rel in Hp.
+      destruct c as [[r g] b].
+      destruct c' as [[r' g'] b'].
+      cbn in Hp.
+      destruct Hp as [[Hr Hg] Hb].
+      repeat crush.
+    - crush.
+  Qed.
+
+  Instance newFrame_propR w h r: PropR (newFrame w h r).
+  Proof.
+    repeat (unfold newFrame, extractImage; crush).
+    simpl.
+    clear r y y0 y1.
+    rename
+      x into i,
+      y2 into i',
+      Hxy into Hi,
+      HL into Hc.
+
+    destruct (image_complete_lemma Hi Hc).
+    destruct (decision (image_complete i)) as [Hc'|Hc'];
+      [|contradict Hc'; exact Hc].
+
+    intros s s' Hs. split.
+    - exact Hs.
+    - destruct (proof_irrelevance _ Hc Hc'). reflexivity.
+  Qed.
+
+
+  (** Putting it all together... *)
 
   Global Instance oneStep_propR : PropR oneStep.
   Proof.
     unfold oneStep.
     repeat crush.
     destruct y as [|n]; repeat crush.
-    (* TODO: Increase to 256. Beware: It will take a long time! *)
+
     Ltac print := match goal with [|- _ (_ ?i)] => idtac i end.
-    do 256 (try (destruct n as [|n]; print; simp oneStep'; repeat crush)).
 
-    - unfold putByte. repeat crush.
-    - unfold putChar. repeat crush.
-    - unfold addSample. repeat crush.
-    - (* PropR (setPixel y3 y2 (y1, y0, y)) *)
-      unfold setPixel. repeat crush.
-      unfold updatePixel. simpl.
-      rename
-        y1 into r,
-        y0 into g,
-        y  into b,
-        x  into i,
-        y4 into i',
-        y3 into x,
-        y2 into y.
-      assert (width i' = width i) as Hw.
-      (* ... *)
-      admit.
-      admit.
-    - unfold newFrame. repeat crush.
-      + (* extractImage x ⊑ extractImage y5 *)
-        admit.
-      + unfold PropR.
-        unfold oi_Rel.
-        unfold oiRel.
-        unfold rel.
-        simpl.
-        exists eq_refl.
-        exists eq_refl.
-        intros.
-        reflexivity.
-    - unfold readPixel. repeat crush.
-      destruct (decision (y < height y1)) as [Hh|Hh].
-      repeat crush. crush. (* TODO: weird! *)
-
-    - unfold readFrame. repeat crush.
-      unfold PropR, prod_Rel, rel.
-      split; crush.
-
-    - (* push64 (fst x) ⊑ push64 (fst y0) *)
-      clear y.
-      destruct x as [x y].
-      destruct y0 as [x' y'].
-      simpl.
-      unfold Rela, rel in Hxy.
-      destruct Hxy as [Hxy _].
+    Ltac extra_if_necessary :=
+      (** Handle [push64 (fst x) ⊑ push64 (fst y0)] and similarly for [snd]. *)
+      repeat match goal with
+             | [x: nat*nat |- _] => destruct x
+             | [H: (?x, ?y) ⊑ (?x', ?y') |- _] => destruct H
+             end;
+      simpl;
       repeat crush.
 
-    - clear y.
-      destruct x as [x y].
-      destruct y0 as [x' y'].
-      simpl.
-      unfold Rela, rel in Hxy.
-      destruct Hxy as [_ Hxy].
-      repeat crush.
-  Admitted.
+    Ltac step :=
+      print;
+      simp oneStep';
+      unfold putByte, putChar, addSample, readFrame;
+      repeat crush;
+      extra_if_necessary.
 
+    (* Beware: This takes a long time! *)
+    Time do 255 (destruct n as [|n]; [step|]); step.
+  Qed.
 
 End monotonicity_section.
