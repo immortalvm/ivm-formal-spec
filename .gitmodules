@@ -1,3 +1,3 @@
 [submodule "coq-record-update"]
-	path = vm-spec/coq-record-update
+	path = coq-record-update
 	url = https://github.com/tchajed/coq-record-update.git
