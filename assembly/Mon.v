@@ -7,6 +7,7 @@ Require Export Coq.Logic.FunctionalExtensionality.
 Require Export Coq.Classes.Morphisms.
 Require Export Coq.Setoids.Setoid.
 Require Import Assembly.Convenience.
+Require Import Assembly.Dec.
 
 
 (** ** Error/state monad *)
@@ -59,6 +60,18 @@ Notation "'let*' a := ma 'in' mb" := (bind ma (fun a => mb))
 Notation "ma ;; mb" := (bind ma (fun _ => mb))
                          (at level 60, right associativity,
                           format "'[hv' ma ;;  '//' mb ']'") : monad_scope.
+
+Notation "'assert*' P 'in' result" :=
+  (if (decision P%type) then result else err)
+    (at level 60, right associativity,
+     format "'[hv' assert*  P  'in'  '//' result ']'") : monad_scope.
+
+Notation "'assert*' P 'as' H 'in' result" :=
+  (match (decision P%type) with
+   | left H => result
+   | right _ => err
+   end) (at level 60, right associativity,
+         format "'[hv' assert*  P  'as'  H  'in'  '//' result ']'") : monad_scope.
 
 
 (** ** Rewriting *)

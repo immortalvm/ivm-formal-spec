@@ -1,4 +1,5 @@
 -Q . Assembly
+-Q ../coq-record-update/src RecordUpdate
 Mon.v
 MonExtras.v
 Rel.v

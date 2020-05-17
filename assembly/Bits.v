@@ -1,6 +1,7 @@
 Require Import Utf8.
 
 Require Export Assembly.Convenience.
+Require Export Assembly.Dec.
 Require Export Coq.ZArith.ZArith.
 Require Export Coq.micromega.Lia.
 
@@ -117,3 +118,13 @@ Proof.
   do 2 derive Ht (EqDec.inj_right_sigma _ _ _ Ht).
   exact Ht.
 Qed.
+
+Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
+{|
+  width := width im;
+  height := height im;
+  pixel x' Hx y' Hy :=
+    if (decision ((x' = x) /\ (y' = y)))
+    then c
+    else pixel im Hx Hy
+|}.

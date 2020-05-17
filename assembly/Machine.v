@@ -6,17 +6,16 @@ Require Import Assembly.Dec.
 Require Import Assembly.Operations.
 Require Assembly.OpCodes.
 
+From RecordUpdate Require Import RecordSet.
+
 (* Global parameters! *)
 Context
   (memStart: nat) (* TODO: Use B64 instead? *)
   (memSize: nat)
-  (inputImages : list (Image B8))
-  (State: Type).
+  (inputImages : list (Image B8)).
 
-Module Export MT <: machine_type.
-  Definition State := State.
-  Definition M := EST State.
-  Definition H_mon := est_smonad State.
+Module CT <: core_type'.
+
   Definition Addr := B64.
   Definition H_eqdec := (ltac:(typeclasses eauto) : EqDec B64).
   Definition available := fun (a: B64) => as_bool (decision (memStart <= a /\ a < memStart + memSize)).
@@ -30,9 +29,103 @@ Module Export MT <: machine_type.
   Definition Char := B32.
   Definition Byte := B8.
   Definition Sample := B16.
-End MT.
 
-Include core_module MT.
+  Include machine_type_defs.
+
+  Record actual_State :=
+  mkState {
+    state_memory: Memory;
+    state_pc: Addr;
+    state_sp: Addr;
+    state_inp: Image InputColor;
+    state_image: Image (option OutputColor);
+    state_bytes: list Byte;
+    state_chars: list Char;
+    state_sound: Sound;
+    state_log: list OutputFrame;
+  }.
+  Instance etaState : Settable _ :=
+    settable! mkState <state_memory;
+                       state_pc;
+                       state_sp;
+                       state_inp;
+                       state_image;
+                       state_bytes;
+                       state_chars;
+                       state_sound;
+                       state_log>.
+  Definition State := actual_State.
+  Definition M := EST State.
+  Definition H_mon := est_smonad State.
+
+  Local Ltac crush :=
+    let s := fresh in try split; intro s; intros; destruct s; reflexivity.
+
+  Local Ltac derive_proj f :=
+    refine {|
+        proj := f;
+        update s m := set f (fun _ => m) s;
+    |}; crush.
+
+  Definition MEM : Proj State Memory. derive_proj state_memory. Defined.
+  Definition PC : Proj State Addr. derive_proj state_pc. Defined.
+  Definition SP : Proj State Addr. derive_proj state_sp. Defined.
+  Definition INP : Proj State (Image InputColor). derive_proj state_inp. Defined.
+  Definition OUT_CHARS : Proj State (list Char). derive_proj state_chars. Defined.
+  Definition OUT_BYTES : Proj State (list Byte). derive_proj state_bytes. Defined.
+  Definition OUT_SOUND : Proj State Sound. derive_proj state_sound. Defined.
+  Definition OUT_IMAGE : Proj State (Image (option OutputColor)). derive_proj state_image. Defined.
+  Definition LOG : Proj State (list OutputFrame). derive_proj state_log. Defined.
+
+  Instance independent_MEM_IMAGE: Independent MEM OUT_IMAGE. crush. Defined.
+  Instance independent_MEM_BYTES: Independent MEM OUT_BYTES. crush. Defined.
+  Instance independent_MEM_CHARS: Independent MEM OUT_CHARS. crush. Defined.
+  Instance independent_MEM_SOUND: Independent MEM OUT_SOUND. crush. Defined.
+  Instance independent_MEM_LOG:   Independent MEM LOG. crush. Defined.
+  Instance independent_MEM_INP:   Independent MEM INP. crush. Defined.
+  Instance independent_MEM_PC:    Independent MEM PC. crush. Defined.
+  Instance independent_MEM_SP:    Independent MEM SP. crush. Defined.
+
+  Instance independent_IMAGE_BYTES: Independent OUT_IMAGE OUT_BYTES. crush. Defined.
+  Instance independent_IMAGE_CHARS: Independent OUT_IMAGE OUT_CHARS. crush. Defined.
+  Instance independent_IMAGE_SOUND: Independent OUT_IMAGE OUT_SOUND. crush. Defined.
+  Instance independent_IMAGE_LOG:   Independent OUT_IMAGE LOG. crush. Defined.
+  Instance independent_IMAGE_INP:   Independent OUT_IMAGE INP. crush. Defined.
+  Instance independent_IMAGE_PC:    Independent OUT_IMAGE PC. crush. Defined.
+  Instance independent_IMAGE_SP:    Independent OUT_IMAGE SP. crush. Defined.
+
+  Instance independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS. crush. Defined.
+  Instance independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND. crush. Defined.
+  Instance independent_BYTES_LOG:   Independent OUT_BYTES LOG. crush. Defined.
+  Instance independent_BYTES_INP:   Independent OUT_BYTES INP. crush. Defined.
+  Instance independent_BYTES_PC:    Independent OUT_BYTES PC. crush. Defined.
+  Instance independent_BYTES_SP:    Independent OUT_BYTES SP. crush. Defined.
+
+  Instance independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND. crush. Defined.
+  Instance independent_CHARS_LOG:   Independent OUT_CHARS LOG. crush. Defined.
+  Instance independent_CHARS_INP:   Independent OUT_CHARS INP. crush. Defined.
+  Instance independent_CHARS_PC:    Independent OUT_CHARS PC. crush. Defined.
+  Instance independent_CHARS_SP:    Independent OUT_CHARS SP. crush. Defined.
+
+  Instance independent_SOUND_LOG: Independent OUT_SOUND LOG. crush. Defined.
+  Instance independent_SOUND_INP: Independent OUT_SOUND INP. crush. Defined.
+  Instance independent_SOUND_PC:  Independent OUT_SOUND PC. crush. Defined.
+  Instance independent_SOUND_SP:  Independent OUT_SOUND SP. crush. Defined.
+
+  Instance independent_LOG_INP: Independent LOG INP. crush. Defined.
+  Instance independent_LOG_PC:  Independent LOG PC. crush. Defined.
+  Instance independent_LOG_SP:  Independent LOG SP. crush. Defined.
+
+  Instance independent_INP_PC: Independent INP PC. crush. Defined.
+  Instance independent_INP_SP: Independent INP SP. crush. Defined.
+
+  Instance independent_PC_SP: Independent PC SP. crush. Defined.
+End CT.
+
+Export CT.
+
+Module CM := core_module CT.
+Export CM.
 
 Identity Coercion id_Addr : Addr >-> B64.
 Identity Coercion id_Cell : Cell >-> B8.
@@ -40,6 +133,7 @@ Identity Coercion id_InputColor : InputColor >-> B8.
 Identity Coercion id_Char : Char >-> B32.
 Identity Coercion id_Byte : Byte >-> B8.
 Identity Coercion id_Sample : Sample >-> B16.
+
 
 Definition nextN (n: nat) : M nat :=
   let* bytes := next n in

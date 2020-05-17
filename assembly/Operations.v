@@ -15,40 +15,15 @@ Set Implicit Arguments.
 Open Scope monad_scope.
 
 
-Notation "'assert*' P 'in' result" :=
-  (if (decision P%type) then result else err) (at level 60, right associativity,
-                                              format "'[hv' assert*  P  'in'  '//' result ']'") : monad_scope.
-
-Notation "'assert*' P 'as' H 'in' result" :=
-  (match (decision P%type) with
-   | left H => result
-   | right _ => err
-   end) (at level 60, right associativity,
-         format "'[hv' assert*  P  'as'  H  'in'  '//' result ']'") : monad_scope.
-
-Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
-{|
-  width := width im;
-  height := height im;
-  pixel x' Hx y' Hy :=
-    if (decision ((x' = x) /\ (y' = y)))
-    then c
-    else pixel im Hx Hy
-|}.
-
-
 (** ** Machine parameters
 
-    This abstraction makes life easier, presumably since we avoid
-    (unwanted) coercions from bits to number. *)
+This sort of abstraction makes life easier, presumably since we avoid
+(unwanted) coercions from bits to number etc. See also this thread:
+https://sympa.inria.fr/sympa/arc/coq-club/2018-08/msg00036.html *)
 
 Module Type machine_type.
 
   Context
-    (State: Type)
-    (M: Type -> Type)
-    {H_mon: SMonad State M}
-
     (Addr: Type)
     {H_eqdec: EqDec Addr}
     (available: Addr -> bool)
@@ -65,22 +40,120 @@ Module Type machine_type.
 
 End machine_type.
 
-
-Module core_module (MT: machine_type).
+Module Type machine_type_defs (MT: machine_type).
 
   Import MT.
-  Existing Instance H_mon.
+
+  Definition Memory := forall (a: Addr), available a -> option Cell.
+
+  Record Sound := mkSound
+  {
+    rate: nat;
+    samples (Hr: rate <> 0) : list (Sample * Sample); (* reversed *)
+  }.
+
+  Record OutputFrame := mkFrame
+  {
+    image: Image OutputColor;
+    sound: Sound;
+    chars: list Char;  (* reversed *)
+    bytes: list Byte;  (* reversed *)
+  }.
+
+End machine_type_defs.
+
+Module Type machine_type' := machine_type <+ machine_type_defs.
+
+Module Type core_type (MT: machine_type').
+
+  Import MT.
+
+  Context
+    (State: Type)
+    (M: Type -> Type)
+    {H_mon: SMonad State M}
+
+    (MEM: Proj State Memory)
+
+    (PC: Proj State Addr)
+    (SP: Proj State Addr)
+
+    (INP: Proj State (Image InputColor))
+
+    (** The following lists all have the latest element first. *)
+    (OUT_CHARS : Proj State (list Char))
+    (OUT_BYTES : Proj State (list Byte))
+    (OUT_SOUND : Proj State Sound)
+    (OUT_IMAGE : Proj State (Image (option OutputColor)))
+
+    (LOG: Proj State (list OutputFrame)).
+
+  (** Pairwise independent projections
+
+  We choose the pairs with MEM and OUT_IMAGE on the left to avoid relying
+  on the symmetry of [Independent] later (which easily leads to inifinite
+  loops). *)
+
+  Context (independent_MEM_IMAGE: Independent MEM OUT_IMAGE)
+          (independent_MEM_BYTES: Independent MEM OUT_BYTES)
+          (independent_MEM_CHARS: Independent MEM OUT_CHARS)
+          (independent_MEM_SOUND: Independent MEM OUT_SOUND)
+          (independent_MEM_LOG:   Independent MEM LOG)
+          (independent_MEM_INP:   Independent MEM INP)
+          (independent_MEM_PC:    Independent MEM PC)
+          (independent_MEM_SP:    Independent MEM SP)
+
+          (independent_IMAGE_BYTES: Independent OUT_IMAGE OUT_BYTES)
+          (independent_IMAGE_CHARS: Independent OUT_IMAGE OUT_CHARS)
+          (independent_IMAGE_SOUND: Independent OUT_IMAGE OUT_SOUND)
+          (independent_IMAGE_LOG:   Independent OUT_IMAGE LOG)
+          (independent_IMAGE_INP:   Independent OUT_IMAGE INP)
+          (independent_IMAGE_PC:    Independent OUT_IMAGE PC)
+          (independent_IMAGE_SP:    Independent OUT_IMAGE SP)
+
+          (independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS)
+          (independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND)
+          (independent_BYTES_LOG:   Independent OUT_BYTES LOG)
+          (independent_BYTES_INP:   Independent OUT_BYTES INP)
+          (independent_BYTES_PC:    Independent OUT_BYTES PC)
+          (independent_BYTES_SP:    Independent OUT_BYTES SP)
+
+          (independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND)
+          (independent_CHARS_LOG:   Independent OUT_CHARS LOG)
+          (independent_CHARS_INP:   Independent OUT_CHARS INP)
+          (independent_CHARS_PC:    Independent OUT_CHARS PC)
+          (independent_CHARS_SP:    Independent OUT_CHARS SP)
+
+          (independent_SOUND_LOG: Independent OUT_SOUND LOG)
+          (independent_SOUND_INP: Independent OUT_SOUND INP)
+          (independent_SOUND_PC:  Independent OUT_SOUND PC)
+          (independent_SOUND_SP:  Independent OUT_SOUND SP)
+
+          (independent_LOG_INP: Independent LOG INP)
+          (independent_LOG_PC:  Independent LOG PC)
+          (independent_LOG_SP:  Independent LOG SP)
+
+          (independent_INP_PC: Independent INP PC)
+          (independent_INP_SP: Independent INP SP)
+
+          (independent_PC_SP: Independent PC SP).
+
+End core_type.
+
+Module Type core_type' := machine_type' <+ core_type.
+
+
+Module core_module (CT: core_type').
+
+  Import CT.
   Existing Instance H_eqdec.
+  Existing Instance H_mon.
 
   Definition get' {X} (proj: Proj State X) := get (SMonad := proj_smonad M proj).
   Definition put' {X} (proj: Proj State X) := put (SMonad := proj_smonad M proj).
 
 
   (** ** Memory *)
-
-  Definition Memory := forall (a: Addr), available a -> option Cell.
-
-  Context (MEM: Proj State Memory).
 
   Definition load (a: Addr): M Cell :=
     assert* available a as H in
@@ -113,9 +186,6 @@ Module core_module (MT: machine_type).
 
   (** ** Registers *)
 
-  Context (PC: Proj State Addr)
-          (SP: Proj State Addr).
-
   Definition next (n: nat) : M (Vector.t Cell n) :=
     let* pc := get' PC in
     let* res := loadMany n pc in
@@ -144,8 +214,6 @@ Module core_module (MT: machine_type).
 
   Local Definition Input := Image InputColor.
 
-  Context (INP: Proj State Input).
-
   Definition readFrame (i: nat) : M (nat * nat) :=
     let inp := nth i allInputImages noImage in
     put' INP inp;;
@@ -160,22 +228,11 @@ Module core_module (MT: machine_type).
 
   (** ** Current output *)
 
-  Record Sound := mkSound
-  {
-    rate: nat;
-    samples (Hr: rate <> 0) : list (Sample * Sample); (* reversed *)
-  }.
-
   Definition extendSamples (l r: Sample) (sn: Sound) :=
   {|
     rate := rate sn;
     samples Hr := (l, r) :: (samples sn Hr);
   |}.
-
-  Context (OUT_CHARS : Proj State (list Char)).
-  Context (OUT_BYTES : Proj State (list Byte)).
-  Context (OUT_SOUND : Proj State Sound).
-  Context (OUT_IMAGE : Proj State (Image (option OutputColor))).
 
   Definition putChar (c: Char) : M unit :=
     let* chars := get' OUT_CHARS in
@@ -197,16 +254,6 @@ Module core_module (MT: machine_type).
 
 
   (** ** Output log *)
-
-  Record OutputFrame := mkFrame
-  {
-    image: Image OutputColor;
-    sound: Sound;
-    chars: list Char;  (* reversed *)
-    bytes: list Byte;  (* reversed *)
-  }.
-
-  Context (LOG: Proj State (list OutputFrame)). (* reversed *)
 
   Definition image_complete (img: Image (option OutputColor)) : Prop :=
     forall x (Hx: x < width img) y (Hy: y < height img), pixel img Hx Hy.
@@ -245,56 +292,5 @@ Module core_module (MT: machine_type).
            height := h;
            pixel _ _ _ _ := None;
          |}.
-
-
-  (** ** Pairwise independent projections
-
-      We choose the pairs with MEM and OUT_IMAGE on the left to avoid
-      relying on the symmetry of [Independent] later (which easily leads
-      to inifinite loops). *)
-
-  Context (independent_MEM_IMAGE: Independent MEM OUT_IMAGE)
-          (independent_MEM_BYTES: Independent MEM OUT_BYTES)
-          (independent_MEM_CHARS: Independent MEM OUT_CHARS)
-          (independent_MEM_SOUND: Independent MEM OUT_SOUND)
-          (independent_MEM_LOG:   Independent MEM LOG)
-          (independent_MEM_INP:   Independent MEM INP)
-          (independent_MEM_PC:    Independent MEM PC)
-          (independent_MEM_SP:    Independent MEM SP)
-
-          (independent_IMAGE_BYTES: Independent OUT_IMAGE OUT_BYTES)
-          (independent_IMAGE_CHARS: Independent OUT_IMAGE OUT_CHARS)
-          (independent_IMAGE_SOUND: Independent OUT_IMAGE OUT_SOUND)
-          (independent_IMAGE_LOG:   Independent OUT_IMAGE LOG)
-          (independent_IMAGE_INP:   Independent OUT_IMAGE INP)
-          (independent_IMAGE_PC:    Independent OUT_IMAGE PC)
-          (independent_IMAGE_SP:    Independent OUT_IMAGE SP)
-
-          (independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS)
-          (independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND)
-          (independent_BYTES_LOG:   Independent OUT_BYTES LOG)
-          (independent_BYTES_INP:   Independent OUT_BYTES INP)
-          (independent_BYTES_PC:    Independent OUT_BYTES PC)
-          (independent_BYTES_SP:    Independent OUT_BYTES SP)
-
-          (independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND)
-          (independent_CHARS_LOG:   Independent OUT_CHARS LOG)
-          (independent_CHARS_INP:   Independent OUT_CHARS INP)
-          (independent_CHARS_PC:    Independent OUT_CHARS PC)
-          (independent_CHARS_SP:    Independent OUT_CHARS SP)
-
-          (independent_SOUND_LOG:   Independent OUT_SOUND LOG)
-          (independent_SOUND_INP:   Independent OUT_SOUND INP)
-          (independent_SOUND_PC:    Independent OUT_SOUND PC)
-          (independent_SOUND_SP:    Independent OUT_SOUND SP)
-
-          (independent_LOG_INP:   Independent LOG INP)
-          (independent_LOG_PC:    Independent LOG PC)
-          (independent_LOG_SP:    Independent LOG SP)
-
-          (independent_INP_PC:    Independent INP PC)
-          (independent_INP_SP:    Independent INP SP)
-
-          (independent_PC_SP:    Independent PC SP).
 
 End core_module.

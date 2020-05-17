@@ -14,8 +14,7 @@ Arguments proj {_} {_}.
 Arguments update : clear implicits.
 Arguments update {_} {_}.
 
-Notation MEM := (Machine.MEM).
-Notation OI := (Machine.OUT_IMAGE).
+Notation OI := (OUT_IMAGE).
 
 
 (** ** Memory relation *)

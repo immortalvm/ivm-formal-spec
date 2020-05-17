@@ -1,7 +1,12 @@
 Require Import Utf8.
 
 
-(** Options *)
+(** https://sympa.inria.fr/sympa/arc/coq-club/2018-08/msg00035.html *)
+Module Empty.
+End Empty.
+
+
+(** ** Options *)
 
 Notation as_bool x := (if x then true else false).
 
@@ -29,7 +34,7 @@ Proof.
 Qed.
 
 
-(** Tactics *)
+(** ** Tactics *)
 
 Require Export Coq.micromega.Lia.
 
