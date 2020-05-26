@@ -17,32 +17,28 @@ Open Scope monad_scope.
 
 (** ** Machine parameters
 
-This sort of abstraction makes life easier, presumably since we avoid
-(unwanted) coercions from bits to number etc. See also this thread:
-https://sympa.inria.fr/sympa/arc/coq-club/2018-08/msg00036.html *)
+Abstractions makes working with Coq much easier. *)
 
-Module Type machine_type.
+Section core_section.
 
-  Context
-    (Addr: Type)
-    {H_eqdec: EqDec Addr}
-    (available: Addr -> bool)
-    (offset: Z -> Addr -> Addr) (* This should be a group action. *)
-    (Cell: Type)
+  Class MachineParams0 :=
+  {
+    Addr: Type;
+    H_eqdec: EqDec Addr;
+    available: Addr -> bool;
+    offset: Z -> Addr -> Addr; (* This should be a group action. *)
+    Cell: Type;
 
-    (InputColor: Type)
-    (allInputImages: list (Image InputColor))
+    InputColor: Type;
+    allInputImages: list (Image InputColor);
 
-    (OutputColor: Type)
-    (Char: Type)
-    (Byte: Type)
-    (Sample: Type).
+    OutputColor: Type;
+    Char: Type;
+    Byte: Type;
+    Sample: Type;
+  }.
 
-End machine_type.
-
-Module Type machine_type_defs (MT: machine_type).
-
-  Import MT.
+  Context {MP0: MachineParams0}.
 
   Definition Memory := forall (a: Addr), available a -> option Cell.
 
@@ -60,92 +56,85 @@ Module Type machine_type_defs (MT: machine_type).
     bytes: list Byte;  (* reversed *)
   }.
 
-End machine_type_defs.
+  Class MachineParams1 :=
+  {
+    State: Type;
 
-Module Type machine_type' := machine_type <+ machine_type_defs.
+    MEM: Proj State Memory;
+    PC: Proj State Addr;
+    SP: Proj State Addr;
 
-Module Type core_type (MT: machine_type').
-
-  Import MT.
-
-  Context
-    (State: Type)
-    (M: Type -> Type)
-    {H_mon: SMonad State M}
-
-    (MEM: Proj State Memory)
-
-    (PC: Proj State Addr)
-    (SP: Proj State Addr)
-
-    (INP: Proj State (Image InputColor))
+    INP: Proj State (Image InputColor);
 
     (** The following lists all have the latest element first. *)
-    (OUT_CHARS : Proj State (list Char))
-    (OUT_BYTES : Proj State (list Byte))
-    (OUT_SOUND : Proj State Sound)
-    (OUT_IMAGE : Proj State (Image (option OutputColor)))
+    OUT_CHARS : Proj State (list Char);
+    OUT_BYTES : Proj State (list Byte);
+    OUT_SOUND : Proj State Sound;
+    OUT_IMAGE : Proj State (Image (option OutputColor));
 
-    (LOG: Proj State (list OutputFrame)).
+    LOG: Proj State (list OutputFrame);
 
-  (** Pairwise independent projections
+    (** Pairwise independent projections
 
-  We choose the pairs with MEM and OUT_IMAGE on the left to avoid relying
-  on the symmetry of [Independent] later (which easily leads to inifinite
-  loops). *)
+    We choose the pairs with MEM and OUT_IMAGE on the left to avoid relying
+    on the symmetry of [Independent] later (which easily leads to inifinite
+    loops). *)
 
-  Context (independent_MEM_IMAGE: Independent MEM OUT_IMAGE)
-          (independent_MEM_BYTES: Independent MEM OUT_BYTES)
-          (independent_MEM_CHARS: Independent MEM OUT_CHARS)
-          (independent_MEM_SOUND: Independent MEM OUT_SOUND)
-          (independent_MEM_LOG:   Independent MEM LOG)
-          (independent_MEM_INP:   Independent MEM INP)
-          (independent_MEM_PC:    Independent MEM PC)
-          (independent_MEM_SP:    Independent MEM SP)
+    independent_MEM_IMAGE: Independent MEM OUT_IMAGE;
+    independent_MEM_BYTES: Independent MEM OUT_BYTES;
+    independent_MEM_CHARS: Independent MEM OUT_CHARS;
+    independent_MEM_SOUND: Independent MEM OUT_SOUND;
+    independent_MEM_LOG:   Independent MEM LOG;
+    independent_MEM_INP:   Independent MEM INP;
+    independent_MEM_PC:    Independent MEM PC;
+    independent_MEM_SP:    Independent MEM SP;
 
-          (independent_IMAGE_BYTES: Independent OUT_IMAGE OUT_BYTES)
-          (independent_IMAGE_CHARS: Independent OUT_IMAGE OUT_CHARS)
-          (independent_IMAGE_SOUND: Independent OUT_IMAGE OUT_SOUND)
-          (independent_IMAGE_LOG:   Independent OUT_IMAGE LOG)
-          (independent_IMAGE_INP:   Independent OUT_IMAGE INP)
-          (independent_IMAGE_PC:    Independent OUT_IMAGE PC)
-          (independent_IMAGE_SP:    Independent OUT_IMAGE SP)
+    independent_IMAGE_BYTES: Independent OUT_IMAGE OUT_BYTES;
+    independent_IMAGE_CHARS: Independent OUT_IMAGE OUT_CHARS;
+    independent_IMAGE_SOUND: Independent OUT_IMAGE OUT_SOUND;
+    independent_IMAGE_LOG:   Independent OUT_IMAGE LOG;
+    independent_IMAGE_INP:   Independent OUT_IMAGE INP;
+    independent_IMAGE_PC:    Independent OUT_IMAGE PC;
+    independent_IMAGE_SP:    Independent OUT_IMAGE SP;
 
-          (independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS)
-          (independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND)
-          (independent_BYTES_LOG:   Independent OUT_BYTES LOG)
-          (independent_BYTES_INP:   Independent OUT_BYTES INP)
-          (independent_BYTES_PC:    Independent OUT_BYTES PC)
-          (independent_BYTES_SP:    Independent OUT_BYTES SP)
+    independent_BYTES_CHARS: Independent OUT_BYTES OUT_CHARS;
+    independent_BYTES_SOUND: Independent OUT_BYTES OUT_SOUND;
+    independent_BYTES_LOG:   Independent OUT_BYTES LOG;
+    independent_BYTES_INP:   Independent OUT_BYTES INP;
+    independent_BYTES_PC:    Independent OUT_BYTES PC;
+    independent_BYTES_SP:    Independent OUT_BYTES SP;
 
-          (independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND)
-          (independent_CHARS_LOG:   Independent OUT_CHARS LOG)
-          (independent_CHARS_INP:   Independent OUT_CHARS INP)
-          (independent_CHARS_PC:    Independent OUT_CHARS PC)
-          (independent_CHARS_SP:    Independent OUT_CHARS SP)
+    independent_CHARS_SOUND: Independent OUT_CHARS OUT_SOUND;
+    independent_CHARS_LOG:   Independent OUT_CHARS LOG;
+    independent_CHARS_INP:   Independent OUT_CHARS INP;
+    independent_CHARS_PC:    Independent OUT_CHARS PC;
+    independent_CHARS_SP:    Independent OUT_CHARS SP;
 
-          (independent_SOUND_LOG: Independent OUT_SOUND LOG)
-          (independent_SOUND_INP: Independent OUT_SOUND INP)
-          (independent_SOUND_PC:  Independent OUT_SOUND PC)
-          (independent_SOUND_SP:  Independent OUT_SOUND SP)
+    independent_SOUND_LOG: Independent OUT_SOUND LOG;
+    independent_SOUND_INP: Independent OUT_SOUND INP;
+    independent_SOUND_PC:  Independent OUT_SOUND PC;
+    independent_SOUND_SP:  Independent OUT_SOUND SP;
 
-          (independent_LOG_INP: Independent LOG INP)
-          (independent_LOG_PC:  Independent LOG PC)
-          (independent_LOG_SP:  Independent LOG SP)
+    independent_LOG_INP: Independent LOG INP;
+    independent_LOG_PC:  Independent LOG PC;
+    independent_LOG_SP:  Independent LOG SP;
 
-          (independent_INP_PC: Independent INP PC)
-          (independent_INP_SP: Independent INP SP)
+    independent_INP_PC: Independent INP PC;
+    independent_INP_SP: Independent INP SP;
 
-          (independent_PC_SP: Independent PC SP).
+    independent_PC_SP: Independent PC SP;
+  }.
 
-End core_type.
+  Context {MP1: MachineParams1}.
 
-Module Type core_type' := machine_type' <+ core_type.
+  Class MachineParams2 :=
+  {
+    M: Type -> Type;
+    H_mon: SMonad State M;
+  }.
 
+  Context {MP2: MachineParams2}.
 
-Module core_module (CT: core_type').
-
-  Import CT.
   Existing Instance H_eqdec.
   Existing Instance H_mon.
 
@@ -293,4 +282,4 @@ Module core_module (CT: core_type').
            pixel _ _ _ _ := None;
          |}.
 
-End core_module.
+End core_section.

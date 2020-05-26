@@ -17,77 +17,107 @@ Arguments update {_} {_}.
 Notation OI := (OUT_IMAGE).
 
 
-(** ** Memory relation *)
+Section machine_section.
 
-(** Observe that [memory_relation] and [oi_relation] (defined below) are
-    (implicitly) defined in terms of [option_relation]. *)
+  Context {MP1: @MachineParams1 concreteParams0}.
 
-Instance memory_relation : Rel Memory :=
-  fun m m' => forall a Ha, m a Ha ⊑ m' a Ha.
+  Instance estParams2 : @MachineParams2 concreteParams0 MP1 :=
+  {
+      M := EST State;
+      H_mon := est_smonad State;
+  }.
 
-Instance memory_relation_reflexive : Reflexive memory_relation.
-Proof.
-  intros m a Ha. reflexivity.
-Qed.
-
-Instance memory_relation_transitive : Transitive memory_relation.
-Proof.
-  intros m1 m2 m3 H12 H23 a Ha.
-  specialize (H12 a Ha).
-  specialize (H23 a Ha).
-  transitivity (m2 a Ha); assumption.
-Qed.
+  Existing Instance H_mon.
 
 
-(** *** Output image relation *)
+  (** ** Memory relation *)
 
-Import EqNotations.
+  (** Observe that [memory_relation] and [oi_relation] (defined below) are
+      (implicitly) defined in terms of [option_relation]. *)
 
-Instance oi_relation : Rel (Image (option OutputColor)) :=
-  fun i i' =>
-    exists (Hw: width i = width i')
-      (Hh: height i = height i'),
-    forall x Hx y Hy,
-      @pixel _ i x Hx y Hy ⊑
-      @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
+  Instance memory_relation : Rel Memory :=
+    fun m m' => forall a Ha, m a Ha ⊑ m' a Ha.
 
-Instance oi_relation_reflexive : Reflexive oi_relation.
-Proof.
-  intros i.
-  exists eq_refl, eq_refl.
-  intros x Hx y Hy.
-  reflexivity.
-Qed.
+  Instance memory_relation_reflexive : Reflexive memory_relation.
+  Proof using.
+    intros m a Ha. reflexivity.
+  Qed.
 
-Instance oi_relation_transitive : Transitive oi_relation.
-Proof.
-  intros i1 i2 i3 [Hw12 [Hh12 H12]] [Hw23 [Hh23 H23]].
-  exists (eq_Transitive _ _ _ Hw12 Hw23).
-  exists (eq_Transitive _ _ _ Hh12 Hh23).
-  intros x Hx y Hy.
-  specialize (H12 x Hx y Hy).
-  specialize (H23 x (rew Hw12 in Hx) y (rew Hh12 in Hy)).
-  unfold eq_Transitive in H23.
-  do 2 rewrite rew_compose in H23.
-  transitivity (pixel i2 (rew Hw12 in Hx) (rew  Hh12 in Hy)); assumption.
-Qed.
+  Instance memory_relation_transitive : Transitive memory_relation.
+  Proof using.
+    intros m1 m2 m3 H12 H23 a Ha.
+    specialize (H12 a Ha).
+    specialize (H23 a Ha).
+    transitivity (m2 a Ha); assumption.
+  Qed.
 
 
-(** ** Monotonicity *)
+  (** *** Output image relation *)
 
-Instance state_relation : Rel State :=
-  proj_relation (proj_prod MEM OI)
-                (prod_relation memory_relation oi_relation).
+  Import EqNotations.
 
-Instance sm_relation {A} (RA: Rel A) : Rel (M A).
-Proof.
-  typeclasses eauto.
-Defined.
+  Instance oi_relation : Rel (Image (option OutputColor)) :=
+    fun i i' =>
+      exists (Hw: width i = width i')
+        (Hh: height i = height i'),
+      forall x Hx y Hy,
+        @pixel _ i x Hx y Hy ⊑
+        @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
 
-(** Make sure we got what we want. *)
-Goal forall {A} (RA: Rel A), sm_relation RA = @est_relation _ state_relation _ RA.
-  reflexivity.
-Qed.
+  Instance oi_relation_reflexive : Reflexive oi_relation.
+  Proof using.
+    intros i.
+    exists eq_refl, eq_refl.
+    intros x Hx y Hy.
+    reflexivity.
+  Qed.
+
+  Instance oi_relation_transitive : Transitive oi_relation.
+  Proof using.
+    intros i1 i2 i3 [Hw12 [Hh12 H12]] [Hw23 [Hh23 H23]].
+    exists (eq_Transitive _ _ _ Hw12 Hw23).
+    exists (eq_Transitive _ _ _ Hh12 Hh23).
+    intros x Hx y Hy.
+    specialize (H12 x Hx y Hy).
+    specialize (H23 x (rew Hw12 in Hx) y (rew Hh12 in Hy)).
+    unfold eq_Transitive in H23.
+    do 2 rewrite rew_compose in H23.
+    transitivity (pixel i2 (rew Hw12 in Hx) (rew  Hh12 in Hy)); assumption.
+  Qed.
+
+
+  (** ** Monotonicity *)
+
+  Existing Instance independent_MEM_IMAGE.
+  Existing Instance independent_MEM_BYTES.
+  Existing Instance independent_MEM_CHARS.
+  Existing Instance independent_MEM_SOUND.
+  Existing Instance independent_MEM_LOG.
+  Existing Instance independent_MEM_INP.
+  Existing Instance independent_MEM_PC.
+  Existing Instance independent_MEM_SP.
+  Existing Instance independent_IMAGE_BYTES.
+  Existing Instance independent_IMAGE_CHARS.
+  Existing Instance independent_IMAGE_SOUND.
+  Existing Instance independent_IMAGE_LOG.
+  Existing Instance independent_IMAGE_INP.
+  Existing Instance independent_IMAGE_PC.
+  Existing Instance independent_IMAGE_SP.
+
+  Instance state_relation : Rel State :=
+    proj_relation (proj_prod MEM OI)
+                  (prod_relation memory_relation oi_relation).
+
+  Instance sm_relation {A} (RA: Rel A) : Rel (M A).
+  Proof.
+    typeclasses eauto.
+  Defined.
+
+  (** Make sure we got what we want. *)
+  Goal forall {A} (RA: Rel A), sm_relation RA = @est_relation _ state_relation _ RA.
+    reflexivity.
+  Qed.
+
 
 Section monotonicity_section.
 
@@ -96,12 +126,12 @@ Section monotonicity_section.
   (** *** Get *)
 
   Instance getMem_propR : PropR (get' MEM).
-  Proof.
+  Proof using.
     intros s s' Hs. split; [|destruct Hs as [_ [Hs _]]]; exact Hs.
   Qed.
 
   Instance getOi_propR : PropR (get' OI).
-  Proof.
+  Proof using.
     intros s s' Hs. split; [|destruct Hs as [_ [_ Hs]]]; exact Hs.
   Qed.
 
@@ -113,7 +143,7 @@ Section monotonicity_section.
            (PX: Proj State X)
            (Imem: Independent MEM PX)
            (Ioi: Independent OI PX) : PropR (get' PX).
-  Proof.
+  Proof using.
     intros s s' Hs.
     split; [exact Hs|].
     destruct Hs as [Hs _].
@@ -135,20 +165,21 @@ Section monotonicity_section.
     [ destruct Hs as [Hs _];
       derive Hs (f_equal (fun t => update PX t x') Hs);
       simpl in Hs;
+      simpl;
       rewrite <- Hs;
       unfold aligned;
       now rewr
     | |].
 
   Instance putMem_PropR : PropR (put' MEM).
-  Proof.
+  Proof using.
     putTactic MEM.
     - rewr. exact Hx.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.
 
   Instance putOi_PropR : PropR (put' OI).
-  Proof.
+  Proof using.
     putTactic OI.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
     - rewr. exact Hx.
@@ -204,6 +235,11 @@ Section monotonicity_section.
 
     | [|- rel (fun_relation _ _) ?a _] =>
       match type of a with
+      | Memory -> _ => (* TODO: Merge with next case *)
+        let f := fresh "f" in
+        let g := fresh "g" in
+        let Hfg := fresh "Hfg" in
+        intros f g Hfg
       | (_ -> _) -> _ =>
         let f := fresh "f" in
         let g := fresh "g" in
@@ -224,7 +260,7 @@ Section monotonicity_section.
     end.
 
   Instance load_propR a : PropR (load a).
-  Proof.
+  Proof using.
     unfold load.
     repeat crush; specialize (Hfg a HL);
       rewrite Hu, Hv in *.
@@ -233,7 +269,7 @@ Section monotonicity_section.
   Qed.
 
   Instance nextN_propR n : PropR (nextN n).
-  Proof.
+  Proof using.
     repeat (unfold nextN, next; crush).
     revert y.
     induction n as [|n IH];
@@ -244,17 +280,17 @@ Section monotonicity_section.
   Qed.
 
   Instance popN_propR: PropR popN.
-  Proof.
+  Proof using.
     repeat (unfold popN, loadMany; crush).
   Qed.
 
   Instance pop64_propR: PropR pop64.
-  Proof.
+  Proof using.
     unfold pop64. repeat crush.
   Qed.
 
   Instance storeMany_propR a lst : PropR (storeMany a lst).
-  Proof.
+  Proof using.
     revert a.
     induction lst as [|x r IH]; intro a; repeat (crush || simp storeMany).
     unfold store.
@@ -266,12 +302,12 @@ Section monotonicity_section.
   Qed.
 
   Instance push64_propR z: PropR (push64 z).
-  Proof.
+  Proof using.
     unfold push64. repeat crush.
   Qed.
 
   Instance loadN_propR n a : PropR (loadN n a).
-  Proof.
+  Proof using.
     unfold loadN. repeat crush.
     revert a.
     induction n as [|n IH]; intro a; simp loadMany; repeat crush.
@@ -279,12 +315,12 @@ Section monotonicity_section.
   Qed.
 
   Instance storeZ_propR n a z : PropR (storeZ n a z).
-  Proof.
+  Proof using.
     unfold storeZ. repeat crush.
   Qed.
 
-  Instance setPixel_propR x y r g b : PropR (setPixel x y (r, g, b)).
-  Proof.
+  Instance setPixel_propR x y c : PropR (setPixel x y c).
+  Proof using.
     (** Presumably, there is some way to automate more of this,
         but I am not sure whether it is worth the effort.*)
     repeat (unfold setPixel, updatePixel; crush).
@@ -308,7 +344,7 @@ Section monotonicity_section.
   Qed.
 
   Instance readPixel_propR x y : PropR (readPixel x y).
-  Proof.
+  Proof using.
     unfold readPixel. repeat crush.
     destruct (decision (y < height y0)) as [Hh|Hh];
       repeat crush.
@@ -317,7 +353,7 @@ Section monotonicity_section.
   Lemma image_complete_lemma
         {i i': Image (option OutputColor)}
         (Hi: i ⊑ i') (Hc: image_complete i) : i = i'.
-  Proof.
+  Proof using.
     destruct i as [w h p].
     destruct i' as [w' h' p'].
     destruct Hi as [Hw [Hh Hp]].
@@ -345,7 +381,7 @@ Section monotonicity_section.
   Qed.
 
   Instance newFrame_propR w h r: PropR (newFrame w h r).
-  Proof.
+  Proof using.
     repeat (unfold newFrame, extractImage; crush).
     simpl.
     clear r y y0 y1.
