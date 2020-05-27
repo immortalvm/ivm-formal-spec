@@ -64,7 +64,7 @@ Section core_section.
     PC: Proj State Addr;
     SP: Proj State Addr;
 
-    INP: Proj State (Image InputColor);
+    INP: Proj State nat; (* Index of current input frame. *)
 
     (** The following lists all have the latest element first. *)
     OUT_CHARS : Proj State (list Char);
@@ -204,15 +204,16 @@ Section core_section.
   Local Definition Input := Image InputColor.
 
   Definition readFrame (i: nat) : M (nat * nat) :=
-    let inp := nth i allInputImages noImage in
-    put' INP inp;;
-    ret (width inp, height inp).
+    put' INP i;;
+    let img := nth i allInputImages noImage in
+    ret (width img, height img).
 
   Definition readPixel (x y : nat) : M InputColor :=
-    let* inp := get' INP in
-    assert* x < width inp as Hx in
-    assert* y < height inp as Hy in
-    ret (pixel inp Hx Hy).
+    let* i := get' INP in
+    let img := nth i allInputImages noImage in
+    assert* x < width img as Hx in
+    assert* y < height img as Hy in
+    ret (pixel img Hx Hy).
 
 
   (** ** Current output *)

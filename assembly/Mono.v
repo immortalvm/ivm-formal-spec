@@ -205,6 +205,9 @@ Section monotonicity_section.
 
     | [|- rel (option_relation _) None _] => exact I
     | [H: rel (option_relation _) (Some _) None |- _] => destruct H
+    | [x: _ * _ |- _] => destruct x; simpl fst; simpl snd
+    | [H: rel (prod_relation _ _) _ _ |- _] => destruct H
+
 
     | [|- put' MEM _ ⊑ put' MEM _] => unshelve eapply putMem_PropR
     | [|- put' OI _ ⊑ put' OI _] => unshelve eapply putOi_PropR
@@ -346,7 +349,7 @@ Section monotonicity_section.
   Instance readPixel_propR x y : PropR (readPixel x y).
   Proof using.
     unfold readPixel. repeat crush.
-    destruct (decision (y < height y0)) as [Hh|Hh];
+    destruct (decision (y < height (nth y0 allInputImages noImage))) as [Hh|Hh];
       repeat crush.
   Qed.
 
@@ -404,31 +407,22 @@ Section monotonicity_section.
   (** Putting it all together... *)
 
   Global Instance oneStep_propR : PropR oneStep.
-  Proof.
+  Proof using.
     unfold oneStep.
     repeat crush.
     destruct y as [|n]; repeat crush.
 
     Ltac print := match goal with [|- _ (_ ?i)] => idtac i end.
 
-    Ltac extra_if_necessary :=
-      (** Handle [push64 (fst x) ⊑ push64 (fst y0)] and similarly for [snd]. *)
-      repeat match goal with
-             | [x: nat*nat |- _] => destruct x
-             | [H: (?x, ?y) ⊑ (?x', ?y') |- _] => destruct H
-             end;
-      simpl;
-      repeat crush.
-
     Ltac step :=
       print;
       simp oneStep';
       unfold putByte, putChar, addSample, readFrame;
-      repeat crush;
-      extra_if_necessary.
+      repeat crush.
 
-    (* Beware: This takes a long time! *)
     Time do 255 (destruct n as [|n]; [step|]); step.
+    (* Beware: This takes a long time!
+       This is mostly due to inefficiencies in coq-equations. *)
   Qed.
 
 End monotonicity_section.
