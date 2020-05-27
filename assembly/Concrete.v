@@ -13,7 +13,7 @@ mkState {
   state_memory: Memory;
   state_pc: Addr;
   state_sp: Addr;
-  state_inp: Image InputColor;
+  state_inp: nat;
   state_image: Image (option OutputColor);
   state_bytes: list Byte;
   state_chars: list Char;
@@ -43,7 +43,7 @@ Local Ltac derive_proj f :=
 Definition MEM : Proj State Memory. derive_proj state_memory. Defined.
 Definition PC : Proj State Addr. derive_proj state_pc. Defined.
 Definition SP : Proj State Addr. derive_proj state_sp. Defined.
-Definition INP : Proj State (Image InputColor). derive_proj state_inp. Defined.
+Definition INP : Proj State nat. derive_proj state_inp. Defined.
 Definition OUT_CHARS : Proj State (list Char). derive_proj state_chars. Defined.
 Definition OUT_BYTES : Proj State (list Byte). derive_proj state_bytes. Defined.
 Definition OUT_SOUND : Proj State Sound. derive_proj state_sound. Defined.
