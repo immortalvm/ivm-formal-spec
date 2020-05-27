@@ -1,7 +1,6 @@
 Require Import Equations.Equations.
 
-Require Import Assembly.Convenience.
-Require Import Assembly.Mon.
+From Assembly Require Import Convenience Lens Mon.
 
 Require Import Coq.Relations.Relations.
 Require Import Coq.Classes.RelationClasses.
@@ -41,12 +40,12 @@ Section basics_section.
       end.
 
   Global Instance option_relation_reflexive {HrX: Reflexive RX} : Reflexive option_relation.
-  Proof.
+  Proof using.
     unfold option_relation. intros [x|]; reflexivity.
   Qed.
 
   Global Instance option_relation_transitive {HtX: Transitive RX} : Transitive option_relation.
-  Proof.
+  Proof using.
     intros [x|] [y|] [z|] Hxy Hyz; cbn in *; try assumption.
     - transitivity y; assumption.
     - exfalso. assumption.
@@ -64,17 +63,17 @@ Section basics_section.
       end.
 
   Global Instance prod_relation_reflexive {HrX: Reflexive RX} {HrY: Reflexive RY} : Reflexive prod_relation.
-  Proof.
+  Proof using.
     intros [x y]. cbn. split; reflexivity.
   Qed.
 
   Global Instance prod_relation_symmetric {HsX: Symmetric RX} {HsY: Symmetric RY} : Symmetric prod_relation.
-  Proof.
+  Proof using.
     intros [x y] [x1 y1] [Hx Hy]. split; symmetry; assumption.
   Qed.
 
   Global Instance prod_relation_transitive {HtX: Transitive RX} {HtY: Transitive RY} : Transitive prod_relation.
-  Proof.
+  Proof using.
     intros [x1 y1] [x2 y2] [x3 y3] [Hx12 Hy12] [Hx23 Hy23].
     split.
     - transitivity x2; assumption.
@@ -97,7 +96,7 @@ Section projections_section.
       except for their projections onto [X]. *)
 
   Instance aligned_equivalence : Equivalence aligned.
-  Proof.
+  Proof using.
     split.
     - intros s. unfold aligned. rewrite update_proj. reflexivity.
     - intros s s'. unfold aligned. intros H. rewrite <- H.
@@ -114,18 +113,18 @@ Section projections_section.
     fun s s' => aligned s s' /\ RX (proj s) (proj s').
 
   Global Instance proj_relation_reflexive {HrX: Reflexive RX} : Reflexive proj_relation.
-  Proof.
+  Proof using.
     unfold proj_relation. intros s. split; reflexivity.
   Qed.
 
   Global Instance proj_relation_symmetric {HsX: Symmetric RX} : Symmetric proj_relation.
-  Proof.
+  Proof using.
     unfold proj_relation. intros s s' [? ?].
     split; symmetry; assumption.
   Qed.
 
   Global Instance proj_relation_transitive {HtX: Transitive RX} : Transitive proj_relation.
-  Proof.
+  Proof using.
     unfold proj_relation. intros s1 s2 s3 [? ?] [? ?].
     split.
     - transitivity s2; assumption.
@@ -161,7 +160,7 @@ Section proper_section.
   Local Notation RM := (est_relation).
 
   Lemma ret_propR : PropR (@ret _ M _ A).
-  Proof.
+  Proof using.
     intros a a' Ha.
     intros s s' Hs.
     simpl.
@@ -171,7 +170,7 @@ Section proper_section.
   Context {B} {RB: Rel B}.
 
   Global Instance bind_propR: PropR (@bind _ M _ A B).
-  Proof.
+  Proof using.
     intros ma ma' Hma f f' Hf.
     intros s s' Hs. simpl.
     specialize (Hma s s' Hs).
@@ -184,18 +183,18 @@ Section proper_section.
   Qed.
 
   Global Instance err_propR: PropR (err : M A).
-  Proof.
+  Proof using.
     intros s s' Hs. exact I.
   Qed.
 
   Global Instance get_propR : PropR (get : M S).
-  Proof.
+  Proof using.
     intros s s' Hs.
     split; assumption.
   Qed.
 
   Global Instance put_propR : PropR (put : S -> M unit).
-  Proof.
+  Proof using.
     intros s s' Hs.
     intros t t' Ht.
     split.

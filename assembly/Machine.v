@@ -1,9 +1,6 @@
 Require Import Equations.Equations.
 
-Require Import Assembly.Mon.
-Require Import Assembly.Bits.
-Require Import Assembly.Dec.
-Require Import Assembly.Operations.
+From Assembly Require Import Convenience Dec Lens Mon Bits Operations.
 Require Assembly.OpCodes.
 
 

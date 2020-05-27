@@ -1,11 +1,12 @@
 -Q . Assembly
 -Q ../coq-record-update/src RecordUpdate
+Convenience.v
+Lens.v
 Mon.v
 MonExtras.v
 Rel.v
 Bits.v
 Dec.v
-Convenience.v
 Operations.v
 Machine.v
 Concrete.v

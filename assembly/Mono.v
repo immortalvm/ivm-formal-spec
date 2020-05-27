@@ -1,11 +1,6 @@
 Require Import Equations.Equations.
 
-Require Import Assembly.Mon.
-Require Import Assembly.Bits.
-Require Import Assembly.Dec.
-Require Import Assembly.Operations.
-Require Import Assembly.Machine.
-Require Import Assembly.Rel.
+From Assembly Require Import Convenience Dec Lens Mon Bits Operations Machine Rel.
 
 Require Import Coq.Logic.PropExtensionality.
 

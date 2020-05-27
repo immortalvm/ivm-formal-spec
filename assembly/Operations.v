@@ -2,9 +2,7 @@ Require Import Utf8.
 
 Require Import Equations.Equations.
 
-Require Import Assembly.Mon.
-Require Import Assembly.Bits.
-Require Import Assembly.Dec.
+From Assembly Require Import Convenience Dec Lens Mon Bits.
 
 (* Cf. the 'sigma' type of Equations. *)
 Set Primitive Projections.

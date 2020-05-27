@@ -1,10 +1,6 @@
 Require Import Equations.Equations.
 
-Require Import Assembly.Mon.
-Require Import Assembly.Bits.
-Require Import Assembly.Dec.
-Require Import Assembly.Operations.
-Require Import Assembly.Machine.
+From Assembly Require Import Lens Mon Bits Dec Operations Machine.
 
 From RecordUpdate Require Import RecordSet.
 
