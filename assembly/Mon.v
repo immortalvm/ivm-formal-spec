@@ -16,26 +16,19 @@ Declare Scope monad_scope.
 
 Reserved Notation "ma >>= f" (at level 69, left associativity).
 
-(* TODO: Rename?
-   monad_right -> bind_ret
-   monad_left  -> ret_bind
-   monad_assoc -> bind_assoc
-   err_right -> bind_err
-   err_left -> err_bind *)
-
 Class SMonad (S: Type) (m: Type -> Type): Type :=
 {
   ret {A} : A -> m A;
   bind {A B} (_: m A) : (A -> m B) -> m B
     where "ma >>= f" := (bind ma f);
 
-  monad_right A (ma: m A) : ma >>= ret = ma;
-  monad_left A (a: A) B (f: A -> m B) : ret a >>= f = f a;
-  monad_assoc A (ma: m A) B f C (g: B -> m C) : (ma >>= f) >>= g = ma >>= (fun a => f a >>= g);
+  bind_ret A (ma: m A) : ma >>= ret = ma;
+  ret_bind A (a: A) B (f: A -> m B) : ret a >>= f = f a;
+  bind_assoc A (ma: m A) B f C (g: B -> m C) : (ma >>= f) >>= g = ma >>= (fun a => f a >>= g);
 
   err {A} : m A;
-  err_right A (ma: m A) B : ma >>= (fun _ => err) = (err : m B);
-  err_left A B (f: A -> m B) : err >>= f = err;
+  bind_err A (ma: m A) B : ma >>= (fun _ => err) = (err : m B);
+  err_bind A B (f: A -> m B) : err >>= f = err;
 
   get : m S;
   put (s: S) : m unit;
@@ -91,9 +84,9 @@ Proof using.
   extensionality x. destruct x. reflexivity.
 Qed.
 
-Lemma monad_right' {S m} {SM: SMonad S m} (mu: m unit) : mu;; ret tt = mu.
+Lemma bind_ret' {S m} {SM: SMonad S m} (mu: m unit) : mu;; ret tt = mu.
 Proof using.
-  rewrite <- monad_right.
+  rewrite <- bind_ret.
   setoid_rewrite unit_lemma.
   reflexivity.
 Qed.
@@ -101,7 +94,7 @@ Qed.
 Lemma put_put' {S m} {SM: SMonad S m} (s s' : S) {B} (f: unit -> m B) :
   put s;; (put s' >>= f) = put s' >>= f.
 Proof using.
-  rewrite <- monad_assoc, put_put.
+  rewrite <- bind_assoc, put_put.
   reflexivity.
 Qed.
 
@@ -111,12 +104,12 @@ Create HintDb smon discriminated.
     and "repeat", see https://github.com/coq/coq/issues/4197.
     See also: https://stackoverflow.com/a/39348396 *)
 
-Hint Rewrite @monad_right using (typeclasses eauto) : smon.
-Hint Rewrite @monad_right' using (typeclasses eauto) : smon.
-Hint Rewrite @monad_left using (typeclasses eauto) : smon.
-Hint Rewrite @monad_assoc using (typeclasses eauto) : smon.
-Hint Rewrite @err_right using (typeclasses eauto) : smon.
-Hint Rewrite @err_left using (typeclasses eauto) : smon.
+Hint Rewrite @bind_ret using (typeclasses eauto) : smon.
+Hint Rewrite @bind_ret' using (typeclasses eauto) : smon.
+Hint Rewrite @ret_bind using (typeclasses eauto) : smon.
+Hint Rewrite @bind_assoc using (typeclasses eauto) : smon.
+Hint Rewrite @bind_err using (typeclasses eauto) : smon.
+Hint Rewrite @err_bind using (typeclasses eauto) : smon.
 Hint Rewrite @put_put using (typeclasses eauto) : smon.
 Hint Rewrite @put_put' using (typeclasses eauto) : smon.
 Hint Rewrite @put_get using (typeclasses eauto) : smon.
@@ -231,7 +224,7 @@ Section state_section.
     - intros A ma B f.
       unfold from_est.
       simpl.
-      rewrite monad_assoc.
+      rewrite bind_assoc.
       f_equal.
       extensionality s.
       destruct (ma s) as [[s' a]|].

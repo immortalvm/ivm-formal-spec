@@ -53,13 +53,13 @@ Section no_side_effects_section.
   Proof using.
     intros B mb.
     transitivity (ma;; ret tt;; mb).
-    - setoid_rewrite monad_left. reflexivity.
-    - rewrite <- monad_assoc, H, monad_left. reflexivity.
+    - setoid_rewrite ret_bind. reflexivity.
+    - rewrite <- bind_assoc, H, ret_bind. reflexivity.
   Qed.
 
   Global Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
   Proof using.
-    apply noEff_unit. rewrite monad_left. reflexivity.
+    apply noEff_unit. rewrite ret_bind. reflexivity.
   Qed.
 
   Global Instance noEff_bind
@@ -68,7 +68,7 @@ Section no_side_effects_section.
            {Hb: forall x, NoSideEffects (f x)} : NoSideEffects (bind ma f).
   Proof using.
     intros C mc.
-    rewrite monad_assoc.
+    rewrite bind_assoc.
     setoid_rewrite Hb.
     rewrite Ha.
     reflexivity.
