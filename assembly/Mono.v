@@ -119,8 +119,6 @@ Section machine_section.
   Qed.
 
 
-Section monotonicity_section.
-
   Local Ltac rewr := repeat (independent_rewrite1 || proj_rewrite1 || simpl).
 
   (** *** Get *)
@@ -425,4 +423,4 @@ Section monotonicity_section.
        This is mostly due to inefficiencies in coq-equations. *)
   Qed.
 
-End monotonicity_section.
+End machine_section.
