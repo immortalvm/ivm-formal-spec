@@ -83,11 +83,11 @@ Section basics_section.
 End basics_section.
 
 
-(** ** Projections *)
+(** ** Lenses *)
 
-Section projections_section.
+Section lens_section.
 
-  Context {S X} (HX: Proj S X).
+  Context {S X} (LX: Lens S X).
 
   Definition aligned (s s' : S) :=
     update s (proj s') = s'.
@@ -109,29 +109,29 @@ Section projections_section.
 
   Context (RX: Rel X).
 
-  Definition proj_relation : relation S :=
+  Definition lens_relation : relation S :=
     fun s s' => aligned s s' /\ RX (proj s) (proj s').
 
-  Global Instance proj_relation_reflexive {HrX: Reflexive RX} : Reflexive proj_relation.
+  Global Instance lens_relation_reflexive {HrX: Reflexive RX} : Reflexive lens_relation.
   Proof using.
-    unfold proj_relation. intros s. split; reflexivity.
+    unfold lens_relation. intros s. split; reflexivity.
   Qed.
 
-  Global Instance proj_relation_symmetric {HsX: Symmetric RX} : Symmetric proj_relation.
+  Global Instance lens_relation_symmetric {HsX: Symmetric RX} : Symmetric lens_relation.
   Proof using.
-    unfold proj_relation. intros s s' [? ?].
+    unfold lens_relation. intros s s' [? ?].
     split; symmetry; assumption.
   Qed.
 
-  Global Instance proj_relation_transitive {HtX: Transitive RX} : Transitive proj_relation.
+  Global Instance lens_relation_transitive {HtX: Transitive RX} : Transitive lens_relation.
   Proof using.
-    unfold proj_relation. intros s1 s2 s3 [? ?] [? ?].
+    unfold lens_relation. intros s1 s2 s3 [? ?] [? ?].
     split.
     - transitivity s2; assumption.
     - transitivity (proj s2); assumption.
   Qed.
 
-End projections_section.
+End lens_section.
 
 
 (** ** Proper operations in [EST] *)

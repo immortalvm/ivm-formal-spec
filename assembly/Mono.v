@@ -100,7 +100,7 @@ Section machine_section.
   Existing Instance independent_IMAGE_SP.
 
   Instance state_relation : Rel State :=
-    proj_relation (proj_prod MEM OI)
+    lens_relation (lens_prod MEM OI)
                   (prod_relation memory_relation oi_relation).
 
   Instance sm_relation {A} (RA: Rel A) : Rel (M A).
@@ -114,7 +114,7 @@ Section machine_section.
   Qed.
 
 
-  Local Ltac rewr := repeat (independent_rewrite1 || proj_rewrite1 || simpl).
+  Local Ltac rewr := repeat (independent_rewrite1 || lens_rewrite1 || simpl).
 
   (** *** Get *)
 
@@ -128,14 +128,14 @@ Section machine_section.
     intros s s' Hs. split; [|destruct Hs as [_ [_ Hs]]]; exact Hs.
   Qed.
 
-  (** We have ordered the assumptions that the projections are pairwise
+  (** We have ordered the assumptions that the lenses are pairwise
       independent so that we won't have to combine the following with
       [independent_symm]. Similarly for [putOther_propR] below. *)
 
   Instance getOther_propR X
-           (PX: Proj State X)
-           (Imem: Independent MEM PX)
-           (Ioi: Independent OI PX) : PropR (get' PX).
+           (LX: Lens State X)
+           (Imem: Independent MEM LX)
+           (Ioi: Independent OI LX) : PropR (get' LX).
   Proof using.
     intros s s' Hs.
     split; [exact Hs|].
@@ -149,14 +149,14 @@ Section machine_section.
 
   (** *** Put *)
 
-  Local Ltac putTactic PX :=
+  Local Ltac putTactic LX :=
     intros x x' Hx;
     try (cbv in Hx; subst x);
     intros s s' Hs;
     (split; [|reflexivity]);
     (split; [|split]);
     [ destruct Hs as [Hs _];
-      derive Hs (f_equal (fun t => update PX t x') Hs);
+      derive Hs (f_equal (fun t => update LX t x') Hs);
       simpl in Hs;
       simpl;
       rewrite <- Hs;
@@ -179,11 +179,11 @@ Section machine_section.
   Qed.
 
   Instance putOther_PropR X
-           (PX: Proj State X)
-           (Imem: Independent MEM PX)
-           (Ioi: Independent OI PX) : PropR (put' PX).
+           (LX: Lens State X)
+           (Imem: Independent MEM LX)
+           (Ioi: Independent OI LX) : PropR (put' LX).
   Proof using.
-    putTactic PX.
+    putTactic LX.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
   Qed.

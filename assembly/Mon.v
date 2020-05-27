@@ -239,16 +239,16 @@ Section state_section.
 End state_section.
 
 
-(** ** Projections *)
+(** ** Lenses *)
 
-Section proj_section.
+Section lens_section.
 
   Context {S: Type}
           (m: Type -> Type) `{SM: SMonad S m}
-          {X: Type} `(PM: Proj S X).
+          {X: Type} `(LX: Lens S X).
 
   #[refine]
-  Global Instance proj_smonad: SMonad X m :=
+  Global Instance smonad_lens: SMonad X m :=
   {
     ret := @ret S m SM;
     bind := @bind S m SM;
@@ -257,7 +257,7 @@ Section proj_section.
     put x := let* s := get in put (update s x);
   }.
   Proof.
-    all: intros; repeat (proj_rewrite1 || smon_rewrite1); reflexivity.
+    all: intros; repeat (lens_rewrite1 || smon_rewrite1); reflexivity.
   Defined.
 
-End proj_section.
+End lens_section.

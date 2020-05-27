@@ -34,21 +34,21 @@ Instance etaState : Settable _ :=
 Local Ltac crush :=
   let s := fresh in try split; intro s; intros; destruct s; reflexivity.
 
-Local Ltac derive_proj f :=
+Local Ltac derive_lens f :=
   refine {|
       proj := f;
       update s m := set f (fun _ => m) s;
   |}; crush.
 
-Definition MEM : Proj State Memory. derive_proj state_memory. Defined.
-Definition PC : Proj State Addr. derive_proj state_pc. Defined.
-Definition SP : Proj State Addr. derive_proj state_sp. Defined.
-Definition INP : Proj State nat. derive_proj state_inp. Defined.
-Definition OUT_CHARS : Proj State (list Char). derive_proj state_chars. Defined.
-Definition OUT_BYTES : Proj State (list Byte). derive_proj state_bytes. Defined.
-Definition OUT_SOUND : Proj State Sound. derive_proj state_sound. Defined.
-Definition OUT_IMAGE : Proj State (Image (option OutputColor)). derive_proj state_image. Defined.
-Definition LOG : Proj State (list OutputFrame). derive_proj state_log. Defined.
+Definition MEM : Lens State Memory. derive_lens state_memory. Defined.
+Definition PC : Lens State Addr. derive_lens state_pc. Defined.
+Definition SP : Lens State Addr. derive_lens state_sp. Defined.
+Definition INP : Lens State nat. derive_lens state_inp. Defined.
+Definition OUT_CHARS : Lens State (list Char). derive_lens state_chars. Defined.
+Definition OUT_BYTES : Lens State (list Byte). derive_lens state_bytes. Defined.
+Definition OUT_SOUND : Lens State Sound. derive_lens state_sound. Defined.
+Definition OUT_IMAGE : Lens State (Image (option OutputColor)). derive_lens state_image. Defined.
+Definition LOG : Lens State (list OutputFrame). derive_lens state_log. Defined.
 
 Instance independent_MEM_IMAGE: Independent MEM OUT_IMAGE. crush. Defined.
 Instance independent_MEM_BYTES: Independent MEM OUT_BYTES. crush. Defined.

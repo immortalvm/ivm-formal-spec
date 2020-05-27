@@ -58,21 +58,21 @@ Section core_section.
   {
     State: Type;
 
-    MEM: Proj State Memory;
-    PC: Proj State Addr;
-    SP: Proj State Addr;
+    MEM: Lens State Memory;
+    PC: Lens State Addr;
+    SP: Lens State Addr;
 
-    INP: Proj State nat; (* Index of current input frame. *)
+    INP: Lens State nat; (* Index of current input frame. *)
 
     (** The following lists all have the latest element first. *)
-    OUT_CHARS : Proj State (list Char);
-    OUT_BYTES : Proj State (list Byte);
-    OUT_SOUND : Proj State Sound;
-    OUT_IMAGE : Proj State (Image (option OutputColor));
+    OUT_CHARS : Lens State (list Char);
+    OUT_BYTES : Lens State (list Byte);
+    OUT_SOUND : Lens State Sound;
+    OUT_IMAGE : Lens State (Image (option OutputColor));
 
-    LOG: Proj State (list OutputFrame);
+    LOG: Lens State (list OutputFrame);
 
-    (** Pairwise independent projections
+    (** Pairwise independent lenses
 
     We choose the pairs with MEM and OUT_IMAGE on the left to avoid relying
     on the symmetry of [Independent] later (which easily leads to inifinite
@@ -136,8 +136,8 @@ Section core_section.
   Existing Instance H_eqdec.
   Existing Instance H_mon.
 
-  Definition get' {X} (proj: Proj State X) := get (SMonad := proj_smonad M proj).
-  Definition put' {X} (proj: Proj State X) := put (SMonad := proj_smonad M proj).
+  Definition get' {X} (LX: Lens State X) := get (SMonad := smonad_lens M LX).
+  Definition put' {X} (LX: Lens State X) := put (SMonad := smonad_lens M LX).
 
 
   (** ** Memory *)

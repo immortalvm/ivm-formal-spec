@@ -1,6 +1,6 @@
 Require Import Utf8.
 
-Require Import Assembly.Mon.
+From Assembly Require Import Lens Mon.
 
 
 (** The results in this file are not used elsehwere, but they can be
@@ -90,25 +90,25 @@ Proof using.
 Qed.
 
 
-(** ** Every projection is a product projection
+(** ** Every (very well-behaved) lens is a product lens
 
 Assuming functional extensionality and proof irrelevance, we have a
-converse of [proj_fst]: If [Proj S X], then [S ≅ X * S'] for some S'. *)
+converse of [lens_fst]: If [Lens S X], then [S ≅ X * S'] for some S'. *)
 
 Require Coq.Logic.ProofIrrelevance.
 
-Section inv_proj_section.
+Section inv_lens_section.
 
   Import Coq.Logic.ProofIrrelevance.
 
-  Context S X (PX: Proj S X).
+  Context S X (PX: Lens S X).
 
   Definition S' := { f: X -> S | forall x y, update (f x) y = f y }.
 
   Arguments exist {_} {_} _.
 
   #[refine]
-  Instance inv_proj : Proj S S' :=
+  Instance inv_lens : Lens S S' :=
   {
     proj s := exist (update s) _;
     update s f := proj1_sig f (proj s);
@@ -127,7 +127,7 @@ Section inv_proj_section.
       rewrite <- (Hf (proj s)), proj_update. reflexivity.
   Defined.
 
-  Instance inv_proj_independent : Independent inv_proj PX.
+  Instance inv_lens_independent : Independent inv_lens PX.
   Proof using.
     split.
     - intros s [f Hf]. simpl.
@@ -141,11 +141,11 @@ Section inv_proj_section.
       rewrite proj_update, Hf. reflexivity.
   Qed.
 
-  Lemma inv_proj_inv (s: S) :
-    let (fH, x) := proj (Proj:=proj_prod _ _) s in
+  Lemma inv_lens_inv (s: S) :
+    let (fH, x) := proj (Lens:=lens_prod _ _) s in
     proj1_sig fH x = s.
   Proof using.
     simpl. rewrite update_proj. reflexivity.
   Qed.
 
-End inv_proj_section.
+End inv_lens_section.
