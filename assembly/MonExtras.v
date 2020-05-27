@@ -50,7 +50,7 @@ Section no_side_effects_section.
     noSideEffects: forall B (mb: m B), ma;; mb = mb.
 
   Global Instance noEff_unit {A} (ma: m A) (H: ma;; ret tt = ret tt): NoSideEffects ma.
-  Proof.
+  Proof using.
     intros B mb.
     transitivity (ma;; ret tt;; mb).
     - setoid_rewrite monad_left. reflexivity.
@@ -58,7 +58,7 @@ Section no_side_effects_section.
   Qed.
 
   Global Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
-  Proof.
+  Proof using.
     apply noEff_unit. rewrite monad_left. reflexivity.
   Qed.
 
@@ -66,7 +66,7 @@ Section no_side_effects_section.
            {A B} (ma: m A) (f: A -> m B)
            {Ha: NoSideEffects ma}
            {Hb: forall x, NoSideEffects (f x)} : NoSideEffects (bind ma f).
-  Proof.
+  Proof using.
     intros C mc.
     rewrite monad_assoc.
     setoid_rewrite Hb.
@@ -82,11 +82,10 @@ Existing Instance est_smonad.
     (Think about logging/monitoring.) *)
 
 Instance noEff_get {S} : NoSideEffects S (EST S) get.
-Proof.
+Proof using.
   intros B mb.
   simpl.
-  apply functional_extensionality.
-  intros s.
+  extensionality s.
   reflexivity.
 Qed.
 
@@ -106,10 +105,12 @@ Section inv_proj_section.
 
   Definition S' := { f: X -> S | forall x y, update (f x) y = f y }.
 
+  Arguments exist {_} {_} _.
+
   #[refine]
   Instance inv_proj : Proj S S' :=
   {
-    proj s := exist _ (update s) _;
+    proj s := exist (update s) _;
     update s f := proj1_sig f (proj s);
   }.
   Proof.
@@ -118,7 +119,7 @@ Section inv_proj_section.
       simpl.
       apply eq_sig_hprop.
       + intros. apply proof_irrelevance.
-      + simpl. apply functional_extensionality. intros x.
+      + simpl. extensionality x.
         rewrite H. reflexivity.
     - intro s. simpl.
       rewrite update_proj. reflexivity.
@@ -127,14 +128,14 @@ Section inv_proj_section.
   Defined.
 
   Instance inv_proj_independent : Independent inv_proj PX.
-  Proof.
+  Proof using.
     split.
     - intros s [f Hf]. simpl.
       rewrite <- (Hf (proj s)), proj_update. reflexivity.
     - intros s x. simpl.
       apply eq_sig_hprop.
       + intros. apply proof_irrelevance.
-      + simpl. apply functional_extensionality. intros x'.
+      + simpl. extensionality x'.
         rewrite update_update. reflexivity.
     - intros s [f Hf] x. simpl.
       rewrite proj_update, Hf. reflexivity.
@@ -143,7 +144,7 @@ Section inv_proj_section.
   Lemma inv_proj_inv (s: S) :
     let (fH, x) := proj (Proj:=proj_prod _ _) s in
     proj1_sig fH x = s.
-  Proof.
+  Proof using.
     simpl. rewrite update_proj. reflexivity.
   Qed.
 

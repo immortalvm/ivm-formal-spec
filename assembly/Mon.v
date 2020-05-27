@@ -80,19 +80,19 @@ Open Scope monad_scope.
 
 Instance bind_proper {S m} {SM: SMonad S m} {A B}:
   Proper ( eq ==> pointwise_relation A eq ==> eq ) (@bind S m SM A B).
-Proof.
+Proof using.
   intros ma ma' H_ma f f' H_f. f_equal.
   - exact H_ma.
-  - apply functional_extensionality. intros a. f_equal.
+  - extensionality a. f_equal.
 Qed.
 
 Lemma unit_lemma {A} (f: unit -> A) : f = fun _ => f tt.
-Proof.
-  apply functional_extensionality. intros []. reflexivity.
+Proof using.
+  extensionality x. destruct x. reflexivity.
 Qed.
 
 Lemma monad_right' {S m} {SM: SMonad S m} (mu: m unit) : mu;; ret tt = mu.
-Proof.
+Proof using.
   rewrite <- monad_right.
   setoid_rewrite unit_lemma.
   reflexivity.
@@ -100,7 +100,7 @@ Qed.
 
 Lemma put_put' {S m} {SM: SMonad S m} (s s' : S) {B} (f: unit -> m B) :
   put s;; (put s' >>= f) = put s' >>= f.
-Proof.
+Proof using.
   rewrite <- monad_assoc, put_put.
   reflexivity.
 Qed.
@@ -147,24 +147,6 @@ Section state_section.
 
   Context (S: Type).
 
-  (* TODO: Is this really needed (or even useful)?
-  Section m_section.
-
-    Context m `{SM: SMonad S m}.
-
-    Global Instance put_proper : Proper ( eq ==> eq ) (@put S m SM).
-    Proof.
-      intros s s' Hs. f_equal. exact Hs.
-    Qed.
-
-    Global Instance ret_proper A : Proper ( eq ==> eq ) (@ret S m SM A).
-    Proof.
-      intros a a' Ha. f_equal. exact Ha.
-    Qed.
-
-  End m_section.
-   *)
-
   Class SMorphism m0 `{SM0: SMonad S m0} m1 `{SM1: SMonad S m1} (F: forall {A}, m0 A -> m1 A) :=
   {
     morph_ret A (a: A) : F (ret a) = ret a;
@@ -194,16 +176,16 @@ Section state_section.
   }.
   Proof.
     - intros A ma.
-      apply functional_extensionality. intros s.
+      extensionality s.
       destruct (ma s) as [[s' a]|]; reflexivity.
     - intros A a B f.
-      apply functional_extensionality. intros s.
+      extensionality s.
       reflexivity.
     - intros A ma B f C g.
-      apply functional_extensionality. intros s.
+      extensionality s.
       destruct (ma s) as [[s' a]|]; reflexivity.
     - intros A ma B.
-      apply functional_extensionality. intros s.
+      extensionality s.
       destruct (ma s) as [[s' a]|]; reflexivity.
     - reflexivity.
     - reflexivity.
@@ -221,28 +203,28 @@ Section state_section.
     end.
 
   Lemma est_characterization A (ma: EST A) : from_est ma = ma.
-  Proof.
+  Proof using.
     unfold from_est.
     simpl.
-    apply functional_extensionality. intros s.
+    extensionality s.
     destruct (ma s) as [[s' a]|]; reflexivity.
   Qed.
 
   Lemma est_unique m `{SMonad S m} F `{SMorphism EST (SM0:=est_smonad) m F} A (ma: EST A) : F A ma = from_est ma.
-  Proof.
+  Proof using.
     rewrite <- est_characterization at 1.
     unfold from_est at 1.
     rewrite morph_bind, morph_get. unfold from_est. f_equal.
-    apply functional_extensionality. intros s.
+    extensionality s.
     destruct (ma s) as [[s' a]|].
     - rewrite morph_bind, morph_put. f_equal.
-      apply functional_extensionality. intros [].
+      extensionality u. destruct u.
       rewrite morph_ret. reflexivity.
     - rewrite morph_err. reflexivity.
   Qed.
 
   Global Instance est_morphism m `{SMonad S m}: SMorphism EST m (@from_est m _).
-  Proof.
+  Proof using.
     split.
     - intros A a. unfold from_est. simpl.
       rewrite get_put, get_ret. reflexivity.
@@ -251,7 +233,7 @@ Section state_section.
       simpl.
       rewrite monad_assoc.
       f_equal.
-      apply functional_extensionality. intros s.
+      extensionality s.
       destruct (ma s) as [[s' a]|].
       + smon_rewrite.
         destruct (f a s') as [[s'' b]|]; now smon_rewrite.
@@ -361,7 +343,7 @@ Section product_section.
   Context Z (PZ: Proj S Z) (Hdx: Independent PX PZ) (Hdy: Independent PY PZ).
 
   Global Instance independent_prod : Independent proj_prod PZ.
-  Proof.
+  Proof using Hdx Hdy.
     split.
     - intros s [x y]. simpl.
       transitivity (proj (update s x)); now independent_rewrite.
@@ -373,7 +355,7 @@ Section product_section.
       [independent_commute] it can send [typeclasses eauto]
       into an infinite loop. *)
   Instance independent_symm : Independent PY PX.
-  Proof.
+  Proof using Hd.
     split; intros; now independent_rewrite.
   Qed.
 

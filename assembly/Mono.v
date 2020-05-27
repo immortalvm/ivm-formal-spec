@@ -189,7 +189,7 @@ Section monotonicity_section.
            (PX: Proj State X)
            (Imem: Independent MEM PX)
            (Ioi: Independent OI PX) : PropR (put' PX).
-  Proof.
+  Proof using.
     putTactic PX.
     - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
     - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
@@ -362,10 +362,10 @@ Section monotonicity_section.
     destruct Hi as [Hw [Hh Hp]].
     simpl in *. subst w'. subst h'.
     apply f_equal.
-    apply functional_extensionality_dep. intros x.
-    apply functional_extensionality_dep. intros Hx.
-    apply functional_extensionality_dep. intros y.
-    apply functional_extensionality_dep. intros Hy.
+    extensionality x.
+    extensionality Hx.
+    extensionality y.
+    extensionality Hy.
     specialize (Hp x Hx y Hy).
     simpl in Hp.
     specialize (Hc x Hx y Hy).
