@@ -2,6 +2,7 @@ Require Import Equations.Equations.
 
 From Assembly Require Import Convenience Dec Lens Mon Bits Operations.
 Require Assembly.OpCodes.
+Set Implicit Arguments.
 
 
 (* Global parameters! *)

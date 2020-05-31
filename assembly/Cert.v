@@ -1,12 +1,7 @@
 Require Import Equations.Equations.
 
-Require Import Assembly.Mon.
-Require Import Assembly.Bits.
-Require Import Assembly.Dec.
-Require Import Assembly.Operations.
-Require Import Assembly.Machine.
-Require Import Assembly.Rel.
-Require Import Assembly.Mono.
+From Assembly Require Import Convenience Dec Lens Mon Operations Bits Machine Rel Mono.
+Set Implicit Arguments.
 
 
 (** ** Certified programs *)
@@ -21,20 +16,26 @@ Arguments Exit {_} {_} {_}.
 Arguments More {_} {_} {_} {_}.
 
 Lemma generalize_stop {s1 s2 s3 c} (Hs: s3 ⊑ s2) (Hr: Reach s2 c s1) : Reach s3 c s1.
-Proof.
+Proof using.
   induction Hr as [s1 H | s1' s1 Ho H | c s1' s1 Ho Hr IH];
     [apply Stop | apply (Exit Ho) | exact (More Ho IH)];
     transitivity s2; assumption.
 Qed.
 
+(* TODO: Why is this needed? *)
+Instance osb_relation : Rel (option (State * bool)) :=
+  option_relation (prod_relation _ eq_relation).
+
+Notation oneStep := (@oneStep Mono.MP1 estParams2).
+
 Lemma generalize_start {s1 s2 s3 c} (Hr: Reach s3 c s2) (Hs: s2 ⊑s1) : Reach s3 c s1.
-Proof. (* TODO: clean up *)
+Proof using. (* TODO: clean up *)
   revert s1 Hs.
   induction Hr as [s2 H | s2' s2 Ho H | c s2' s2 Ho Hr IH]; intros s1 Hs.
   - apply Stop; transitivity s2; assumption.
   - assert (oneStep s2 ⊑ oneStep s1) as H_one.
     + unfold rel, option_relation.
-      exact (oneStep_propR s2 s1 Hs).
+      exact (oneStep_propR Hs).
     + clear Hs.
       rewrite Ho in H_one. clear Ho.
       destruct (oneStep s1) as [[s1' b]|] eqn:H1.
@@ -48,7 +49,7 @@ Proof. (* TODO: clean up *)
 
   - assert (oneStep s2 ⊑ oneStep s1) as H_one.
     + unfold rel, option_relation.
-      exact (oneStep_propR s2 s1 Hs).
+      exact (oneStep_propR Hs).
     + clear Hs.
       rewrite Ho in H_one. clear Ho.
       destruct (oneStep s1) as [[s1' b]|] eqn:H1.
@@ -73,7 +74,7 @@ Local Definition terminated := ret false.
 
 (** The empty program has no effect. *)
 Example null_cert : Cert (not_terminated).
-Proof.
+Proof using.
   intros s.
   simpl.
   apply Stop.
@@ -81,14 +82,16 @@ Proof.
   reflexivity.
 Qed.
 
-Notation PC := (Machine.PC).
+Notation PC := (@PC concreteParams0 Mono.MP1).
 
 Require Import Assembly.OpCodes.
 
 
 (** ** First real example, the NOP program *)
 
-Equations opsAtPc (ops: list B8) (s: State) : Prop :=
+(* TODO: Triggers coq-equations bug without [noind].
+   "Error: Incorrect universe constraints declared for inductive type." *)
+Equations(noind) opsAtPc (ops: list B8) (s: State) : Prop :=
   opsAtPc [] _ := True;
   opsAtPc (x :: r) s :=
     let pc := proj PC s in
@@ -109,6 +112,7 @@ Proof.
   - simp opsAtPc.
     simpl.
     destruct (decision (available (proj PC s))) as [H|H].
+    (* TODO: Fix *)
     + destruct (proj MEM s (proj PC s) H) as [x|];
       typeclasses eauto.
     + typeclasses eauto.
@@ -162,4 +166,4 @@ Instance nop_cert:
         not_terminated).
 Proof.
 
-  (***** To be continued *****)
+(***** To be continued *****)
