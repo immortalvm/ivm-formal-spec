@@ -140,7 +140,15 @@ Section core_section.
   Definition put' {X} (LX: Lens State X) := put (SMonad := smonad_lens M LX).
 
 
-  (** ** Memory *)
+  (** The definitions above are arguably too strict since they mean that
+  the machine cannot have additional state such as logging. One might
+  consider using a weaker notion of lenses, but it is probably better to
+  work up to the equivalence relation [s⊑s' /\ s'⊑s], see Mono.v. The
+  current approach essentially corresponds to using the corresponding
+  quotient type.
+
+
+  ** Memory *)
 
   Definition load (a: Addr): M Cell :=
     assert* available a as H in
