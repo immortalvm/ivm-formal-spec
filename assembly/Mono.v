@@ -9,8 +9,6 @@ Arguments proj {_} {_}.
 Arguments update : clear implicits.
 Arguments update {_} {_}.
 
-Notation OI := (OUT_IMAGE).
-
 
 (** Global parameters from now on for convenience. *)
 Context {MP1: @MachineParams1 concreteParams0}.
@@ -27,7 +25,7 @@ Existing Instance H_mon.
 
 (** ** Memory relation *)
 
-(** Observe that [memory_relation] and [oi_relation] (defined below) are
+(** Observe that [memory_relation] and [img_relation] (defined below) are
     (implicitly) defined in terms of [option_relation]. *)
 
 Instance memory_relation : Rel Memory :=
@@ -51,7 +49,7 @@ Qed.
 
 Import EqNotations.
 
-Instance oi_relation : Rel (Image (option OutputColor)) :=
+Instance img_relation : Rel (Image (option OutputColor)) :=
   fun i i' =>
     exists (Hw: width i = width i')
       (Hh: height i = height i'),
@@ -59,7 +57,7 @@ Instance oi_relation : Rel (Image (option OutputColor)) :=
       @pixel _ i x Hx y Hy ⊑
       @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
 
-Instance oi_relation_reflexive : Reflexive oi_relation.
+Instance img_relation_reflexive : Reflexive img_relation.
 Proof using.
   intros i.
   exists eq_refl, eq_refl.
@@ -67,7 +65,7 @@ Proof using.
   reflexivity.
 Qed.
 
-Instance oi_relation_transitive : Transitive oi_relation.
+Instance img_relation_transitive : Transitive img_relation.
 Proof using.
   intros i1 i2 i3 [Hw12 [Hh12 H12]] [Hw23 [Hh23 H23]].
   exists (eq_Transitive _ _ _ Hw12 Hw23).
@@ -98,10 +96,40 @@ Existing Instance independent_IMAGE_LOG.
 Existing Instance independent_IMAGE_INP.
 Existing Instance independent_IMAGE_PC.
 Existing Instance independent_IMAGE_SP.
+Existing Instance independent_BYTES_CHARS.
+Existing Instance independent_BYTES_SOUND.
+Existing Instance independent_BYTES_LOG.
+Existing Instance independent_BYTES_INP.
+Existing Instance independent_BYTES_PC.
+Existing Instance independent_BYTES_SP.
+Existing Instance independent_CHARS_SOUND.
+Existing Instance independent_CHARS_LOG.
+Existing Instance independent_CHARS_INP.
+Existing Instance independent_CHARS_PC.
+Existing Instance independent_CHARS_SP.
+Existing Instance independent_SOUND_LOG.
+Existing Instance independent_SOUND_INP.
+Existing Instance independent_SOUND_PC.
+Existing Instance independent_SOUND_SP.
+Existing Instance independent_LOG_INP.
+Existing Instance independent_LOG_PC.
+Existing Instance independent_LOG_SP.
+Existing Instance independent_INP_PC.
+Existing Instance independent_INP_SP.
+Existing Instance independent_PC_SP.
+
+Infix "∩" := and_relation (at level 60, right associativity).
 
 Instance state_relation : Rel State :=
-  lens_relation (lens_prod MEM OI)
-                (prod_relation memory_relation oi_relation).
+  lens_relation MEM
+  ∩ lens_relation OUT_IMAGE
+  ∩ lens_relation OUT_BYTES
+  ∩ lens_relation OUT_CHARS
+  ∩ lens_relation OUT_SOUND
+  ∩ lens_relation LOG
+  ∩ lens_relation INP
+  ∩ lens_relation PC
+  ∩ lens_relation SP.
 
 Instance sm_relation {A} (RA: Rel A) : Rel (M A).
 Proof.
@@ -113,80 +141,94 @@ Goal forall {A} (RA: Rel A), sm_relation RA = @est_relation _ state_relation _ R
   reflexivity.
 Qed.
 
+Ltac srel_destruct H :=
+  unfold rel, state_relation, and_relation, lens_relation in H;
+  let H0 := fresh H "_mem" in
+  let H1 := fresh H "_img" in
+  let H2 := fresh H "_byt" in
+  let H2 := fresh H "_chr" in
+  let H3 := fresh H "_snd" in
+  let H4 := fresh H "_log" in
+  let H5 := fresh H "_inp" in
+  let H6 := fresh H "_pc" in
+  let H7 := fresh H "_sp" in
+  destruct H as [H0 [H1 [H2 [H3 [H4 [H5 [H6 [H7 H8]]]]]]]].
 
 Local Ltac rewr := repeat (independent_rewrite1 || lens_rewrite1 || simpl).
 
+
 (** *** Get *)
 
-Instance getMem_propR : PropR (get' MEM).
-Proof using.
-  intros s s' Hs. split; [|destruct Hs as [_ [Hs _]]]; exact Hs.
-Qed.
+Local Ltac get_tactic :=
+  intros s s' Hs; split; [|srel_destruct Hs]; assumption.
 
-Instance getOi_propR : PropR (get' OI).
-Proof using.
-  intros s s' Hs. split; [|destruct Hs as [_ [_ Hs]]]; exact Hs.
-Qed.
+Instance getMem_propr : PropR (get' MEM).
+Proof using. get_tactic. Qed.
 
-(** We have ordered the assumptions that the lenses are pairwise
-    independent so that we won't have to combine the following with
-    [independent_symm]. Similarly for [putOther_propR] below. *)
+Instance getImg_propr : PropR (get' OUT_IMAGE).
+Proof using. get_tactic. Qed.
 
-Instance getOther_propR X
-         (LX: Lens State X)
-         (Imem: Independent MEM LX)
-         (Ioi: Independent OI LX) : PropR (get' LX).
-Proof using.
-  intros s s' Hs.
-  split; [exact Hs|].
-  destruct Hs as [Hs _].
-  unfold aligned in Hs.
-  simpl in Hs.
-  rewrite <- Hs.
-  now rewr.
-Qed.
+Instance getByt_propr: PropR (get' OUT_BYTES).
+Proof using. get_tactic. Qed.
+
+Instance getChr_propr: PropR (get' OUT_CHARS).
+Proof using. get_tactic. Qed.
+
+Instance getSnd_propr: PropR (get' OUT_SOUND).
+Proof using. get_tactic. Qed.
+
+Instance getLog_propr: PropR (get' LOG).
+Proof using. get_tactic. Qed.
+
+Instance getInp_propr: PropR (get' INP).
+Proof using. get_tactic. Qed.
+
+Instance getPc_propr: PropR (get' PC).
+Proof using. get_tactic. Qed.
+
+Instance getSp_propr: PropR (get' SP).
+Proof using. get_tactic. Qed.
 
 
 (** *** Put *)
 
-Local Ltac putTactic LX :=
+Local Ltac put_tactic :=
   intros x x' Hx;
-  try (cbv in Hx; subst x);
+  (* try (cbv in Hx; subst x); *)
   intros s s' Hs;
   (split; [|reflexivity]);
-  (split; [|split]);
-  [ destruct Hs as [Hs _];
-    derive Hs (f_equal (fun t => update LX t x') Hs);
-    simpl in Hs;
-    simpl;
-    rewrite <- Hs;
-    unfold aligned;
-    now rewr
-  | |].
+  srel_destruct Hs;
+  repeat split;
+  unfold lens_relation;
+  rewr;
+  try assumption.
 
-Instance putMem_PropR : PropR (put' MEM).
-Proof using.
-  putTactic MEM.
-  - rewr. exact Hx.
-  - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
-Qed.
+Instance putMem_propr : PropR (put' MEM).
+Proof using. put_tactic. Qed.
 
-Instance putOi_PropR : PropR (put' OI).
-Proof using.
-  putTactic OI.
-  - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
-  - rewr. exact Hx.
-Qed.
+Instance putImg_propr : PropR (put' OUT_IMAGE).
+Proof using. put_tactic. Qed.
 
-Instance putOther_PropR X
-         (LX: Lens State X)
-         (Imem: Independent MEM LX)
-         (Ioi: Independent OI LX) : PropR (put' LX).
-Proof using.
-  putTactic LX.
-  - destruct Hs as [_ [Hs _]]. rewr. exact Hs.
-  - destruct Hs as [_ [_ Hs]]. rewr. exact Hs.
-Qed.
+Instance putByt_propr: PropR (put' OUT_BYTES).
+Proof using. put_tactic. Qed.
+
+Instance putChr_propr: PropR (put' OUT_CHARS).
+Proof using. put_tactic. Qed.
+
+Instance putSnd_propr: PropR (put' OUT_SOUND).
+Proof using. put_tactic. Qed.
+
+Instance putLog_propr: PropR (put' LOG).
+Proof using. put_tactic. Qed.
+
+Instance putInp_propr: PropR (put' INP).
+Proof using. put_tactic. Qed.
+
+Instance putPc_propr: PropR (put' PC).
+Proof using. put_tactic. Qed.
+
+Instance putSp_propr: PropR (put' SP).
+Proof using. put_tactic. Qed.
 
 
 (** Load *)
@@ -202,13 +244,19 @@ Ltac crush :=
   | [H: rel (prod_relation _ _) _ _ |- _] => destruct H
 
 
-  | [|- put' MEM _ ⊑ put' MEM _] => unshelve eapply putMem_PropR
-  | [|- put' OI _ ⊑ put' OI _] => unshelve eapply putOi_PropR
-  | [|- put' _ _ ⊑ put' _ _] => unshelve eapply putOther_PropR
+  | [|- put' MEM _ ⊑ put' MEM _] => unshelve eapply putMem_propr
+  | [|- put' OUT_IMAGE _ ⊑ put' OUT_IMAGE _] => unshelve eapply putImg_propr
+  | [|- put' OUT_BYTES _ ⊑ put' OUT_BYTES _] => unshelve eapply putByt_propr
+  | [|- put' OUT_CHARS _ ⊑ put' OUT_CHARS _] => unshelve eapply putChr_propr
+  | [|- put' OUT_SOUND _ ⊑ put' OUT_SOUND _] => unshelve eapply putSnd_propr
+  | [|- put' LOG _ ⊑ put' LOG _] => unshelve eapply putLog_propr
+  | [|- put' INP _ ⊑ put' INP _] => unshelve eapply putInp_propr
+  | [|- put' PC _ ⊑ put' PC _] => unshelve eapply putPc_propr
+  | [|- put' SP _ ⊑ put' SP _] => unshelve eapply putSp_propr
 
-  | [|- bind _ _ ⊑ bind _ _] => unshelve eapply bind_propR
-  | [|- ret _ ⊑ ret _] => unshelve eapply ret_propR
-  | [|- err ⊑ _] => unshelve eapply err_propR
+  | [|- bind _ _ ⊑ bind _ _] => unshelve eapply bind_propr
+  | [|- ret _ ⊑ ret _] => unshelve eapply ret_propr
+  | [|- err ⊑ _] => unshelve eapply err_propr
 
   | [|- ?x ⊑ ?x] => try reflexivity;
                   unshelve eapply propR;
@@ -255,7 +303,7 @@ Ltac crush :=
 
   end.
 
-Instance load_propR a : PropR (load a).
+Instance load_propr a : PropR (load a).
 Proof using.
   unfold load.
   repeat crush; specialize (Hfg a HL);
@@ -264,7 +312,7 @@ Proof using.
   - destruct Hfg.
 Qed.
 
-Instance nextN_propR n : PropR (nextN n).
+Instance nextN_propr n : PropR (nextN n).
 Proof using.
   repeat (unfold nextN, next; crush).
   revert y.
@@ -275,17 +323,17 @@ Proof using.
   apply IH.
 Qed.
 
-Instance popN_propR: PropR popN.
+Instance popN_propr: PropR popN.
 Proof using.
   repeat (unfold popN, loadMany; crush).
 Qed.
 
-Instance pop64_propR: PropR pop64.
+Instance pop64_propr: PropR pop64.
 Proof using.
   unfold pop64. repeat crush.
 Qed.
 
-Instance storeMany_propR a lst : PropR (storeMany a lst).
+Instance storeMany_propr a lst : PropR (storeMany a lst).
 Proof using.
   revert a.
   induction lst as [|x r IH]; intro a; repeat (crush || simp storeMany).
@@ -297,12 +345,12 @@ Proof using.
   destruct (f a' HL') as [fa'|] eqn:Hfa; crush.
 Qed.
 
-Instance push64_propR z: PropR (push64 z).
+Instance push64_propr z: PropR (push64 z).
 Proof using.
   unfold push64. repeat crush.
 Qed.
 
-Instance loadN_propR n a : PropR (loadN n a).
+Instance loadN_propr n a : PropR (loadN n a).
 Proof using.
   unfold loadN. repeat crush.
   revert a.
@@ -310,12 +358,12 @@ Proof using.
   apply IH.
 Qed.
 
-Instance storeZ_propR n a z : PropR (storeZ n a z).
+Instance storeZ_propr n a z : PropR (storeZ n a z).
 Proof using.
   unfold storeZ. repeat crush.
 Qed.
 
-Instance setPixel_propR x y c : PropR (setPixel x y c).
+Instance setPixel_propr x y c : PropR (setPixel x y c).
 Proof using.
   (** Presumably, there is some way to automate more of this,
       but I am not sure whether it is worth the effort.*)
@@ -331,7 +379,7 @@ Proof using.
   destruct (decision (y < height i')) as [Hh'|Hh'];
     [| contradict Hh'; rewrite <- Hh; exact Hy ].
 
-  apply putOi_PropR. exists Hw. exists Hh.
+  apply putImg_propr. exists Hw. exists Hh.
   intros x' Hx' y' Hy'. simpl.
 
   destruct (decision (x' = x /\ y' = y)).
@@ -339,7 +387,7 @@ Proof using.
   - exact (Hi x' Hx' y' Hy').
 Qed.
 
-Instance readPixel_propR x y : PropR (readPixel x y).
+Instance readPixel_propr x y : PropR (readPixel x y).
 Proof using.
   unfold readPixel. repeat crush.
   destruct (decision (y < height (nth y0 allInputImages noImage))) as [Hh|Hh];
@@ -376,7 +424,7 @@ Proof using.
   - crush.
 Qed.
 
-Instance newFrame_propR w h r: PropR (newFrame w h r).
+Instance newFrame_propr w h r: PropR (newFrame w h r).
 Proof using.
   repeat (unfold newFrame, extractImage; crush).
   simpl.
@@ -399,7 +447,7 @@ Qed.
 
 (** Putting it all together... *)
 
-Global Instance oneStep_propR : PropR oneStep.
+Global Instance oneStep_propr : PropR oneStep.
 Proof using.
   unfold oneStep.
   repeat crush.
@@ -413,8 +461,11 @@ Proof using.
     unfold putByte, putChar, addSample, readFrame;
     repeat crush.
 
-  Time do 255 (destruct n as [|n]; [step|]); step.
+  Time do 255 (destruct n as [|n]; [step|]). step.
   (* Beware: This takes a long time!
      This is mostly due to inefficiencies in coq-equations. *)
 Qed.
 
+(*
+Declare Instance oneStep_propr : PropR oneStep.
+ *)
