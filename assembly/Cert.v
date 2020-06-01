@@ -1,7 +1,34 @@
 Require Import Equations.Equations.
 
-From Assembly Require Import Convenience Dec Lens Mon Operations Bits Machine Rel Mono.
+From Assembly Require Import Convenience Dec Lens Mon Operations Bits Machine Rel Mono OpCodes2.
 Set Implicit Arguments.
+
+(* TODO: Move to Mono.v *)
+Ltac srel_destruct H :=
+  unfold rel, state_relation, and_relation, lens_relation in H;
+  let H0 := fresh H "_mem" in
+  let H1 := fresh H "_img" in
+  let H2 := fresh H "_byt" in
+  let H3 := fresh H "_chr" in
+  let H4 := fresh H "_snd" in
+  let H5 := fresh H "_log" in
+  let H6 := fresh H "_inp" in
+  let H7 := fresh H "_pc" in
+  let H8 := fresh H "_sp" in
+  destruct H as [H0 [H1 [H2 [H3 [H4 [H5 [H6 [H7 H8]]]]]]]].
+
+Instance srel_reflexive : Reflexive state_relation.
+Proof using.
+  intros s. repeat split; reflexivity.
+Qed.
+
+Instance srel_transitive : Transitive state_relation.
+Proof using.
+  intros s1 s2 s3 H12 H23.
+  srel_destruct H12.
+  srel_destruct H23.
+  repeat split; transitivity s2; assumption.
+Qed.
 
 
 (** ** Certified programs *)
@@ -35,7 +62,7 @@ Proof using. (* TODO: clean up *)
   - apply Stop; transitivity s2; assumption.
   - assert (oneStep s2 ⊑ oneStep s1) as H_one.
     + unfold rel, option_relation.
-      exact (oneStep_propR Hs).
+      exact (oneStep_propr Hs).
     + clear Hs.
       rewrite Ho in H_one. clear Ho.
       destruct (oneStep s1) as [[s1' b]|] eqn:H1.
@@ -49,7 +76,7 @@ Proof using. (* TODO: clean up *)
 
   - assert (oneStep s2 ⊑ oneStep s1) as H_one.
     + unfold rel, option_relation.
-      exact (oneStep_propR Hs).
+      exact (oneStep_propr Hs).
     + clear Hs.
       rewrite Ho in H_one. clear Ho.
       destruct (oneStep s1) as [[s1' b]|] eqn:H1.
@@ -62,6 +89,18 @@ Proof using. (* TODO: clean up *)
       * contradict H_one.
 Qed.
 
+Lemma reach_comp {s1 s2 s3 t} (H23: Reach s3 t s2) (H12: Reach s2 true s1) : Reach s3 t s1.
+Proof using.
+  depind H12.
+  - exact (generalize_start H23 H).
+  - exact (More H (IHReach _ _ H23)).
+Qed.
+
+
+(** ** Cert *)
+
+Notation M := (@M _ _ estParams2).
+
 Class Cert (spec: M bool) :=
   evidence s:
     match spec s with
@@ -69,11 +108,11 @@ Class Cert (spec: M bool) :=
     | None => True
     end.
 
-Local Definition not_terminated := ret true.
-Local Definition terminated := ret false.
+Local Notation not_terminated := (ret true) (only parsing).
+Local Notation terminated := (ret false) (only parsing).
 
 (** The empty program has no effect. *)
-Example null_cert : Cert (not_terminated).
+Instance cert_id : Cert (not_terminated).
 Proof using.
   intros s.
   simpl.
@@ -82,88 +121,118 @@ Proof using.
   reflexivity.
 Qed.
 
-Notation PC := (@PC concreteParams0 Mono.MP1).
-
-Require Import Assembly.OpCodes.
-
-
-(** ** First real example, the NOP program *)
-
-(* TODO: Triggers coq-equations bug without [noind].
-   "Error: Incorrect universe constraints declared for inductive type." *)
-Equations(noind) opsAtPc (ops: list B8) (s: State) : Prop :=
-  opsAtPc [] _ := True;
-  opsAtPc (x :: r) s :=
-    let pc := proj PC s in
-    match decision (available pc) with
-    | right _ => False
-    | left H =>
-      match proj MEM s pc H with
-      | None => False
-      | Some x' => x' = x /\ opsAtPc r (update PC s (offset 1 pc))
-      end
-    end.
-
-Instance opsAtPc_decidable ops s : Decidable (opsAtPc ops s).
-Proof.
-  revert s.
-  induction ops; intros s.
-  - simp opsAtPc. typeclasses eauto.
-  - simp opsAtPc.
-    simpl.
-    destruct (decision (available (proj PC s))) as [H|H].
-    (* TODO: Fix *)
-    + destruct (proj MEM s (proj PC s) H) as [x|];
-      typeclasses eauto.
-    + typeclasses eauto.
-Qed.
-
-Instance nop_cert:
-  Cert (let* s := get in
-        assert* opsAtPc [toB8 NOP] s in
-        let* pc := get' PC in
-        put' PC (offset 1 pc);;
-        ret true).
-Proof.
-  intros s. simpl.
-  destruct (decision (opsAtPc [toB8 1] s)) as [Hs|Hs]; [|exact I].
-
-  set (s' := update PC s (offset 1 (proj PC s))).
-  assert (nextN 1 s = Some (s', 1)) as H1.
-
-  - unfold nextN, next. simpl. unfold load. simpl.
-    simp opsAtPc in Hs. simpl in Hs.
-    set (pc := proj PC s) in *.
-    destruct (decision (available pc)) as [HA|HA].
-    + destruct (proj MEM s pc HA) as [x|].
-      * destruct Hs as [? _]. subst x. reflexivity.
-      * destruct Hs.
-    + destruct Hs.
-
-  - refine (@More s' true _ s _ _).
-    + unfold oneStep. simpl.
-      rewrite H1. simp oneStep'.
-      reflexivity.
-    + apply Stop. unfold PropR. reflexivity.
+Instance cert_comp (u: M bool) {Cu: Cert u} (v: M bool) {Cv: Cert v} :
+  Cert (let* t := u in
+        if t then v else ret false).
+Proof using.
+  intros s. specialize (Cu s). simpl.
+  destruct (u s) as [[s' t]|] eqn:Hu; [|exact I].
+  destruct t eqn:Ht.
+  - specialize (Cv s').
+    destruct (v s') as [[s'' t']|] eqn:Hvs; [|exact I].
+    exact (reach_comp Cv Cu).
+  - exact Cu.
 Qed.
 
 
-(** ** Second attempt, the NOP program revisited *)
 
-Definition assumingOps (expected: list nat) : M unit :=
-  let* pc := get' PC in
-  let* actual := loadMany (length expected) pc in
-  assert* (actual = (map toB8 (map Z.of_nat expected)) :> list B8) in
-  ret tt.
+(** ** TODO: Move to Dec.v and consider renamining "decision" to "decide". *)
 
-Definition incPC z : M unit :=
-  let* pc := get' PC in
-  put' PC (offset z pc).
-
-Instance nop_cert:
-  Cert (assumingOps [NOP];;
-        incPC 1;;
-        not_terminated).
+Instance dec_decidable {P: Prop} {HP: Decidable P}
+         (f: P -> Prop) {Hf: forall H, Decidable (f H)}
+         (g: not P -> Prop) {Hg: forall H, Decidable (g H)}:
+  Decidable match decision P with
+            | left H => f H
+            | right H => g H
+            end.
 Proof.
+  destruct (decision P) as [H|H].
+  - apply Hf.
+  - apply Hg.
+Defined.
 
-(***** To be continued *****)
+Instance opt_decidable {X}
+         (f: X -> Prop) {Hf: forall x, Decidable (f x)}
+         (Q: Prop) {HQ: Decidable Q}
+         {ox: option X} :
+  Decidable match ox with
+            | Some x => f x
+            | None => Q
+            end.
+Proof.
+  destruct ox as [x|].
+  - apply Hf.
+  - exact HQ.
+Defined.
+
+
+(** ** Basic certs *)
+
+Require Import Assembly.OpCodes2.
+
+Instance cert1 {u: M unit} (b: bool)
+         (H: forall s, match u s with
+                  | Some (s', _) => Reach s' b s
+                  | None => True
+                  end) : Cert (u;; ret b).
+Proof using.
+  intros s.
+  specialize (H s).
+  simpl.
+  destruct (u s) as [[s' _]|]; exact H.
+Qed.
+
+Equations swallow (ops: list Cell) : M unit :=
+  swallow [] := ret tt;
+  swallow (op :: rest) :=
+    let* pc := get' PC in
+    let* x := load pc in
+    assert* x = op in
+    put' PC (offset 1 pc);;
+    swallow rest.
+
+(* TODO: Replace faulty proof in Convenience.v. *)
+Lemma to_list_equation_1: forall A, to_list []%vector = nil :> list A.
+Proof using. reflexivity. Qed.
+Hint Rewrite to_list_equation_1 : to_list.
+
+(* TODO: simplify? *)
+Ltac comp :=
+  repeat (
+      simpl
+    || simp to_list fromLittleEndian toBits bitListToNat
+    || unfold to_BitList).
+
+Ltac cert_start :=
+  apply cert1; intros s;
+  simp swallow; simpl;
+  (destruct load as [[s' x]|] eqn:H1; [|exact I]);
+  (destruct decision; [subst x|exact I]).
+
+Section offset_opaque_section.
+
+  Opaque offset.
+
+  Global Instance cert_exit : Cert (swallow [EXIT];;
+                                    terminated).
+  Proof using.
+    cert_start.
+    set (stop := update _ _ _).
+    refine (Exit _ ltac:(reflexivity)).
+    unfold oneStep. simpl.
+    rewrite H1. comp.
+    reflexivity.
+  Qed.
+
+  Instance cert_nop: Cert (swallow [NOP];;
+                           not_terminated).
+  Proof using.
+    cert_start.
+    set (stop := update _ _ _).
+    refine (More _ (Stop ltac:(reflexivity))).
+    unfold oneStep. simpl.
+    rewrite H1. comp.
+    reflexivity.
+  Qed.
+
+End offset_opaque_section.

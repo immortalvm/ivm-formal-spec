@@ -8,6 +8,8 @@ Rel.v
 Bits.v
 Dec.v
 Operations.v
+OpCodes.v
+OpCodes2.v
 Machine.v
 Concrete.v
 Mono.v
