@@ -1,7 +1,9 @@
 Require Import Equations.Equations.
 
 From Assembly Require Import Convenience Dec Lens Mon Operations Bits Machine Rel Mono OpCodes2.
-Set Implicit Arguments.
+
+(* Does it create more problems than it solves? *)
+(* Set Implicit Arguments. *)
 
 (* TODO: Move to Mono.v *)
 Ltac srel_destruct H :=
@@ -37,6 +39,8 @@ Inductive Reach (stop: State) : forall (cont: bool) (start: State), Prop :=
 | Stop s : stop ⊑ s -> Reach stop true s
 | Exit s' s : oneStep s = Some (s', false) -> stop ⊑ s' -> Reach stop false s
 | More c s' s : oneStep s = Some (s', true) -> Reach stop c s' -> Reach stop c s.
+
+Derive Signature for Reach.
 
 Arguments Stop {_} {_}.
 Arguments Exit {_} {_} {_}.
@@ -136,7 +140,9 @@ Qed.
 
 
 
-(** ** TODO: Move to Dec.v and consider renamining "decision" to "decide". *)
+
+
+(* TODO: Move *)
 
 Instance dec_decidable {P: Prop} {HP: Decidable P}
          (f: P -> Prop) {Hf: forall H, Decidable (f H)}
@@ -164,6 +170,10 @@ Proof.
   - apply Hf.
   - exact HQ.
 Defined.
+
+
+
+
 
 
 (** ** Basic certs *)
@@ -235,4 +245,80 @@ Section offset_opaque_section.
     reflexivity.
   Qed.
 
+
+(** Assembler jump_zero *)
+
+Equations availableBefore (a: Addr) (n: nat) : M unit :=
+  availableBefore _ 0 := ret tt;
+  availableBefore a (S n) :=
+    assert* (available (offset (S n) a)) in
+    availableBefore a n.
+
+Definition requireStack (n: nat) : M unit :=
+  let* sp := get' SP in
+  availableBefore sp (8 * n).
+
+Definition isZero := [PUSH1; toB8 1; LT].
+
+Definition boolRep (P: Prop) {DP: Decidable P} : Z :=
+  if decision P then (-1)%Z else 0%Z.
+
+Instance cert_isZero : Cert (swallow isZero;;
+                             requireStack 1;;
+                             let* n := popN in
+                             push64 (boolRep (n = 0));;
+                             not_terminated).
+Proof.
+  setoid_rewrite <- bind_assoc at 3.
+  setoid_rewrite <- bind_assoc at 2.
+  setoid_rewrite <- bind_assoc at 1.
+
+  apply cert1. intros s. unfold isZero, requireStack.
+  simpl mult. rewrite swallow_equation_2.
+  (* simp swallow. *)
+  (* Does not work here: simp availableBefore.
+     Neither does: setoid_rewrite availableBefore_equation_2. *)
+
+  simpl.
+  (destruct load as [[s' x]|] eqn:H1; [|exact I]).
+
+
+
+
+  setoid_rewrite bind_assoc.
+
+simpl.
+  (destruct decision; [subst x|exact I]).
+
+  cert_start.
+
+
+
+Definition pushNum (z: Z) :=
+  (* Non-optimized *)
+  PUSH8 :: toLittleEndian 8 z.
+
+Definition pop n :=
+  let pop1 := [JUMP_ZERO; toB8 0] in
+  match n with
+  | 0 => []
+  | 1 => pop1
+  | 2 => pop1 ++ pop1
+  | n => [GET_SP] ++ pushNum (n * 8) ++ [ADD; SET_SP]
+  end.
+
+Definition genericConditional interjection :=
+  [
+    GET_SP; PUSH1; toB8 8; ADD; LOAD8 (* a::x::r -> x::a::x::r *)
+  ] ++ interjection ++ [
+    JUMP_ZERO; toB8 6;
+    (* If not zero: *)
+    GET_SP; PUSH1; toB8 8; ADD; STORE8 (* a::x::r -> a::r *)
+  ] ++ pop 2. (* If zero *)
+
+
+Definition jump_zero_ops :=
+  [
+
+  ]
 End offset_opaque_section.
