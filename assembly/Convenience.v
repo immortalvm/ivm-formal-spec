@@ -7,6 +7,8 @@ Require Export Coq.ZArith.ZArith.
 Require Export Coq.Vectors.Vector. (** Does not open [vector_scope]. *)
 Require Export Coq.Bool.Bvector.
 Require Export Coq.Lists.List. (** Opens [list_scope]. *)
+Require Export Coq.Program.Basics.
+
 
 Export EqNotations.
 
@@ -47,32 +49,22 @@ Proof.
   exact (noConfusion_inv H).
 Qed.
 
-Coercion is_true : bool >-> Sortclass.
+Coercion Is_true : bool >-> Sortclass.
 
-Proposition is_true_true : is_true true.
-Proof. exact eq_refl. Qed.
+Proposition true_is_true : true.
+Proof. exact I. Qed.
 
-Proposition not_is_true_false : is_true false -> False.
-Proof. intro H. exact (noConfusion_inv H). Qed.
+Proposition false_is_false : not false.
+Proof. exact id. Qed.
 
-Lemma is_true_def (b: bool) : b <-> if b then True else False.
+Proposition false_if_not_true {b: bool} : not b -> b = false.
 Proof.
-  split; intro H.
-  - destruct b; exact (noConfusion_inv H).
-  - destruct b; [reflexivity|exfalso; exact H].
+  destruct b.
+  - intros H. contradict H. exact true_is_true.
+  - intros _. reflexivity.
 Qed.
 
-(** Cf. https://github.com/coq/coq/wiki/StandardLibrary#user-content-is_true-vs-true *)
-Inductive is_true_prop : bool -> Prop := is_true_prop_true : is_true_prop true.
-
-Lemma is_true_ind (b: bool) : b <-> is_true_prop b.
-Proof.
-  split; intro H.
-  - destruct b.
-    + constructor.
-    + exfalso. exact (noConfusion_inv H).
-  - destruct H. reflexivity.
-Qed.
+(** See also [Is_true_eq_left], [Is_true_eq_right] and [Is_true_eq_true]. *)
 
 Notation as_bool x := (if x then true else false).
 
@@ -87,7 +79,10 @@ Arguments decide P {_}.
 Instance True_decidable : Decidable True := left I.
 Instance False_decidable : Decidable False := right (@id False).
 Instance equality_decidable {A} `{dec: EqDec A} (x y: A) : Decidable (x = y) := dec x y.
-Instance is_true_decidable (x: bool) : Decidable (is_true x) := equality_decidable x true.
+Instance is_true_decidable (x: bool) : Decidable (x) :=
+  if x return (Decidable x)
+  then left true_is_true
+  else right false_is_false.
 
 Section decidable_connectives.
 
@@ -140,14 +135,11 @@ Proof. apply is_true_decidable. Defined.
 Instance is_none_decidable {X} (ox: option X) : Decidable (ox = None).
 Proof. destruct ox as [x|]; [right|left]; congruence. Defined.
 
-Proposition is_some_true {X} (ox: option X) : ox -> ox = true :> bool.
-Proof. exact id. Qed.
-
 Proposition is_some_some {X} (x: X) : Some x.
-Proof. exact is_true_true. Qed.
+Proof. exact true_is_true. Qed.
 
 Proposition not_is_some_none {X} : @None X -> False.
-Proof. exact not_is_true_false. Qed.
+Proof. exact false_is_false. Qed.
 
 (** Shortcut *)
 Definition none_not_some {X Y} (H: @None X) : Y :=
@@ -210,6 +202,13 @@ Section complete_section.
 
   Context {A X} (LX: Lens A X).
 
+  Proposition proj_characterized a x : proj a = x <-> update a x = a.
+  Proof.
+    split; intros H; rewrite <- H.
+    - apply update_proj.
+    - apply proj_update.
+  Qed.
+
   Class Complete :=
   {
     install : X -> A;
@@ -218,18 +217,27 @@ Section complete_section.
 
   Context {CX: Complete}.
 
-  Proposition install_proj (a: A) : install (proj a) = a.
+  Proposition complete_bijection {a x} : proj a = x <-> install x = a.
   Proof.
-    rewrite <- (update_installs a (proj a)).
-    apply update_proj.
+    rewrite <- (update_installs a x).
+    apply proj_characterized.
+  Qed.
+
+  Corollary proj_install (x: X) : proj (install x) = x.
+  Proof.
+    rewrite complete_bijection. reflexivity.
+  Qed.
+
+  Corollary install_proj (a: A) : install (proj a) = a.
+  Proof.
+    apply complete_bijection. reflexivity.
   Qed.
 
   Corollary proj_injective (a a': A) : proj a = proj a' -> a = a'.
   Proof.
     intros H.
-    setoid_rewrite <- install_proj.
-    f_equal.
-    exact H.
+    rewrite <- (proj1 complete_bijection H).
+    apply install_proj.
   Qed.
 
 End complete_section.
@@ -386,6 +394,13 @@ Section projection_section.
     all: idestructs; now repeat (independent_rewrite1 || lens_rewrite || simpl).
   Defined.
 
+  Proposition prod_proj_spec (a: A) : proj a = (proj a, proj a).
+  Proof. reflexivity. Qed.
+
+  Proposition prod_update_spec (a: A) (xy: X * Y) : update a xy = update (update a (fst xy)) (snd xy).
+  Proof. reflexivity. Qed.
+
+
   Context {CP: Complete lens_prod}.
 
   Local Ltac update_prod_tac a :=
@@ -397,15 +412,35 @@ Section projection_section.
     independent_rewrite1;
     reflexivity.
 
-  Let update_prodX (a: A) (x: X) : update a x = install (x, proj a).
+  Proposition update_prodX (a: A) (x: X) : update a x = install (x, proj a).
   Proof. update_prod_tac a. Qed.
 
-  Let update_prodY (a: A) (y: Y) : update a y = install (proj a, y).
+  Proposition update_prodY (a: A) (y: Y) : update a y = install (proj a, y).
   Proof. update_prod_tac a. Qed.
 
   Lemma update_proj_swap (a a' : A) :
     update a' (proj a : X) = update a (proj a' : Y).
   Proof. rewrite update_prodX, update_prodY. reflexivity. Qed.
+
+  Proposition projX_install xy : proj (install xy) = fst xy.
+  Proof.
+    rewrite
+      <- (update_installs (install xy)),
+      prod_update_spec,
+      projX_updateY,
+      proj_update.
+    reflexivity.
+  Qed.
+
+  Proposition projY_install xy : proj (install xy) = snd xy.
+  Proof.
+    rewrite
+      <- (update_installs (install xy)),
+      prod_update_spec,
+      proj_update.
+    reflexivity.
+  Qed.
+
 
   Context Z (LZ: Lens A Z) (IXZ: Independent LX LZ) (IYZ: Independent LY LZ).
 
@@ -468,8 +503,9 @@ Proof. reflexivity. Qed.
 Lemma to_list_equation_2 {A n} (x: A) (u: vector A n) : to_list (x :: u)%vector = x :: (to_list u).
 Proof. reflexivity. Qed.
 
-Hint Rewrite @to_list_equation_1 : to_list.
-Hint Rewrite @to_list_equation_2 : to_list.
+Hint Rewrite
+     @to_list_equation_1
+     @to_list_equation_2 : to_list.
 
 Lemma to_list_injective {A n} (u v: vector A n) : to_list u = to_list v -> u = v.
 Proof.
@@ -615,7 +651,7 @@ Section lens_vector_section.
       simpl.
       independent_rewrite1.
       reflexivity.
-  Qed.
+  Defined.
 
 End lens_vector_section.
 
@@ -917,11 +953,7 @@ Defined.
 Proposition injected_N {z: Z} : injected N z <-> (0 <= z)%Z.
 Proof.
   simpl.
-  destruct (decide _) as [H|H]; unfold is_some, is_true.
-  - tauto.
-  - split; intro HH; exfalso.
-    * exact (noConfusion_inv HH).
-    * exact (H HH).
+  destruct (decide _) as [H|H]; unfold is_some; simpl; tauto.
 Qed.
 
 
@@ -949,10 +981,14 @@ Section prism_lens_section.
       reflexivity.
   Defined.
 
+  Proposition prism_proj_spec x : proj x = proj (inj x).
+  Proof. reflexivity. Qed.
+
+  Proposition prism_update_spec x y : update x y = extract (H x y).
+  Proof. reflexivity. Qed.
+
   Proposition inj_prism_update x y : inj (update x y) = update (inj x) y.
-  Proof.
-    simpl. rewrite inj_extract. reflexivity.
-  Qed.
+  Proof. simpl. rewrite inj_extract. reflexivity. Qed.
 
 End prism_lens_section.
 
@@ -961,7 +997,9 @@ End prism_lens_section.
 
 Section bits_section.
 
-  Lemma pos_pred_double_z (x: positive) : Zpos (Pos.pred_double x) = (2 * (Zpos x) - 1)%Z.
+  Open Scope Z.
+
+  Lemma pos_pred_double_z (x: positive) : Zpos (Pos.pred_double x) = 2 * (Zpos x) - 1.
   Proof.
     destruct x as [ x | x | ]; simpl; reflexivity.
   Qed.
@@ -1010,7 +1048,7 @@ Section bits_section.
   #[refine] Instance lens_odd : Lens Z bool :=
   {
     proj z := Z.odd z;
-    update z b := (Z.double (Z.div2 z) + Z.b2z b)%Z;
+    update z b := Z.double (Z.div2 z) + Z.b2z b;
   }.
   Proof.
     - intros z x.
@@ -1028,7 +1066,7 @@ Section bits_section.
   #[refine] Instance lens_div2 : Lens Z Z :=
   {
     proj z := Z.div2 z;
-    update z x := (Z.double x + Z.b2z (Z.odd z))%Z;
+    update z x := Z.double x + Z.b2z (Z.odd z);
   }.
   Proof.
     - intros z x. apply div2_double2.
@@ -1046,6 +1084,19 @@ Section bits_section.
       reflexivity.
   Qed.
 
+  #[refine] Instance complete_odd_div2 : Complete (lens_prod independent_odd_div2) :=
+  {
+    install oz := Z.double (snd oz) + Z.b2z (fst oz);
+  }.
+  Proof.
+    intros z [o x]. simpl.
+    do 2 f_equal.
+    rewrite Z.add_comm.
+    rewrite Z.double_spec.
+    rewrite Z.odd_add_mul_2.
+    destruct o; reflexivity.
+  Defined.
+
   Context (n: nat).
 
   Global Instance lens_bits : Lens Z (Bvector n).
@@ -1061,28 +1112,61 @@ Section bits_section.
   Global Instance independent_bits : Independent lens_bits lens_bits'.
   Proof.
     apply (independent_vector n).
-  Qed.
+  (** This must be transparent for the definition
+      of [complete_bits] to go through. *)
+  Defined.
 
-  Definition toBits z := @proj _ _ lens_bits z.
+  Global Instance complete_bits : Complete (lens_prod independent_bits).
+  Proof.
+    apply (complete_vector complete_odd_div2).
+  Defined.
 
 End bits_section.
 
-(* Compute (toBits 4 7). *)
-(* Compute (toBits 4 (-7)). *)
-
-
-(** ** Signed and unsigned *)
-
 Arguments Bsign {_} _.
 
-Section sign_section.
+Section bit_facts_section.
 
   Open Scope Z.
+  Coercion Z.of_nat : nat >-> Z.
+  Coercion N.of_nat : nat >-> N.
   Open Scope vector.
-  Opaque Z.mul.
 
 
-  (** *** Specs *)
+  (** *** Helpers *)
+
+  Lemma pow2_equation_0 : 2^0 = 1.
+  Proof. reflexivity. Qed.
+
+  Lemma pow2_equation_1 : 2 ^ 0%nat = 1.
+  Proof. simpl. exact pow2_equation_0. Qed.
+
+  Lemma pow2_equation_2 n : 2^(S n) = 2 * (2^n).
+  Proof.
+    rewrite Nat2Z.inj_succ, Z.pow_succ_r.
+    - reflexivity.
+    - apply Nat2Z.is_nonneg.
+  Qed.
+
+  Hint Rewrite
+       pow2_equation_0
+       pow2_equation_1
+       pow2_equation_2 : pow2.
+
+  Lemma pow2_pos (n: nat) : 0 < 2^n.
+  Proof.
+    apply Z.pow_pos_nonneg.
+    - lia.
+    - apply Nat2Z.is_nonneg.
+  Qed.
+
+  Corollary pow2_nonneg (n : nat) : 0 <= 2^n.
+  Proof. apply Z.lt_le_incl, pow2_pos. Qed.
+
+
+  (** *** Characterizations *)
+
+  Definition toBits n : Z -> Bvector n := proj (Lens:=lens_bits n).
 
   Proposition toBits_equation_1 z : toBits 0 z = [].
   Proof. reflexivity. Qed.
@@ -1095,379 +1179,220 @@ Section sign_section.
     reflexivity.
   Qed.
 
-  Hint Rewrite toBits_equation_1 : toBits.
-  Hint Rewrite toBits_equation_2 : toBits.
+  Hint Rewrite
+       toBits_equation_1
+       toBits_equation_2 : toBits.
 
-  Proposition two_power_nat_equation_1 : two_power_nat 0 = 1.
+  Definition toRest n : Z -> Z := proj (Lens:=lens_bits' n).
+
+  Proposition toRest_equation_1 z : toRest 0 z = z.
   Proof. reflexivity. Qed.
 
-  Proposition two_power_nat_equation_2 n : two_power_nat (S n) = Z.double (two_power_nat n).
-  Proof. reflexivity. Qed.
-
-  Hint Rewrite two_power_nat_equation_1 : two_power_nat.
-  Hint Rewrite two_power_nat_equation_2 : two_power_nat.
-
-  Proposition two_power_nat_nonneg n : 0 < two_power_nat n.
+  Proposition toRest_equation_2 n z :
+    toRest (S n) z = toRest n (Z.div2 z).
   Proof.
-    induction n; simp two_power_nat. exact Z.lt_0_1.
+    unfold toRest.
+    simpl.
+    simp projN'.
+    simpl.
+    reflexivity.
+  Qed.
+
+  Hint Rewrite
+       toRest_equation_1
+       toRest_equation_2 : toRest.
+
+  Lemma toRest_spec n z : toRest n z = z / 2 ^ n.
+  Proof.
+    revert z. induction n; intros z; simp toRest.
+    - symmetry. apply Z.div_1_r.
+    - rewrite IHn.
+      rewrite Z.div2_div.
+      simp pow2.
+      rewrite Zdiv_Zdiv.
+      + reflexivity.
+      + lia.
+      + apply pow2_nonneg.
+  Qed.
+
+  Definition insta {n} (u:Bvector n) (z: Z) : Z :=
+    install (Complete:=complete_bits n) (u, z).
+
+  Proposition toBits_insta {n} (u: Bvector n) z : toBits n (insta u z) = u.
+  Proof. apply projX_install. Qed.
+
+  Proposition toRest_insta {n} (u: Bvector n) z : toRest n (insta u z) = z.
+  Proof. apply projY_install. Qed.
+
+  Proposition insta_equation_1 z : insta [] z = z.
+  Proof. unfold insta. reflexivity. Qed.
+
+  Arguments installN {_} {_} {_} {_} {_} {_} {_}.
+
+  Proposition insta_equation_2 {n} (b:bool) (u:Bvector n) z :
+    insta (b::u) z = Z.double (insta u z) + Z.b2z b.
+  Proof.
+    unfold insta. simpl. simp installN.
+    reflexivity.
+  Qed.
+
+  Hint Rewrite
+       insta_equation_1
+       @insta_equation_2 : insta.
+
+  Proposition insta_bijection z {n} (u: Bvector n) z' :
+    toBits n z = u /\ toRest n z = z' <-> insta u z' = z.
+  Proof.
+    transitivity (proj (Lens:=lens_prod (independent_bits n)) z = (u, z')).
+    - unfold toBits, toRest. simpl. split.
+      + intros [H1 H2]. subst. reflexivity.
+      + intros H. inversion H. tauto.
+    - apply complete_bijection.
+  Qed.
+
+
+  (** *** Update *)
+
+  Lemma insta_spec {n} (u: Bvector n) (z: Z) :
+    insta u z = 2^n * z + update 0 u.
+  Proof.
+    revert u z. induction n; intros u z; depelim u; simp insta pow2.
+    - simpl update. simp updateN. lia.
+    - simpl update. simp updateN.
+      rewrite IHn. simpl update.
+      set (x := updateN 0 u).
+      rewrite Z.add_assoc.
+      f_equal.
+      setoid_rewrite Z.double_spec.
+      rewrite Z.mul_add_distr_l.
+      f_equal.
+      + lia.
+      + rewrite Z.add_0_r, div2_double.
+        reflexivity.
+  Qed.
+
+  Corollary update_to_insta0 {n} (u: Bvector n) : update 0 u = insta u 0.
+  Proof. rewrite insta_spec. lia. Qed.
+
+  Lemma update_spec {n} (u: Bvector n) (z: Z) :
+    update z u = 2^n * (z / 2^n) + insta u 0.
+  Proof.
+    transitivity (insta u (toRest n z)).
+    - unfold insta, toRest.
+      apply (proj_injective (CX:=complete_bits n)).
+      setoid_rewrite prod_proj_spec.
+      f_equal.
+      + rewrite proj_update.
+        rewrite <- update_prodX.
+        rewrite proj_update.
+        reflexivity.
+      + rewrite projY_updateX.
+        rewrite <- (update_installs z).
+        rewrite prod_update_spec.
+        rewrite proj_update.
+        reflexivity.
+    - rewrite insta_spec.
+      rewrite toRest_spec.
+      rewrite update_to_insta0.
+      reflexivity.
+  Qed.
+
+  Lemma insta0_nonneg {n} (u: Bvector n) : 0 <= insta u 0.
+  Proof.
+    induction n; depelim u; simp insta; [lia|].
+    apply Z.add_nonneg_nonneg; [|destruct h; simpl; lia].
+    specialize (IHn u).
+    rewrite Z.double_spec.
+    lia.
+  Qed.
+
+  Corollary update_nonneg {n} (x : N) (u : Bvector n) : injected N (update (inj x) u).
+  Proof.
+    rewrite update_spec.
+    simpl. decide as H.
+    - apply Z.add_nonneg_nonneg;
+        [| apply insta0_nonneg].
+      apply Z.mul_nonneg_nonneg.
+      + apply Z.lt_le_incl, pow2_pos.
+      + apply Z.div_pos.
+        * apply N2Z.is_nonneg.
+        * apply pow2_pos.
+    - apply is_some_some.
+  Qed.
+
+
+  (** *** Unsigned *)
+
+  Instance lens_bits_N n : Lens N (Bvector n) :=
+    lens_prism (PX:=prism_N) (LY:=lens_bits n) update_nonneg.
+
+  Definition bitsToN {n} (u: Bvector n) : N := update 0%N u.
+
+  Proposition ofN_bitsToN {n} (u: Bvector n) : Z.of_N (bitsToN u) = insta u 0.
+  Proof.
+    change Z.of_N with inj.
+    rewrite <- update_to_insta0.
+    change 0 with (inj 0%N).
+    apply inj_prism_update.
   Qed.
 
   Lemma div2_reflects_lt x y : Z.div2 x < Z.div2 y -> x < y.
   Proof.
     intros H.
     setoid_rewrite Z.div2_odd.
-    do 2 destruct (Z.odd _); simpl; lia.
+    do 2 destruct (Z.odd _); simpl Z.b2z; lia.
   Qed.
 
-  Definition modPow2 n z := Z.land z (Z.ones (Z.of_nat n)).
-
-  Proposition modPow2_spec n z : modPow2 n z = z mod two_power_nat n.
+  Lemma insta0_limit {n} (u: Bvector n) : insta u 0 < 2 ^ n.
   Proof.
-    unfold modPow2. rewrite Z.land_ones, two_power_nat_equiv.
-    - reflexivity.
-    - apply Nat2Z.is_nonneg.
+    induction n; depelim u; simp insta pow2.
+    - exact Z.lt_0_1.
+    - apply div2_reflects_lt.
+      rewrite div2_double2, div2_double.
+      apply IHn.
   Qed.
 
-  (* TODO: needed? *)
-  Proposition double_shiftl z : Z.double z = Z.shiftl z 1.
-  Proof. reflexivity. Qed.
-
-  Proposition modPow2_equation_1 z : modPow2 0 z = 0.
-  Proof. destruct z; reflexivity. Qed.
-
-  Compute Z.land 8 (-2).
-
-  Lemma itest z : z = Z.lor (Z.land z (-2)) (Z.land z 1).
-  Proof.
-    apply Z.bits_inj.
-    intro n.
-    rewrite Z.lor_spec.
-    destruct n.
-    -
-(*******************)
-
-
-  Proposition modPow2_equation_2 n z :
-    modPow2 (S n) z = Z.double (modPow2 n (Z.div2 z)) + Z.b2z (Z.odd z).
-  Proof.
-    unfold modPow2.
-    rewrite <- Z.bit0_odd.
-    rewrite double_shiftl.
-    rewrite Z.shiftl_land.
-
-    Compute Z.shiftl (-2) 4.
-
-
-  Lemma modPow2_lemma n z : modPow2 n (Z.div2 z) = Z.div2 (modPow2 (S n) z).
-  Proof.
-    unfold modPow2.
-    simp two_power_nat.
-    set (p := two_power_nat n).
-
-    Z_div_mod_eq
-    div2_double2
-
-  Proposition modPow2_equation_2 n z :
-    modPow2 (S n) z = Z.double (modPow2 n (Z.div2 z)) + Z.b2z (Z.odd z).
-  Proof.
-    unfold modPow2. simp two_power_nat.
-    unfold Z.b2z. rewrite <- Zmod_odd.
-    setoid_rewrite Z.double_spec at 2.
-
-    rewrite Z.div2_div.
-
-
-    set (x := Z.div2 z mod two_power_nat n).
-    assert (z mod 2 = x mod 2) as Hx.
-    - subst x.
-
-
-    rewrite Z_div_mod_eq.
-
-
-  Definition domPow2 n z := two_power_nat n * (z / two_power_nat n).
-
-  (* TODO: change to corollary below *)
-  Proposition mod_dom_id n z : z = domPow2 n z + modPow2 n z.
-  Proof.
-    unfold domPow2, modPow2.
-    apply Z_div_mod_eq, Z.lt_gt, two_power_nat_nonneg.
-  Qed.
-
-  Lemma update_bits_spec n z z' : update z (toBits n z') = domPow2 n z + modPow2 n z'.
-  Proof.
-    unfold domPow2, modPow2. simpl.
-    revert z z'.
-    induction n as [|n IH]; intros z z'; simp toBits updateN two_power_nat.
-    - rewrite Z.mul_1_l, Z.div_1_r, Zmod_1_r, Z.add_0_r. reflexivity.
-    - rewrite IH. clear IH.
-      set (p := two_power_nat n) in *.
-      match goal with
-        |- update ?x ?y = _ =>
-        set (xx:=x); set (yy:=y); simpl update; subst xx; subst yy
-      end.
-      rewrite
-
-      rewrite Z.mul_add_distr_l.
-              Z.mul_assoc,
-              <- Z.add_assoc.
-
-
-      .
-
-      unfold update at 1.
-      simpl.
-
-.
-      simp projN.
-
-
-  Local Notation collapse n z := (@proj _ _ (lens_bits' n) z).
-
-  Lemma proj_spec' n z : collapse n z = z / two_power_nat n.
-  Proof.
-    simpl. revert z. induction n as [|n IH]; intros z; simp projN'.
-    - auto with zarith.
-    - simpl. rewrite IH. simp two_power_nat.
-      rewrite Z.div2_div.
-      unfold two_power_nat.
-      apply Zdiv_Zdiv; auto with zarith.
-  Qed.
-
-  Corollary proj_spec {n z} : collapse n z = z / 2 ^ Z.of_nat n.
-  Proof.
-    rewrite <- two_power_nat_equiv.
-    apply proj_spec'.
-  Qed.
-
-  Local Notation upd n z z' := (@update _ _ (lens_bits' n) z z').
-
-  Lemma upd_spec' n z z' : upd n z z' = (two_power_nat n) * z' + z mod (two_power_nat n).
-  Proof. (* TODO: Simplify *)
-    simpl upd; revert z z'.
-    induction n as [|n IH]; intros z z'; simp updateN' two_power_nat.
-    - rewrite Zmod_1_r. auto with zarith.
-    - rewrite IH. clear IH. simpl update.
-      rewrite Z.double_spec,
-              Z.mul_add_distr_l,
-              Z.mul_assoc,
-              <- Z.add_assoc.
-      f_equal.
-      rewrite <- (Zmod_small (_ + _) (2 * two_power_nat n)).
-      + rewrite <- Zmult_mod_distr_l,
-                Zplus_mod,
-                Zmod_mod,
-                <- Zplus_mod,
-                <- Z.div2_odd.
-        reflexivity.
-      + split.
-        * apply Ztac.add_le.
-          -- apply Z.mul_nonneg_nonneg.
-             ++ lia.
-             ++ apply Z.mod_pos_bound, two_power_nat_nonneg.
-          -- destruct Z.odd; simpl; auto with zarith.
-        * apply div2_reflects_lt.
-          setoid_rewrite <- Z.double_spec.
-          rewrite div2_double, div2_double2.
-          apply Z.mod_pos_bound, two_power_nat_nonneg.
-  Qed.
-
-  Transparent Z.mul.
-
-  Lemma upd_toBits n z z' : update z (toBits n z') = upd n z' (collapse n z).
-  Proof.
-    unfold toBits. simpl.
-    apply updateX_projY.
-
-
-  Lemma update_proj_mod {n} {z} {z'}: update z (toBits n z')
-                                      = two_power_nat n * (collapse n z)
-                                        +
-  .
-
-
-  Definition synthesize {n} (u: Bvector n) (z: Z) : Z :=
-
-
-
-  Local Coercion Z.of_nat : nat >-> Z.
-
-  Local Opaque Z.pow.
-
-  Lemma proj_spec {n z} : collapse n z = z / 2 ^ n.
-  Proof.
-    simpl. revert z. induction n as [|n IH]; intros z; simp projN'.
-    - auto with zarith.
-    - simpl. rewrite IH.
-      rewrite Z.div2_div.
-      rewrite Z.pow_add_r.
-
-      , two_power_nat_S.
-      apply Zdiv_Zdiv;
-        unfold two_power_nat;
-        auto with zarith.
-
-
-
-
-Set Printing Implicit.
-rewrite IH.
-
-
-      auto with zarith.
-reflexivity.
-
-
-
-
-
-
-
-
-  (** *** Unsigned *)
-
-  Lemma proj_positive n {z} : 0 <= z -> 0 <= proj (Lens:=lens_bits' n) z.
-  Proof.
-    simpl.
-    revert z.
-    induction n as [|n IH].
-    - simp projN'.
-    - intros z Hz. simp projN'. simpl.
-      apply (IH (Z.div2 z)), Z.div2_nonneg.
-      exact Hz.
-  Qed.
-
-  Lemma update_nonneg {n} (u: Bvector n) {z} : 0 <= z -> 0 <= update z u.
-  Proof.
-    simpl. revert u z.
-    induction n as [|n IH]; intros u; depelim u; intros z Hz; simp updateN.
-    remember (proj_positive 1 Hz) as Hz' eqn:Hez'. clear Hez'.
-    remember (proj _) as z' eqn:Hez. clear Hez.
-    specialize (IH u z' Hz').
-    remember (updateN z' _) as z'' eqn:Hez''. clear Hez''.
-    simpl.
-    rewrite Z.div2_div, Z.double_spec, Z.double_spec at 1.
-    clear n u z' Hz Hz'.
-    apply Z.add_nonneg_nonneg.
-    - destruct (Z.odd z); simpl Z.b2z;
-        clear z;
-        (apply Ztac.mul_le; [|apply Z.div_pos]; lia).
-    - destruct h; simpl Z.b2z; lia.
-  Qed.
-
-  Local Opaque update.
-
-  Corollary update_nonneg' {n} (x : N) (u : Bvector n) : injected N (update (inj x) u).
-  Proof.
-    simpl. decide as H.
-    - apply update_nonneg, N2Z.is_nonneg.
-    - apply is_some_some.
-  Defined.
-
-  Local Transparent update.
-
-  Instance lens_bits_N n : Lens N (Bvector n) :=
-    lens_prism (PX:=prism_N) (LY:=lens_bits n) update_nonneg'.
-
-  Definition bitsToN {n} (u: Bvector n) : N := update 0%N u.
-
-  Proposition ofN_bitsToN {n} (u: Bvector n) : Z.of_N (bitsToN u) = update 0 u.
-  Proof.
-    change Z.of_N with inj.
-    change 0 with (inj 0%N).
-    apply inj_prism_update.
-  Qed.
-
-  Lemma update_upper_limit {n} (u: Bvector n) : update 0 u < two_power_nat n.
-  Proof. (* TODO: simplify? *)
-    induction n as [|n IH].
-    - cbv. simp updateN. reflexivity.
-    - depelim u.
-      simpl update.
-      simp updateN.
-      simpl update.
-      rewrite Z.div2_div, Z.double_spec, Z.double_spec at 1.
-      rewrite Z.add_0_r.
-      specialize (IH u).
-      simpl in IH.
-      set (z := updateN 0 u) in *.
-      revert IH.
-      generalize z.
-      clear u z.
-      intros z H.
-      rewrite two_power_nat_S.
-      destruct h; simpl Z.b2z;
-        [apply Z.double_above
-        |rewrite Z.add_0_r; apply Zmult_lt_compat_l; [lia|]];
-        (rewrite Z.mul_comm, Z_div_mult; [exact H|lia]).
-  Qed.
-
-  Corollary bitsToN_limit {n} (u: Bvector n) : (bitsToN u < 2 ^ N.of_nat n)%N.
+  Corollary bitsToN_limit {n} (u: Bvector n) : (bitsToN u < 2 ^ n)%N.
   Proof.
     apply N2Z.inj_lt.
     rewrite ofN_bitsToN, N2Z.inj_pow. simpl.
-    rewrite nat_N_Z, <- two_power_nat_equiv.
-    apply update_upper_limit.
+    rewrite nat_N_Z.
+    apply insta0_limit.
   Qed.
 
-  Proposition double_compare z z' : (Z.double z ?= Z.double z') = (z ?= z').
+  Proposition double_reflects_lt x y : Z.double x < Z.double y -> x < y.
+  Proof. destruct x; destruct y; tauto. Qed.
+
+  Lemma insta_toBits {n:nat} z (H0: 0 <= z) (H1: z < 2 ^ n) :
+    insta (toBits n z) 0 = z.
   Proof.
-    destruct z; destruct z'; simpl; reflexivity.
+    revert z H0 H1.
+    induction n;
+      simp pow2;
+      intros z H0 H1;
+      simp toBits;
+      simp insta;
+      [ lia | ].
+    rewrite IHn.
+    - symmetry. apply Z.div2_odd.
+    - apply Z.div2_nonneg. exact H0.
+    - apply double_reflects_lt.
+      rewrite (Z.div2_odd z) in H1.
+      setoid_rewrite Z.double_spec.
+      destruct (Z.odd z); simpl Z.b2z in H1; lia.
   Qed.
 
-  Corollary double_strict z z' : Z.double z < Z.double z' <-> z < z'.
-  Proof.
-    unfold Z.lt.
-    rewrite double_compare.
-    tauto.
-  Qed.
-
-  Lemma two_power_nat_div2 {n z} : z < two_power_nat (S n)
-                                 -> Z.div2 z < two_power_nat n.
-  Proof.
-    rewrite two_power_nat_S.
-    intros H.
-    apply double_strict.
-    refine (Z.le_lt_trans _ z _ _ H).
-    setoid_rewrite Z.div2_odd at 4.
-    rewrite <- Z.double_spec at 1.
-    destruct (Z.odd z); simpl Z.b2z; lia.
-  Qed.
-
-  Local Opaque Z.lt Z.pow.
-
-  Lemma bits_id {n z} (H0: 0 <= z) (H1: z < two_power_nat n) :
-    update 0 (proj z : Bvector n) = z.
-  Proof.
-    simpl. revert z H0 H1.
-    induction n as [|n IH]; intros z H0 H1.
-    - cbv in H1. by_lia (z = 0) as Hz. subst z. reflexivity.
-    - rewrite two_power_nat_S in H1.
-      simp projN updateN. simpl.
-      change 0 with (Z.b2z false) at 2.
-      rewrite div2_double.
-      specialize (IH (Z.div2 z)).
-      specialize (IH (proj2 (Z.div2_nonneg _) H0)).
-      specialize (IH (two_power_nat_div2 H1)).
-      rewrite IH.
-      symmetry.
-      apply Z.div2_odd.
-  Qed.
-
-  Local Transparent Z.lt Z.pow.
-
- Corollary bitsToN_id {n x} (Hx: (x < 2 ^ N.of_nat n)%N) :
+ Corollary bitsToN_proj {n:nat} {x} (Hx: (x < 2 ^ n)%N) :
     bitsToN (proj x : Bvector n) = x.
   Proof.
     apply N2Z.inj.
     rewrite ofN_bitsToN.
-    simpl proj.
-    apply bits_id.
+    unfold lens_bits_N.
+    rewrite prism_proj_spec.
+    apply insta_toBits.
     - apply N2Z.is_nonneg.
-    - rewrite two_power_nat_equiv.
-      change 2 with (Z.of_N 2%N).
-      rewrite <- nat_N_Z.
-      rewrite <- N2Z.inj_pow.
+    - change 2 with (Z.of_N 2%N).
+      rewrite <- nat_N_Z, <- N2Z.inj_pow.
       apply N2Z.inj_lt.
       exact Hx.
   Qed.
@@ -1475,126 +1400,177 @@ reflexivity.
 
   (** *** Signed *)
 
-  Local Opaque Z.mul Z.add.
+  Definition bitsToZ {n} (u: Bvector (S n)) : Z := insta u (if Bsign u then -1 else 0).
 
-  Definition signOffset {n} (u: Bvector (S n)) : Z :=
-    update (Lens := lens_bits' n)
-           0
-           (if (Bsign u) then -1 else 0).
-
-  Open Scope vector.
-
-  Lemma signOffset_equation_1 b : signOffset [b] = - Z.b2z b.
-  Proof.
-    destruct b; reflexivity.
-  Qed.
-
-  Lemma signOffset_equation_2 {n} b {u: Bvector (S n)} : signOffset (b :: u) = 2 * signOffset u.
-  Proof.
-    unfold signOffset.
-    simpl.
-    generalize (if Bsign u then -1 else 0).
-    clear u b.
-    intros z.
-    simp updateN'.
-    simpl.
-    rewrite Z.double_spec.
-    lia.
-  Qed.
-
-  Hint Rewrite signOffset_equation_1 : signOffset.
-  Hint Rewrite @signOffset_equation_2 : signOffset.
-
-  Local Opaque Z.opp.
-
-  Corollary signOffset_spec {n} (u: Bvector (S n)) :
-    signOffset u = if Bsign u then - two_power_nat n else 0.
-  Proof.
-    induction n as [|n IH].
-    - do 2 depelim u. simpl. simp signOffset.
-      destruct h; reflexivity.
-    - depelim u. simpl. simp signOffset.
-      rewrite two_power_nat_S.
-      rewrite (IH u).
-      clear h IH.
-      destruct (Bsign u); lia.
-  Qed.
-
-  Definition bitsToZ {n} (u: Bvector (S n)) : Z := update (signOffset u) u.
+  Proposition toBits_bitsToZ {n} (u: Bvector (S n)) : toBits _ (bitsToZ u) = u.
+  Proof. apply toBits_insta. Qed.
 
   (* "101" = -3 *)
   (* Compute bitsToZ [true; false; true]. *)
 
-  Proposition proj_bitsToZ {n} (u: Bvector (S n)) : proj (bitsToZ u) = u.
+  Proposition sign_bitsToZ {n} (u: Bvector (S n)) : bitsToZ u < 0 <-> Bsign u.
   Proof.
     unfold bitsToZ.
-    rewrite proj_update.
-    reflexivity.
+    split.
+    - destruct (Bsign u); intro H; [apply true_is_true|].
+      exfalso.
+      apply (Zlt_not_le _ _ H).
+      apply insta0_nonneg.
+    - induction n.
+      + do 2 depelim u.
+        simp insta.
+        destruct (_:bool); simpl; intro H; lia.
+      + depelim u. simpl Bsign. intros Hs. simp insta.
+        apply div2_reflects_lt.
+        rewrite div2_double2.
+        simpl Z.div2.
+        exact (IHn u Hs).
   Qed.
 
-  (* TODO: move up *)
-  Proposition not_is_true {b: bool} : not b -> b = false.
-  Proof.
-    destruct b.
-    - intros H. contradict H. exact is_true_true.
-    - reflexivity.
-  Qed.
-
-  Proposition positive_correspondence {n} (u: Bvector (S n)) :
-    not (Bsign u) -> bitsToZ u = Z.of_N (bitsToN u).
-  Proof.
-    intros H.
-    derive H (not_is_true H).
-    unfold bitsToZ.
-    rewrite signOffset_spec.
-    rewrite H.
-    symmetry.
-    apply ofN_bitsToN.
-  Qed.
-
-
-
-    unfold bitsToN.
-
-
-  Proposition sign_bitsToZ {n} (u: Bvector (S n)) : (bitsToZ u) < 0 <-> Bsign u.
-  Proof.
-    induction n as [|n IH].
-    - depelim u. depelim u.
-      unfold bitsToZ, signOffset.
-      destruct h.
-
-      cbn.
-
-      destruct h; cbv. ; simp updateN updateN'.
-      + tauto.
-      + split; congruence.
-
-    - depelim u.
-      simp signOffset. simpl Bsign.
-      rewrite <- IH. lia.
-
-
-    unfold bitsToZ.
-    rewrite <- sign_signOffset.
-    destruct (Bsign u).
-    - simpl.
-      depind u.
-
-
-
-
-
-End
-
-
-
-
-
-(*******************)
+End bit_facts_section.
 
 
 (** ** Bytes *)
+
+Require Coq.Init.Byte.
+
+Section bytes_section.
+
+  Open Scope vector.
+  Open Scope program_scope.
+
+  Notation byte := (Byte.byte).
+  Notation B8 := (Bvector 8).
+
+  Class Bijection {X Y: Type} (f: X -> Y) :=
+  {
+    inverse : Y -> X;
+    inverse_f x : inverse (f x) = x;
+    f_inverse y : f (inverse y) = y;
+  }.
+
+  (* TODO: Move up *)
+  Definition bijection {X Y: Type} (f: X -> Y) (g: Y -> X) : Prop :=
+    forall {x y}, f x = y <-> g y = x.
+
+  Lemma bijection_spec {X Y: Type} {f: X -> Y} {g: Y -> X} :
+    bijection f g <-> (forall x, g (f x) = x) /\ (forall y, f (g y) = y).
+  Proof.
+    split.
+    - intros H. split; intro; apply H; reflexivity.
+    - intros [Hx Hy] x y.
+      specialize (Hx x).
+      specialize (Hy y).
+      split; intro; subst; assumption.
+  Qed.
+
+  Lemma bijection_composition {X Y Z: Type}
+        {f: X -> Y} {f': Y -> X}
+        {g: Y -> Z} {g': Z -> Y}
+        (Hf: bijection f f')
+        (Hg: bijection g g') : bijection (g∘f) (f'∘g').
+  Proof.
+    intros x z. unfold compose.
+    transitivity (f x = g' z);
+      [transitivity (g' z = f x)|].
+    - apply Hg.
+    - split; intro; congruence.
+    - apply Hf.
+  Qed.
+
+
+  (** *** Bijection between [Byte] and [Bvector 8] *)
+
+  Fixpoint bprod n :=
+    match n with
+    | 0 => bool
+    | S n => (bool * bprod n)%type
+    end.
+
+  Definition bits_to_bprod {n} (u: Bvector (S n)) : bprod n.
+  Proof.
+    induction n; depelim u; simpl.
+    - depelim u. assumption.
+    - split; [assumption|exact (IHn u)].
+  Defined.
+
+  Definition bprod_to_bits n (bp: bprod n) : Bvector (S n).
+  Proof.
+    induction n; simpl in bp.
+    - exact [bp].
+    - destruct bp as [b r].
+      exact (b :: IHn r).
+  Defined.
+
+  Lemma bprod_bijection n : bijection bits_to_bprod (bprod_to_bits n).
+  Proof.
+    intros u bp.
+    induction n; depelim u.
+    - depelim u. simpl in bp. cbn. split; intro H.
+      + subst. reflexivity.
+      + now injection H.
+    - destruct bp as [b bp].
+      specialize (IHn u bp).
+      change (bits_to_bprod _) with (h, bits_to_bprod u).
+      change (bprod_to_bits _ _) with (b :: bprod_to_bits n bp).
+      transitivity (h = b /\ bits_to_bprod u = bp).
+      + clear IHn. intuition; congruence.
+      + rewrite IHn. clear IHn.
+        intuition; [congruence ..|].
+        apply (f_equal Vector.tl H).
+  Qed.
+
+  Arguments bprod_bijection : clear implicits.
+
+  Definition bits_to_byte : B8 -> byte :=
+    Byte.of_bits ∘ @bits_to_bprod 7.
+
+  Definition byte_to_bits : byte -> B8 :=
+    bprod_to_bits 7 ∘ Byte.to_bits.
+
+  Corollary byte_bijection : bijection bits_to_byte byte_to_bits.
+  Proof.
+    apply bijection_composition.
+    - apply (bprod_bijection 7).
+    - apply (proj2 bijection_spec). split.
+      + exact Byte.to_bits_of_bits.
+      + exact Byte.of_bits_to_bits.
+  Qed.
+
+
+  (** Byte vectors *)
+
+
+
+    match Byte.to_bits b with
+      (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7)))))))
+      => [b0; b1; b2; b3; b4; b5; b6; b7]
+    end.
+
+  Equations bits_to_byte (u: Bvector 8) : byte :=
+    bits_to_byte [b0; b1; b2; b3; b4; b5; b6; b7] :=
+      Byte.of_bits (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))).
+
+  Lemma bits_byte_bijection (u: Bvector 8) (b: byte) :
+    bits_to_byte u = b <-> byte_to_bits b = u.
+  Proof.
+    split.
+    - do 9 depelim u.
+      simp bits_to_byte.
+
+    - unfold byte_to_bits.
+      destruct b; simpl; intro; subst; reflexivity.
+
+
+
+
+    simp bits_to_byte.
+    unfold byte_to_bits.
+    repeat match goal with [h:bool|-_] => destruct h end.
+    destruct b.
+    - simpl.
+
+    simpl Byte.of_bits.
 
 Notation B8 := (Bvector 8).
 
@@ -1619,6 +1595,8 @@ Section bytes_section.
 
 End bytes_section.
 
-Definition toBytes n z := @proj _ _ (lens_bytes n) z.
+Section byte_facts_section.
 
-(* Compute (toBytes 2 8192). *)
+  Definition toBytes n : Z -> vector B8 n := proj (Lens:=lens_bytes n).
+
+  Definition bytesToBits
