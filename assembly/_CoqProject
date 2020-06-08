@@ -1,7 +1,8 @@
 -Q . Assembly
 -Q ../coq-record-update/src RecordUpdate
-Convenience.v
+Init.v
 Lens.v
+Binary.v
 Mon.v
 MonExtras.v
 Rel.v
