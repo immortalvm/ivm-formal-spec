@@ -8,10 +8,11 @@ Require Export Coq.Vectors.Vector. (** Does not open [vector_scope]. *)
 Require Export Coq.Bool.Bvector.
 Require Export Coq.Lists.List. (** Opens [list_scope]. *)
 Require Export Coq.Program.Basics.
-
+Require Coq.Init.Byte.
 
 Export EqNotations.
 
+(* This is a mixed blessing *)
 Set Implicit Arguments.
 
 (** This clearly does not work properly at the moment. *)
@@ -30,11 +31,11 @@ Ltac derive name term :=
   clear name;
   rename H into name.
 
-(** Borrowed from http://ropas.snu.ac.kr/gmeta/source/html/LibTactics.html. *)
+(** From http://ropas.snu.ac.kr/gmeta/source/html/LibTactics.html. *)
 Ltac destructs H :=
-let X := fresh in
-let Y := fresh in
-first [ destruct H as [X Y]; destructs X; destructs Y | idtac ].
+  let X := fresh in
+  let Y := fresh in
+  first [ destruct H as [X Y]; destructs X; destructs Y | idtac ].
 
 Ltac idestructs := repeat (let X := fresh in intro X; destructs X).
 
@@ -135,30 +136,30 @@ Proof. apply is_true_decidable. Defined.
 Instance is_none_decidable {X} (ox: option X) : Decidable (ox = None).
 Proof. destruct ox as [x|]; [right|left]; congruence. Defined.
 
-Proposition is_some_some {X} (x: X) : Some x.
+Proposition some_is_some {X} (x: X) : Some x.
 Proof. exact true_is_true. Qed.
 
-Proposition not_is_some_none {X} : @None X -> False.
+Proposition none_is_false {X} : @None X -> False.
 Proof. exact false_is_false. Qed.
 
 (** Shortcut *)
-Definition none_not_some {X Y} (H: @None X) : Y :=
-  False_rect Y (not_is_some_none H).
+Definition none_rect {X Y} (H: @None X) : Y :=
+  False_rect Y (none_is_false H).
 
 Definition extract {X} {ox: option X} : ox -> X :=
   match ox return ox -> X with
   | Some x => fun _ => x
-  | None => fun H => none_not_some H
+  | None => fun H => none_rect H
   end.
 
-Proposition extract_some {X} (x: X) : extract (is_some_some x) = x.
+Proposition extract_some {X} (x: X) : extract (some_is_some x) = x.
 Proof. reflexivity. Qed.
 
 Lemma some_extract {X} {ox: option X} (H: ox) : Some (extract H) = ox.
 Proof.
   destruct ox as [x|].
   - simpl. reflexivity.
-  - exact (none_not_some H).
+  - exact (none_rect H).
 Qed.
 
 Proposition is_some_eq {X} {ox: option X} {x: X} : ox = Some x -> ox.
@@ -171,19 +172,94 @@ Proposition extract_unique {X} {ox: option X} (H H': ox) : extract H = extract H
 Proof.
   destruct ox as [x|].
   - reflexivity.
-  - exact (none_not_some H).
+  - exact (none_rect H).
 Qed.
 
 
+(** ** Bijections *)
+
+Class Bijection {X Y: Type} (f: X -> Y) :=
+{
+  inverse : Y -> X;
+  inverse_f x : inverse (f x) = x;
+  f_inverse y : f (inverse y) = y;
+}.
+
+Definition bijection {X Y: Type} (f: X -> Y) (g: Y -> X) : Prop :=
+  forall {x y}, f x = y <-> g y = x.
+
+Section bijection_section.
+
+  Open Scope program_scope.
+
+  Context {X: Type}.
+
+  Program Instance Bijection_id : Bijection (@id X).
+
+  Context {Y} {f: X -> Y}.
+
+  #[refine] Instance Bijection_b (g: Y -> X) (Hb: bijection f g) : Bijection f :=
+  {
+    inverse := g;
+    inverse_f x := _;
+    f_inverse y := _;
+  }.
+  Proof.
+    all: apply Hb; reflexivity.
+  Defined.
+
+  Context {Bf: Bijection f}.
+
+  Lemma B_bijection : bijection f inverse.
+  Proof.
+    intros x y. split; intro; subst.
+    - apply inverse_f.
+    - apply f_inverse.
+  Qed.
+
+  Lemma B_injective x x' : f x = f x' -> x = x'.
+    intros H.
+    rewrite <- (proj1 (B_bijection x (f x')) H).
+    apply inverse_f.
+  Qed.
+
+  (** Not global on purpose! *)
+  Instance Bijection_symmetry : Bijection inverse :=
+  {
+    inverse := f;
+    inverse_f := f_inverse;
+    f_inverse := inverse_f;
+  }.
+
+  Context {Z} {g: Y -> Z} {Bg: Bijection g}.
+
+  #[refine] Instance Bijection_composite : Bijection (g ∘ f) :=
+  {
+    inverse z := inverse (inverse z);
+  }.
+  Proof.
+    all: intro; unfold compose.
+    - do 2 rewrite inverse_f. reflexivity.
+    -  do 2 rewrite f_inverse. reflexivity.
+  Defined.
+
+End bijection_section.
+
+Arguments Bijection_b : clear implicits.
+Arguments Bijection_b {_ _ _} _ _.
+
+Arguments Bijection_composite : clear implicits.
+Arguments Bijection_composite {_ _ _} _ {_ _}.
+
 (** * Lenses *)
 
-Class Lens (S: Type) (X: Type) :=
+Class Lens (A: Type) (X: Type) :=
 {
-  proj: S -> X;
-  update: S -> X -> S;
-  proj_update (s: S) (x: X) : proj (update s x) = x;
-  update_proj (s: S) : update s (proj s) = s;
-  update_update (s: S) (x: X) (x': X) : update (update s x) x' = update s x';
+  proj: A -> X;
+  update: A -> X -> A;
+  proj_update (a: A) (x: X) : proj (update a x) = x;
+  update_proj (a: A) : update a (proj a) = a;
+  update_update (a: A) (x: X) (x': X) : update (update a x) x' = update a x';
 }.
 
 Create HintDb proj discriminated.
@@ -194,13 +270,30 @@ Ltac lens_rewrite1 := rewrite_strat (outermost (hints proj)).
 Ltac lens_rewrite := repeat lens_rewrite1.
 
 
-(** ** Complete lenses
+(** ** Bijection lenses *)
 
-I am not sure if there is an established term for this. *)
+Notation Bijection_lens L := (Bijection (proj (Lens:=L))).
 
-Section complete_section.
+Section bijection_lens_section.
 
-  Context {A X} (LX: Lens A X).
+  Context {A X} {f: A -> X} (Bf: Bijection f).
+
+  #[refine] Instance lens_bijection : Lens A X :=
+  {
+    proj x := f x;
+    update _ x := inverse x;
+  }.
+  Proof.
+    - intros _ x. apply f_inverse.
+    - intros a. apply inverse_f.
+    - reflexivity.
+  Defined.
+
+End bijection_lens_section.
+
+Section lens_bijection_section.
+
+  Context {A X} {LX: Lens A X}.
 
   Proposition proj_characterized a x : proj a = x <-> update a x = a.
   Proof.
@@ -209,38 +302,25 @@ Section complete_section.
     - apply proj_update.
   Qed.
 
-  Class Complete :=
+  Proposition update_as_inverse {Bp: Bijection proj} a x :
+    update a x = inverse x.
+  Proof.
+    symmetry. apply B_bijection, proj_update.
+  Qed.
+
+  (** Conversely: *)
+
+  #[refine] Instance bijection_lens (g: X -> A)
+            (Hup: forall a x, update a x = g x) : Bijection_lens LX :=
   {
-    install : X -> A;
-    update_installs a x : update a x = install x;
+    inverse := g;
   }.
-
-  Context {CX: Complete}.
-
-  Proposition complete_bijection {a x} : proj a = x <-> install x = a.
   Proof.
-    rewrite <- (update_installs a x).
-    apply proj_characterized.
-  Qed.
+    - intro a. rewrite <- (Hup a). apply proj_characterized. reflexivity.
+    - intro x. rewrite <- (Hup (g x)). rewrite proj_update. reflexivity.
+  Defined.
 
-  Corollary proj_install (x: X) : proj (install x) = x.
-  Proof.
-    rewrite complete_bijection. reflexivity.
-  Qed.
-
-  Corollary install_proj (a: A) : install (proj a) = a.
-  Proof.
-    apply complete_bijection. reflexivity.
-  Qed.
-
-  Corollary proj_injective (a a': A) : proj a = proj a' -> a = a'.
-  Proof.
-    intros H.
-    rewrite <- (proj1 complete_bijection H).
-    apply install_proj.
-  Qed.
-
-End complete_section.
+End lens_bijection_section.
 
 
 (** ** Lens monoid
@@ -250,20 +330,9 @@ TODO: Remove? *)
 
 Section lens_monoid_section.
 
-  Context (A : Type).
+  (** [id] is a bijection and therefore a lens. *)
 
-  Program Instance lens_id : Lens A A :=
-  {
-    proj := id;
-    update _ := id;
-  }.
-
-  Program Instance complete_id : Complete lens_id :=
-  {
-    install := id;
-  }.
-
-  Context {X} (PX: Lens A X).
+  Context {A X} (PX: Lens A X).
   Context {Y} (PY: Lens X Y).
 
   #[refine] Instance lens_composite : Lens A Y :=
@@ -275,21 +344,9 @@ Section lens_monoid_section.
     all: intros; lens_rewrite; reflexivity.
   Defined.
 
-  Context {CX: Complete PX} {CY: Complete PY}.
-
-  #[refine] Instance complete_composite : Complete lens_composite :=
-  {
-    install x := install (install x);
-  }.
-  Proof.
-    intros a y. simpl.
-    do 2 setoid_rewrite update_installs.
-    reflexivity.
-  Defined.
+  (** This is clearly a monoid up to funcitonal extensionality. *)
 
 End lens_monoid_section.
-
-(** This is clearly a monoid up to funcitonal extensionality. *)
 
 
 (** ** Independent lenses *)
@@ -316,10 +373,10 @@ Ltac independent_rewrite := repeat independent_rewrite1.
 
 Section independence_section.
 
-  (** We do not make this global sine together with [independent_commute]
-      it can send [typeclasses eauto] into an infinite loop. *)
-  Instance independent_symm {A X Y}
-           {LX: Lens A X} {LY: Lens A Y} (HI: Independent LX LY) : Independent LY LX.
+  Context {A X Y} {LX: Lens A X} {LY: Lens A Y} (HI: Independent LX LY).
+
+  (** Not gloal on purpose. *)
+  Instance independent_symm : Independent LY LX.
   Proof.
     split; intros; now independent_rewrite.
   Qed.
@@ -401,41 +458,42 @@ Section projection_section.
   Proof. reflexivity. Qed.
 
 
-  Context {CP: Complete lens_prod}.
+  Context {Bp: Bijection_lens lens_prod}.
 
   Local Ltac update_prod_tac a :=
-    apply (proj_injective (CX:=CP));
-    rewrite <- (update_installs a);
+    apply (B_injective (Bf:=Bp));
+    rewrite <- (update_as_inverse a);
     rewrite proj_update;
     simpl;
     rewrite proj_update;
     independent_rewrite1;
     reflexivity.
 
-  Proposition update_prodX (a: A) (x: X) : update a x = install (x, proj a).
+  Proposition update_prodX (a: A) (x: X) : update a x = inverse (x, proj a).
   Proof. update_prod_tac a. Qed.
 
-  Proposition update_prodY (a: A) (y: Y) : update a y = install (proj a, y).
+  Proposition update_prodY (a: A) (y: Y) : update a y = inverse (proj a, y).
   Proof. update_prod_tac a. Qed.
 
+  (* TODO: Is this ever useful? *)
   Lemma update_proj_swap (a a' : A) :
     update a' (proj a : X) = update a (proj a' : Y).
   Proof. rewrite update_prodX, update_prodY. reflexivity. Qed.
 
-  Proposition projX_install xy : proj (install xy) = fst xy.
+  Proposition projX_inverse xy : proj (inverse xy) = fst xy.
   Proof.
     rewrite
-      <- (update_installs (install xy)),
+      <- (update_as_inverse (inverse xy)),
       prod_update_spec,
       projX_updateY,
       proj_update.
     reflexivity.
   Qed.
 
-  Proposition projY_install xy : proj (install xy) = snd xy.
+  Proposition projY_inverse xy : proj (inverse xy) = snd xy.
   Proof.
     rewrite
-      <- (update_installs (install xy)),
+      <- (update_as_inverse (inverse xy)),
       prod_update_spec,
       proj_update.
     reflexivity.
@@ -542,7 +600,7 @@ Section lens_vector_section.
     projN' (S n) a := (projN' n (proj a)).
 
   Arguments update : clear implicits.
-  Arguments update {_} {_} _ _ _.
+  Arguments update {_ _} _ _ _.
 
   Equations updateN {n} `(A) `(vector X n) : A :=
     updateN (n:=S n) a (x :: r) := (update LX (update LA a (updateN (proj a) r)) x);
@@ -628,26 +686,24 @@ Section lens_vector_section.
       reflexivity.
   Qed.
 
-  Context (CP: Complete (lens_prod IXA)).
+  Context (Bp: Bijection_lens (lens_prod IXA)).
   Existing Instance lens_prod.
 
-  Equations installN {n} `(vector X n) `(A) : A :=
-    installN (n:=S n) (x :: r) a := install (x, installN r a);
-    installN _ a := a.
+  Equations inverseN {n} `(vector X n) `(A) : A :=
+    inverseN (n:=S n) (x :: r) a := inverse (x, inverseN r a);
+    inverseN _ a := a.
 
-  #[refine] Global Instance complete_vector n : Complete (lens_prod (independent_vector n)) :=
-  {
-    install va := installN (fst va) (snd va);
-  }.
+  #[refine] Instance bijection_vector n : Bijection_lens (lens_prod (independent_vector n)) :=
+    bijection_lens (fun va => inverseN (fst va) (snd va)) _.
   Proof.
     intros a [v a']. simpl. revert a v a'.
-    induction n as [|n IH]; intros a v a'; depelim v; simp installN.
+    induction n as [|n IH]; intros a v a'; depelim v; simp inverseN.
     - reflexivity.
     - simp updateN' updateN.
       independent_rewrite.
       lens_rewrite.
       rewrite IH.
-      rewrite <- (update_installs a).
+      rewrite <- (update_as_inverse a).
       simpl.
       independent_rewrite1.
       reflexivity.
@@ -656,7 +712,7 @@ Section lens_vector_section.
 End lens_vector_section.
 
 Arguments lens_vector : clear implicits.
-Arguments lens_vector {_} {_} _ _ {_} _.
+Arguments lens_vector {_ _} _ _ {_} _.
 
 Arguments lens_vector' : clear implicits.
 Arguments lens_vector' {_} _ _.
@@ -675,7 +731,25 @@ Class Prism (X: Type) (A: Type) :=
   injected_some a x : injected a = Some x -> inj x = a;
 }.
 
-Arguments injected_some {_} {_} {_} {_} {_}.
+Arguments injected_some {_ _ _ _ _}.
+
+Notation Bijection_prism P := (Bijection (inj (Prism:=P))).
+
+Section bijection_prism_section.
+
+  Context {X A} {f: X -> A} (Bf: Bijection f).
+
+  #[refine] Instance prism_bijection : Prism X A :=
+  {
+    inj := f;
+    injected a := Some (inverse a);
+  }.
+  Proof.
+    - intros x. f_equal. apply inverse_f.
+    - intros a x H. injection H. intro. subst x. apply f_inverse.
+  Qed.
+
+End bijection_prism_section.
 
 Section prism_basics_section.
 
@@ -685,7 +759,7 @@ Section prism_basics_section.
   Proof.
     destruct (injected a) as [x|] eqn:Ha.
     - apply injected_some. exact Ha.
-    - exact (none_not_some H).
+    - exact (none_rect H).
   Qed.
 
   Proposition inj_is_injected (x: X) : injected (inj x).
@@ -728,25 +802,20 @@ Section prism_basics_section.
       + destruct (noConfusion_inv H).
   Defined.
 
-  Program Instance inj_id : Prism A A :=
-  {
-    inj := id;
-    injected := Some;
-  }.
-
-  (** This, too, is clearly a monoid up to functional extensionality. *)
+  (** [id] is a bijection and therefore a prism. Hence, we clearly have a
+      monoid up to functional extensionality here as well. *)
 
 End prism_basics_section.
 
-Arguments inj_extract {_} {_} {_} {_} _.
-Arguments inj_is_injected {_} {_} {_} _.
-Arguments extract_inj {_} {_} {_} _.
-Arguments inj_injective {_} {_} {_} {_} {_} _.
-Arguments inj_composition {_} {_} _ {_} _.
+Arguments inj_extract {_ _ _ _} _.
+Arguments inj_is_injected {_ _ _} _.
+Arguments extract_inj {_ _ _} _.
+Arguments inj_injective {_ _ _ _ _} _.
+Arguments inj_composition {_ _} _ {_} _.
 
-(** From now on make [X] explicit for clarity. *)
+(** From now on, make [X] explicit for clarity. *)
 Arguments injected : clear implicits.
-Arguments injected _ {_} {_} _.
+Arguments injected _ {_ _} _.
 
 
 (** ** Disjoint prisms *)
@@ -757,8 +826,8 @@ Class Disjoint {X Y A} (PX: Prism X A) (PY: Prism Y A) : Prop :=
   injectedX_injY (y: Y) : injected X (inj y) = None;
 }.
 
-Arguments injectedY_injX {_} {_} {_} {_} {_} {_} _.
-Arguments injectedX_injY {_} {_} {_} {_} {_} {_} _.
+Arguments injectedY_injX {_ _ _ _ _ _} _.
+Arguments injectedX_injY {_ _ _ _ _ _} _.
 
 Section disjoint_basics_section.
 
@@ -781,7 +850,7 @@ Section disjoint_basics_section.
       specialize (Hyx (extract Hx)).
       rewrite inj_extract in Hyx.
       rewrite Hyx in Hy.
-      exact (not_is_some_none Hy).
+      exact (none_is_false Hy).
     - intros H.
       split.
       + intros x.
@@ -790,14 +859,14 @@ Section disjoint_basics_section.
         exfalso.
         apply H.
         * apply inj_is_injected.
-        * apply is_some_some.
+        * apply some_is_some.
         * reflexivity.
       + intros y.
         specialize (H (inj y)).
         destruct (injected X (inj y)).
         exfalso.
         apply H.
-        * apply is_some_some.
+        * apply some_is_some.
         * apply inj_is_injected.
         * reflexivity.
   Qed.
@@ -957,15 +1026,15 @@ Proof.
 Qed.
 
 
-(** ** Prism lenses *)
+(** ** Sublenses *)
 
-Section prism_lens_section.
+Section sublens_section.
 
   Context {X A Y} {PX: Prism X A} {LY: Lens A Y}.
 
   Context (H: forall x y, injected X (update (inj x) y)).
 
-  #[refine] Instance lens_prism : Lens X Y :=
+  #[refine] Instance sublens : Lens X Y :=
   {
     proj x := proj (inj x);
     update x y := extract (H x y);
@@ -990,14 +1059,16 @@ Section prism_lens_section.
   Proposition inj_prism_update x y : inj (update x y) = update (inj x) y.
   Proof. simpl. rewrite inj_extract. reflexivity. Qed.
 
-End prism_lens_section.
+End sublens_section.
 
 
-(** ** Bits *)
+(** * Bits *)
 
 Section bits_section.
 
   Open Scope Z.
+
+  (** ** Basics *)
 
   Lemma pos_pred_double_z (x: positive) : Zpos (Pos.pred_double x) = 2 * (Zpos x) - 1.
   Proof.
@@ -1045,6 +1116,9 @@ Section bits_section.
     - rewrite Z.add_0_r. apply div2_double.
   Qed.
 
+
+  (** ** Lenses *)
+
   #[refine] Instance lens_odd : Lens Z bool :=
   {
     proj z := Z.odd z;
@@ -1084,10 +1158,8 @@ Section bits_section.
       reflexivity.
   Qed.
 
-  #[refine] Instance complete_odd_div2 : Complete (lens_prod independent_odd_div2) :=
-  {
-    install oz := Z.double (snd oz) + Z.b2z (fst oz);
-  }.
+  #[refine] Instance bijection_odd_div2 : Bijection_lens (lens_prod independent_odd_div2) :=
+    bijection_lens (fun oz => Z.double (snd oz) + Z.b2z (fst oz)) _.
   Proof.
     intros z [o x]. simpl.
     do 2 f_equal.
@@ -1113,12 +1185,12 @@ Section bits_section.
   Proof.
     apply (independent_vector n).
   (** This must be transparent for the definition
-      of [complete_bits] to go through. *)
+      of [bijection_bits] to go through. *)
   Defined.
 
-  Global Instance complete_bits : Complete (lens_prod independent_bits).
+  Global Instance bijection_bits : Bijection_lens (lens_prod independent_bits).
   Proof.
-    apply (complete_vector complete_odd_div2).
+    apply (bijection_vector bijection_odd_div2).
   Defined.
 
 End bits_section.
@@ -1133,7 +1205,7 @@ Section bit_facts_section.
   Open Scope vector.
 
 
-  (** *** Helpers *)
+  (** ** Helpers *)
 
   Lemma pow2_equation_0 : 2^0 = 1.
   Proof. reflexivity. Qed.
@@ -1164,7 +1236,7 @@ Section bit_facts_section.
   Proof. apply Z.lt_le_incl, pow2_pos. Qed.
 
 
-  (** *** Characterizations *)
+  (** ** Characterizations *)
 
   Definition toBits n : Z -> Bvector n := proj (Lens:=lens_bits n).
 
@@ -1216,23 +1288,23 @@ Section bit_facts_section.
   Qed.
 
   Definition insta {n} (u:Bvector n) (z: Z) : Z :=
-    install (Complete:=complete_bits n) (u, z).
+    inverse (Bijection:=bijection_bits n) (u, z).
 
   Proposition toBits_insta {n} (u: Bvector n) z : toBits n (insta u z) = u.
-  Proof. apply projX_install. Qed.
+  Proof. apply projX_inverse. Qed.
 
   Proposition toRest_insta {n} (u: Bvector n) z : toRest n (insta u z) = z.
-  Proof. apply projY_install. Qed.
+  Proof. apply projY_inverse. Qed.
 
   Proposition insta_equation_1 z : insta [] z = z.
   Proof. unfold insta. reflexivity. Qed.
 
-  Arguments installN {_} {_} {_} {_} {_} {_} {_}.
+  Arguments inverseN {_ _ _ _ _ _ _}.
 
   Proposition insta_equation_2 {n} (b:bool) (u:Bvector n) z :
     insta (b::u) z = Z.double (insta u z) + Z.b2z b.
   Proof.
-    unfold insta. simpl. simp installN.
+    unfold insta. simpl. simp inverseN.
     reflexivity.
   Qed.
 
@@ -1247,11 +1319,11 @@ Section bit_facts_section.
     - unfold toBits, toRest. simpl. split.
       + intros [H1 H2]. subst. reflexivity.
       + intros H. inversion H. tauto.
-    - apply complete_bijection.
+    - apply B_bijection.
   Qed.
 
 
-  (** *** Update *)
+  (** ** Update *)
 
   Lemma insta_spec {n} (u: Bvector n) (z: Z) :
     insta u z = 2^n * z + update 0 u.
@@ -1279,7 +1351,7 @@ Section bit_facts_section.
   Proof.
     transitivity (insta u (toRest n z)).
     - unfold insta, toRest.
-      apply (proj_injective (CX:=complete_bits n)).
+      apply (B_injective (Bf:=bijection_bits n)).
       setoid_rewrite prod_proj_spec.
       f_equal.
       + rewrite proj_update.
@@ -1287,7 +1359,7 @@ Section bit_facts_section.
         rewrite proj_update.
         reflexivity.
       + rewrite projY_updateX.
-        rewrite <- (update_installs z).
+        rewrite <- (update_as_inverse z).
         rewrite prod_update_spec.
         rewrite proj_update.
         reflexivity.
@@ -1317,14 +1389,14 @@ Section bit_facts_section.
       + apply Z.div_pos.
         * apply N2Z.is_nonneg.
         * apply pow2_pos.
-    - apply is_some_some.
+    - apply some_is_some.
   Qed.
 
 
-  (** *** Unsigned *)
+  (** ** Unsigned *)
 
   Instance lens_bits_N n : Lens N (Bvector n) :=
-    lens_prism (PX:=prism_N) (LY:=lens_bits n) update_nonneg.
+    sublens (PX:=prism_N) (LY:=lens_bits n) update_nonneg.
 
   Definition bitsToN {n} (u: Bvector n) : N := update 0%N u.
 
@@ -1398,7 +1470,7 @@ Section bit_facts_section.
   Qed.
 
 
-  (** *** Signed *)
+  (** ** Signed *)
 
   Definition bitsToZ {n} (u: Bvector (S n)) : Z := insta u (if Bsign u then -1 else 0).
 
@@ -1430,173 +1502,69 @@ Section bit_facts_section.
 End bit_facts_section.
 
 
-(** ** Bytes *)
+(** * Bytes *)
 
-Require Coq.Init.Byte.
+Notation byte := (Byte.byte).
+Notation B8 := (Bvector 8).
 
 Section bytes_section.
 
   Open Scope vector.
   Open Scope program_scope.
 
-  Notation byte := (Byte.byte).
-  Notation B8 := (Bvector 8).
+  Equations bytes_to_bits {n} `(vector byte n) : Bvector (n * 8) :=
+    bytes_to_bits [] := [];
+    bytes_to_bits (b :: r) :=
+      match Byte.to_bits b with
+        (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))) =>
+        b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: bytes_to_bits r
+      end.
 
-  Class Bijection {X Y: Type} (f: X -> Y) :=
-  {
-    inverse : Y -> X;
-    inverse_f x : inverse (f x) = x;
-    f_inverse y : f (inverse y) = y;
-  }.
+  (** Not understood by Equations 1.2.1:
+  [[
+  Equations bits_to_bytes {n} `(Bvector (n * 8)) : vector byte n :=
+    bits_to_bytes [] := [];
+    bits_to_bytes (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: r) :=
+      Byte.of_bits (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))) :: bits_to_bytes r.
+   ]]
+   *)
 
-  (* TODO: Move up *)
-  Definition bijection {X Y: Type} (f: X -> Y) (g: Y -> X) : Prop :=
-    forall {x y}, f x = y <-> g y = x.
-
-  Lemma bijection_spec {X Y: Type} {f: X -> Y} {g: Y -> X} :
-    bijection f g <-> (forall x, g (f x) = x) /\ (forall y, f (g y) = y).
+  Definition bits_to_bytes {n} (u: Bvector (n * 8)) : vector byte n.
   Proof.
-    split.
-    - intros H. split; intro; apply H; reflexivity.
-    - intros [Hx Hy] x y.
-      specialize (Hx x).
-      specialize (Hy y).
-      split; intro; subst; assumption.
-  Qed.
-
-  Lemma bijection_composition {X Y Z: Type}
-        {f: X -> Y} {f': Y -> X}
-        {g: Y -> Z} {g': Z -> Y}
-        (Hf: bijection f f')
-        (Hg: bijection g g') : bijection (g∘f) (f'∘g').
-  Proof.
-    intros x z. unfold compose.
-    transitivity (f x = g' z);
-      [transitivity (g' z = f x)|].
-    - apply Hg.
-    - split; intro; congruence.
-    - apply Hf.
-  Qed.
-
-
-  (** *** Bijection between [Byte] and [Bvector 8] *)
-
-  Fixpoint bprod n :=
-    match n with
-    | 0 => bool
-    | S n => (bool * bprod n)%type
-    end.
-
-  Definition bits_to_bprod {n} (u: Bvector (S n)) : bprod n.
-  Proof.
-    induction n; depelim u; simpl.
-    - depelim u. assumption.
-    - split; [assumption|exact (IHn u)].
+    induction n.
+    - exact [].
+    - simpl in u.
+      do 8 depelim u.
+      exact (Byte.of_bits (h, (h0, (h1, (h2, (h3, (h4, (h5, h6))))))) :: IHn u).
   Defined.
 
-  Definition bprod_to_bits n (bp: bprod n) : Bvector (S n).
+  Proposition bits_to_bytes_equation_1 : @bits_to_bytes (0 * 8) [] = [].
+  Proof. reflexivity. Qed.
+
+  Proposition bits_to_bytes_equation_2 {n} b0 b1 b2 b3 b4 b5 b6 b7 (u: Bvector (n * 8)) :
+    @bits_to_bytes (S n) (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u) =
+    (Byte.of_bits (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))) :: bits_to_bytes u).
+  Proof. reflexivity. Qed.
+
+  Hint Rewrite bits_to_bytes_equation_1 @bits_to_bytes_equation_2 : bits_to_bytes.
+
+  #[refine] Instance bytes_bijection n : Bijection (@bits_to_bytes n) := { inverse := (@bytes_to_bits n) }.
   Proof.
-    induction n; simpl in bp.
-    - exact [bp].
-    - destruct bp as [b r].
-      exact (b :: IHn r).
+    all: induction n; intro u.
+    1,3: depelim u; reflexivity.
+    - do 8 depelim u. simp bits_to_bytes bytes_to_bits.
+      rewrite IHn.
+      rewrite Byte.to_bits_of_bits.
+      reflexivity.
+    - depelim u.
+      transitivity ((Byte.of_bits (Byte.to_bits h)) :: u);
+        [ | f_equal; apply Byte.of_bits_to_bits].
+      simp bytes_to_bits.
+      set (v := Byte.to_bits h).
+      repeat destruct v as [? v].
+      simp bits_to_bytes.
+      f_equal.
+      apply IHn.
   Defined.
-
-  Lemma bprod_bijection n : bijection bits_to_bprod (bprod_to_bits n).
-  Proof.
-    intros u bp.
-    induction n; depelim u.
-    - depelim u. simpl in bp. cbn. split; intro H.
-      + subst. reflexivity.
-      + now injection H.
-    - destruct bp as [b bp].
-      specialize (IHn u bp).
-      change (bits_to_bprod _) with (h, bits_to_bprod u).
-      change (bprod_to_bits _ _) with (b :: bprod_to_bits n bp).
-      transitivity (h = b /\ bits_to_bprod u = bp).
-      + clear IHn. intuition; congruence.
-      + rewrite IHn. clear IHn.
-        intuition; [congruence ..|].
-        apply (f_equal Vector.tl H).
-  Qed.
-
-  Arguments bprod_bijection : clear implicits.
-
-  Definition bits_to_byte : B8 -> byte :=
-    Byte.of_bits ∘ @bits_to_bprod 7.
-
-  Definition byte_to_bits : byte -> B8 :=
-    bprod_to_bits 7 ∘ Byte.to_bits.
-
-  Corollary byte_bijection : bijection bits_to_byte byte_to_bits.
-  Proof.
-    apply bijection_composition.
-    - apply (bprod_bijection 7).
-    - apply (proj2 bijection_spec). split.
-      + exact Byte.to_bits_of_bits.
-      + exact Byte.of_bits_to_bits.
-  Qed.
-
-
-  (** Byte vectors *)
-
-
-
-    match Byte.to_bits b with
-      (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7)))))))
-      => [b0; b1; b2; b3; b4; b5; b6; b7]
-    end.
-
-  Equations bits_to_byte (u: Bvector 8) : byte :=
-    bits_to_byte [b0; b1; b2; b3; b4; b5; b6; b7] :=
-      Byte.of_bits (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))).
-
-  Lemma bits_byte_bijection (u: Bvector 8) (b: byte) :
-    bits_to_byte u = b <-> byte_to_bits b = u.
-  Proof.
-    split.
-    - do 9 depelim u.
-      simp bits_to_byte.
-
-    - unfold byte_to_bits.
-      destruct b; simpl; intro; subst; reflexivity.
-
-
-
-
-    simp bits_to_byte.
-    unfold byte_to_bits.
-    repeat match goal with [h:bool|-_] => destruct h end.
-    destruct b.
-    - simpl.
-
-    simpl Byte.of_bits.
-
-Notation B8 := (Bvector 8).
-
-Section bytes_section.
-
-  Context (n: nat).
-
-  Global Instance lens_bytes : Lens Z (vector B8 n).
-  Proof.
-    apply (lens_vector (lens_bits 8) (lens_bits' 8) n).
-  Defined.
-
-  Instance lens_bytes' : Lens Z Z.
-  Proof.
-    apply (lens_vector' (lens_bits' 8) n).
-  Defined.
-
-  Global Instance independent_bytes : Independent lens_bytes lens_bytes'.
-  Proof.
-    apply (independent_vector n).
-  Qed.
 
 End bytes_section.
-
-Section byte_facts_section.
-
-  Definition toBytes n : Z -> vector B8 n := proj (Lens:=lens_bytes n).
-
-  Definition bytesToBits
