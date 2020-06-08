@@ -1,12 +1,6 @@
-Require Import Utf8.
+From Assembly Require Import Init Lens.
 
-Require Import Equations.Equations.
-Set Equations With UIP.
-
-Require Export Coq.Logic.FunctionalExtensionality.
-Require Export Coq.Classes.Morphisms.
-Require Export Coq.Setoids.Setoid.
-From Assembly Require Import Convenience Dec Lens.
+Unset Suggest Proof Using.
 
 
 (** ** Error/state monad *)
@@ -54,12 +48,12 @@ Notation "ma ;; mb" := (bind ma (fun _ => mb))
                           format "'[hv' ma ;;  '//' mb ']'") : monad_scope.
 
 Notation "'assert*' P 'in' result" :=
-  (if (decision P%type) then result else err)
+  (if (decide P%type) then result else err)
     (at level 60, right associativity,
      format "'[hv' assert*  P  'in'  '//' result ']'") : monad_scope.
 
 Notation "'assert*' P 'as' H 'in' result" :=
-  (match (decision P%type) with
+  (match (decide P%type) with
    | left H => result
    | right _ => err
    end) (at level 60, right associativity,
@@ -72,19 +66,19 @@ Open Scope monad_scope.
 
 Instance bind_proper {S m} {SM: SMonad S m} {A B}:
   Proper ( eq ==> pointwise_relation A eq ==> eq ) (@bind S m SM A B).
-Proof using.
+Proof.
   intros ma ma' H_ma f f' H_f. f_equal.
   - exact H_ma.
   - extensionality a. f_equal.
 Qed.
 
 Lemma unit_lemma {A} (f: unit -> A) : f = fun _ => f tt.
-Proof using.
+Proof.
   extensionality x. destruct x. reflexivity.
 Qed.
 
 Lemma bind_ret' {S m} {SM: SMonad S m} (mu: m unit) : mu;; ret tt = mu.
-Proof using.
+Proof.
   rewrite <- bind_ret.
   setoid_rewrite unit_lemma.
   reflexivity.
@@ -92,7 +86,7 @@ Qed.
 
 Lemma put_put' {S m} {SM: SMonad S m} (s s' : S) {B} (f: unit -> m B) :
   put s;; (put s' >>= f) = put s' >>= f.
-Proof using.
+Proof.
   rewrite <- bind_assoc, put_put.
   reflexivity.
 Qed.
@@ -195,7 +189,7 @@ Section state_section.
     end.
 
   Lemma est_characterization A (ma: EST A) : from_est ma = ma.
-  Proof using.
+  Proof.
     unfold from_est.
     simpl.
     extensionality s.
@@ -203,7 +197,7 @@ Section state_section.
   Qed.
 
   Lemma est_unique m `{SMonad S m} F `{SMorphism EST (SM0:=est_smonad) m F} A (ma: EST A) : F A ma = from_est ma.
-  Proof using.
+  Proof.
     rewrite <- est_characterization at 1.
     unfold from_est at 1.
     rewrite morph_bind, morph_get. unfold from_est. f_equal.
@@ -216,7 +210,7 @@ Section state_section.
   Qed.
 
   Global Instance est_morphism m `{SMonad S m}: SMorphism EST m (@from_est m _).
-  Proof using.
+  Proof.
     split.
     - intros A a. unfold from_est. simpl.
       rewrite get_put, get_ret. reflexivity.
