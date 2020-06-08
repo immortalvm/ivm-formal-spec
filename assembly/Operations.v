@@ -1,8 +1,6 @@
-Require Import Utf8.
+From Assembly Require Import Basics.
 
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Dec Lens Mon Bits.
+Unset Suggest Proof Using.
 
 (* Cf. the 'sigma' type of Equations. *)
 Set Primitive Projections.
@@ -10,7 +8,51 @@ Global Unset Printing Primitive Projection Parameters.
 
 Set Implicit Arguments.
 
-Open Scope monad_scope.
+
+(** ** Images *)
+
+Record Image (C: Type) :=
+  mkImage {
+      width: nat;
+      height: nat;
+      pixel (x: nat) (Hx: x < width) (y: nat) (Hy: y < height): C;
+    }.
+
+Definition noImage {C}: Image C.
+  refine {|
+      width := 0;
+      height := 0;
+      pixel x Hx y Hy := _;
+    |}.
+  lia.
+Defined.
+
+Local Definition image_telescope {C} (img: Image C) : sigma(fun w=>sigma(fun h=>forall x (Hx:x<w) y (Hy:y<h), C)) :=
+  match img with @mkImage _ w h p => sigmaI _ w (sigmaI _ h p) end.
+
+Lemma inj_right_image {C} {w h p p'} :
+  {|width:=w; height:=h; pixel:=p|} = {|width:=w; height:=h; pixel:=p'|} :> Image C
+  -> p = p'.
+Proof.
+  intros Hi.
+  match type of Hi with
+  | ?i = ?i' => assert (image_telescope i = image_telescope i') as Ht;
+                 [f_equal; exact Hi | ]
+  end.
+  unfold image_telescope in Ht.
+  do 2 derive Ht (EqDec.inj_right_sigma _ _ _ Ht).
+  exact Ht.
+Qed.
+
+Definition updatePixel {C} (x y: nat) (c: C) (im: Image C) : Image C :=
+{|
+  width := width im;
+  height := height im;
+  pixel x' Hx y' Hy :=
+    if (decide ((x' = x) /\ (y' = y)))
+    then c
+    else pixel im Hx Hy
+|}.
 
 
 (** ** Machine parameters
@@ -259,7 +301,7 @@ Section core_section.
     ret {|
         width := width img;
         height := height img;
-        pixel x Hx y Hy := proj1_sig (some_some (H_complete x Hx y Hy));
+        pixel x Hx y Hy := extract (H_complete x Hx y Hy);
       |}.
 
   Definition newFrame (w r h: nat) : M unit :=
