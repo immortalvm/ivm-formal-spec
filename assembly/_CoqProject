@@ -4,6 +4,7 @@ Init.v
 Lens.v
 Binary.v
 Mon.v
+Basics.v
 MonExtras.v
 Rel.v
 Bits.v
