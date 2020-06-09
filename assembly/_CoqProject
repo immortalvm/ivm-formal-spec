@@ -4,15 +4,12 @@ Init.v
 Lens.v
 Binary.v
 Mon.v
-Basics.v
 MonExtras.v
-Rel.v
-Bits.v
-Dec.v
+Basics.v
 Operations.v
 OpCodes.v
-OpCodes2.v
 Machine.v
 Concrete.v
+Rel.v
 Mono.v
 Cert.v
