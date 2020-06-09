@@ -1,4 +1,4 @@
-From Assembly Require Import Basics Operations.
+From Assembly Require Export Basics Operations.
 Require Assembly.OpCodes.
 
 Set Implicit Arguments.
@@ -22,60 +22,74 @@ Context
   (available': B64 -> bool)
   (allInputImages' : list (Image B8)).
 
-Instance concreteParams0 : MachineParams0 :=
-{
-  Addr := B64;
-  H_eqdec := (ltac:(typeclasses eauto) : EqDec B64);
-  available := available';
-  offset := fun (z: Z) (a: B64) => toB64 (z + a);
-  Cell := B8;
+Module concreteParameters <: MachineParameters.
+  Definition Addr := B64.
+  Definition H_eqdec := (ltac:(typeclasses eauto) : EqDec B64).
+  Definition available := available'.
+  Definition offset := fun (z: Z) (a: B64) => toB64 (z + a).
+  Definition Cell := B8.
 
-  InputColor := B8;
-  allInputImages := allInputImages';
+  Definition InputColor := B8.
+  Definition allInputImages := allInputImages'.
 
-  OutputColor := B64 * B64 * B64;
-  Char := B32;
-  Byte := B8;
-  Sample := B16;
-}.
+  Definition OutputColor := (B64 * B64 * B64)%type.
+  Definition Char := B32.
+  Definition Byte := B8.
+  Definition Sample := B16.
+
+  Identity Coercion Addr_identity_coercion : Addr >-> B64.
+  Identity Coercion Cell_identity_coercion : Cell >-> B8.
+  Identity Coercion InputColor_identity_coercion : InputColor >-> B8.
+  Identity Coercion Char_identity_coercion : Char >-> B32.
+  Identity Coercion Byte_identity_coercion : Byte >-> B8.
+  Identity Coercion Sample_identity_coercion : Sample >-> B16.
+End concreteParameters.
+
+Module ConcreteCore := Core concreteParameters.
+Export ConcreteCore.
 
 Section machine_section.
 
   (** We leave these assumptions abstract in order improve proof search.
       In Concete.v we have shown that they hold in our standard model. *)
 
-  Context {MP1: @MachineParams1 concreteParams0}.
-  Context {MP2: @MachineParams2 concreteParams0 MP1}.
+  Context {MP1: MachineParams1}.
+  Context {MP2: MachineParams2}.
 
   Existing Instance H_mon.
 
-  Definition nextN (n: nat) : M nat :=
-    let* bytes := next n in
-    ret (fromLittleEndian bytes).
+  Definition nextB n : M (Bytes n) := next n.
 
-  Definition push64 (z: Z) : M unit :=
-    pushMany (toLittleEndian 8 z).
+  (* Definition nextN (n: nat) : M N := *)
+  (*   let* bytes := nextB n in *)
+  (*   ret (bytes: N). *)
 
-  Definition popN : M nat :=
+  Definition toBytes (n: nat) z := bitsToBytes (toBits (n * 8) z).
+
+  Coercion to_list : vector >-> list.
+
+  Definition pushZ (z: Z) : M unit :=
+    pushMany (toBytes 8 z).
+
+  Definition popN : M N :=
     let* bytes := popMany 8 in
-    ret (fromLittleEndian bytes).
+    ret ((bytes: Bytes 8) : N).
 
   Definition pop64 : M B64 :=
     let* x := popN in
     ret (toB64 x).
 
-  Definition loadN (n: nat) (a: Z) : M nat :=
+  Definition loadN (n: nat) (a: Z) : M N :=
     let* bytes := loadMany n (toB64 a) in
-    ret (fromLittleEndian bytes).
+    ret ((bytes : Bytes n) : N).
 
   Definition storeZ (n: nat) (a: Z) (x: Z) : M unit :=
-    storeMany (toB64 a) (map Some (toLittleEndian n x)).
+    storeMany (toB64 a) (map Some (toBytes n x)).
 
   Import OpCodes.
 
-  (* Without [noind] solving obligations seems to go on forever.
-     Alas, this still generated 257 equations... *)
-  Equations(noind) oneStep' (op: nat) : M unit :=
+  (* Without [noind] solving obligations seems to go on forever. *)
+  Equations(noind) oneStep' (op: N) : M unit :=
     oneStep' NOP := ret tt;
 
     oneStep' JUMP :=
@@ -83,12 +97,12 @@ Section machine_section.
       put' PC (toB64 a);
 
     oneStep' JUMP_ZERO :=
-        let* o := nextN 1 in
+        let* o := nextB 1 in
         let* x := popN in
-        (if (decision (x = 0))
+        (if (decide (x=0)%N)
          then
            let* pc := get' PC in
-           put' PC (offset (signed (toB8 o)) pc)
+           put' PC (offset (bitsToZ (toB8 o)) pc)
          else
            ret tt);
 
@@ -98,62 +112,62 @@ Section machine_section.
 
     oneStep' GET_PC =>
         let* a := get' PC in
-        push64 (a: B64);
+        pushZ a;
 
     oneStep' GET_SP :=
         let* a := get' SP in
-        push64 (a: B64);
+        pushZ a;
 
     oneStep' PUSH0 :=
-        push64 0;
+        pushZ 0;
 
     oneStep' PUSH1 :=
-        let* x := nextN 1 in
-        push64 x;
+        let* x := nextB 1 in
+        pushZ x;
 
     oneStep' PUSH2 :=
-        let* x := nextN 2 in
-        push64 x;
+        let* x := nextB 2 in
+        pushZ x;
 
     oneStep' PUSH4 :=
-        let* x := nextN 4 in
-        push64 x;
+        let* x := nextB 4 in
+        pushZ x;
 
     oneStep' PUSH8 :=
-        let* x := nextN 8 in
-        push64 x;
+        let* x := nextB 8 in
+        pushZ x;
 
     oneStep' SIGX1 :=
         let* x := popN in
-        push64 (signed (toB8 x));
+        pushZ (bitsToZ (toB8 x));
 
     oneStep' SIGX2 :=
         let* x := popN in
-        push64 (signed (toB16 x));
+        pushZ (bitsToZ (toB16 x));
 
     oneStep' SIGX4 :=
         let* x := popN in
-        push64 (signed (toB32 x));
+        pushZ (bitsToZ (toB32 x));
 
     oneStep' LOAD1 :=
         let* a := popN in
         let* x := loadN 1 a in
-        push64 x;
+        pushZ x;
 
     oneStep' LOAD2 :=
         let* a := popN in
         let* x := loadN 2 a in
-        push64 x;
+        pushZ x;
 
     oneStep' LOAD4 :=
         let* a := popN in
         let* x := loadN 4 a in
-        push64 x;
+        pushZ x;
 
     oneStep' LOAD8 :=
         let* a := popN in
         let* x := loadN 8 a in
-        push64 x;
+        pushZ x;
 
     oneStep' STORE1 :=
         let* a := popN in
@@ -178,58 +192,58 @@ Section machine_section.
     oneStep' ADD :=
         let* x := popN in
         let* y := popN in
-        push64 (x + (y:nat));
+        pushZ (x + y);
 
     oneStep' MULT :=
         let* x := popN in
         let* y := popN in
-        push64 (x * (y:nat));
+        pushZ (x * y);
 
     oneStep' DIV :=
         let* x := popN in
         let* y := popN in
-        push64 (if decision (x=0) then 0 else (y:nat) / x);
+        pushZ (if decide (x=0)%N then 0 else y / x);
 
     oneStep' REM :=
         let* x := popN in
         let* y := popN in
-        push64 (if decision (x=0) then 0 else (y:nat) mod x);
+        pushZ (if decide (x=0)%N then 0 else y mod x);
 
     oneStep' LT :=
         let* x := popN in
         let* y := popN in
-        push64 (if decision (y < x) then -1 else 0);
+        pushZ (if decide (y < x)%N then -1 else 0);
 
     oneStep' AND :=
         let* x := pop64 in
         let* y := pop64 in
-        push64 (Vector.map2 andb x y : B64);
+        pushZ (Vector.map2 andb x y : B64);
 
     oneStep' OR :=
         let* x := pop64 in
         let* y := pop64 in
-        push64 (Vector.map2 orb x y : B64);
+        pushZ (Vector.map2 orb x y : B64);
 
     oneStep' NOT :=
         let* x := pop64 in
-        push64 (Vector.map negb x : B64);
+        pushZ (Vector.map negb x : B64);
 
     oneStep' XOR :=
         let* x := pop64 in
         let* y := pop64 in
-        push64 (Vector.map2 xorb x y : B64);
+        pushZ (Vector.map2 xorb x y : B64);
 
     oneStep' READ_FRAME :=
         let* i := popN in
-        let* pair := readFrame (i: nat) in
-        push64 (fst pair);;
-        push64 (snd pair);
+        let* pair := readFrame i in
+        pushZ (fst pair);;
+        pushZ (snd pair);
 
     oneStep' READ_PIXEL :=
         let* y := popN in
         let* x := popN in
         let* c := readPixel x y in
-        push64 (c: B8);
+        pushZ c;
 
     oneStep' NEW_FRAME :=
         let* r := popN in
@@ -261,8 +275,8 @@ Section machine_section.
     oneStep' _ := err.
 
   Definition oneStep : M bool :=
-    let* op := nextN 1 in
-    match op with
+    let* op := nextB 1 in
+    match (op: N) with
     | EXIT => ret false
     | _ => oneStep' op;; ret true
     end.

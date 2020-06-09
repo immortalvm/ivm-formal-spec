@@ -395,9 +395,13 @@ Hint Rewrite
 
 Lemma to_list_injective {A n} (u v: vector A n) : to_list u = to_list v -> u = v.
 Proof.
-  induction n; depelim u; depelim v.
-  - easy.
-  - simp to_list. intro Heq.
+  induction n.
+  - dependent elimination u.
+    dependent elimination v.
+    reflexivity.
+  - dependent elimination u as [(x :: u)%vector].
+    dependent elimination v as [(y :: v)%vector].
+    simp to_list. intro Heq.
     f_equal; [|apply (IHn u v)]; congruence.
 Qed.
 
@@ -446,7 +450,7 @@ Section lens_vector_section.
     update a x := updateN a x;
   }.
   Proof.
-    - induction n; intros a x; depelim x.
+    - induction n; intros a x; dependent elimination x.
       + reflexivity.
       + simp projN updateN.
         rewrite proj_update. f_equal.
@@ -457,7 +461,9 @@ Section lens_vector_section.
       + reflexivity.
       + simp projN updateN.
         rewrite IHn. lens_rewrite. reflexivity.
-    - induction n; intros a x x'; depelim x; depelim x'.
+    - induction n; intros a x x';
+        dependent elimination x;
+        dependent elimination x'.
       + reflexivity.
       + simp projN updateN.
         independent_rewrite.
@@ -491,7 +497,7 @@ Section lens_vector_section.
     destruct IHn as [IH1 IH2 IH3].
     simpl in IH1, IH2, IH3.
     split.
-    - intros a x. depelim x. simpl.
+    - intros a x. dependent elimination x. simpl.
       simp projN' updateN.
       independent_rewrite.
       lens_rewrite.
@@ -506,7 +512,7 @@ Section lens_vector_section.
       reflexivity.
     - intros a x y.
       simpl.
-      depelim x.
+      dependent elimination x.
       simp updateN updateN'.
       independent_rewrite.
       lens_rewrite.
@@ -525,7 +531,7 @@ Section lens_vector_section.
     bijection_lens (fun va => inverseN (fst va) (snd va)) _.
   Proof.
     intros a [v a']. simpl. revert a v a'.
-    induction n; intros a v a'; depelim v; simp inverseN.
+    induction n; intros a v a'; dependent elimination v; simp inverseN.
     - reflexivity.
     - simp updateN' updateN.
       independent_rewrite.

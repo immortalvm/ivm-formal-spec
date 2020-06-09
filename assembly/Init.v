@@ -66,10 +66,12 @@ Qed.
 Notation as_bool x := (if x then true else false).
 
 
-(** ** Decidable *)
+(** ** Decidable propositions *)
 
 (** We are not interested in Vector.eq_dec. *)
 Notation eq_dec := (Classes.eq_dec).
+
+Instance N_EqDec: EqDec N := N.eq_dec.
 
 Class Decidable (P: Prop) : Type :=
   decide : { P } + { not P }.
@@ -103,59 +105,6 @@ Section decidable_connectives.
   Global Instance impl_decidable : Decidable (P -> Q). cases. Defined.
 
 End decidable_connectives.
-
-Instance nat_lt_decidable (x y: nat) : Decidable (x < y) := lt_dec x y.
-Instance nat_le_decidable (x y: nat) : Decidable (x <= y) := le_dec x y.
-
-Instance Z_lt_decidable (x y: Z) : Decidable (x < y)%Z := Z_lt_dec x y.
-Instance Z_le_decidable (x y: Z) : Decidable (x <= y)%Z := Z_le_dec x y.
-Instance Z_ge_decidable (x y: Z) : Decidable (x >= y)%Z := Z_ge_dec x y.
-Instance Z_gt_decidable (x y: Z) : Decidable (x > y)%Z := Z_gt_dec x y.
-
-Instance bounded_all_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
-  Decidable (forall x, x < n -> P x).
-Proof. (* TODO: simplify? *)
-  induction n as [|n IH].
-  - left. lia.
-  - destruct IH as [IH|IH].
-    + destruct (DP n) as [H|H].
-      * left.
-        intros x H'.
-        -- by_lia (x < n \/ x = n) as H''.
-           destruct H'' as [H''|H''].
-           ++ exact (IH x H'').
-           ++ subst x. exact H.
-      * right. contradict H. apply H. lia.
-    + right. contradict IH. intros x H. apply IH. lia.
-Defined.
-
-(** Presumably, this instance of proof irrelevance will be provable when
-the Coq standard library has been rehauled, cf. the article "Definitional
-Proof-Irrelevance without K" (2019). *)
-Axiom le_proofs_unique : forall {m n: nat} (H1 H2: m <= n), H1 = H2.
-
-Instance bounded_all_decidable1
-           (n: nat) (P: forall (x: nat), x < n -> Prop)
-           {DP: forall x (H: x < n), Decidable (P x H)} : Decidable (forall x (H: x < n), P x H).
-Proof. (* TODO: simplify? *)
-  assert (forall x, Decidable (forall (H: x < n), P x H)) as D.
-  - intros x.
-    destruct (decide (x < n)) as [H|H].
-    + destruct (DP x H) as [Hd|Hd].
-      * left.
-        intros H'.
-        elim le_proofs_unique with H H'.
-        assumption.
-      * right.
-        contradict Hd.
-        apply (Hd H).
-    + left.
-      intros H'.
-      exfalso.
-      exact (H H').
-  - destruct (bounded_all_decidable0 (fun x => forall (H: x < n), P x H) n) as [H|H];
-      [left|right]; firstorder.
-Defined.
 
 
 (** ** Options *)
@@ -218,3 +167,73 @@ Proof.
   - reflexivity.
   - exact (none_rect H).
 Qed.
+
+
+(* ** Decidable predicates on integers *)
+
+Instance nat_lt_decidable (x y: nat) : Decidable (x < y) := lt_dec x y.
+Instance nat_le_decidable (x y: nat) : Decidable (x <= y) := le_dec x y.
+
+Derive NoConfusion EqDec for comparison.
+
+(** It follows that the comparison operators are decidable for [Z] and [N]. *)
+
+Instance bounded_all_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+  Decidable (forall x, x < n -> P x).
+Proof. (* TODO: simplify? *)
+  induction n as [|n IH].
+  - left. lia.
+  - destruct IH as [IH|IH].
+    + destruct (DP n) as [H|H].
+      * left.
+        intros x H'.
+        -- by_lia (x < n \/ x = n) as H''.
+           destruct H'' as [H''|H''].
+           ++ exact (IH x H'').
+           ++ subst x. exact H.
+      * right. contradict H. apply H. lia.
+    + right. contradict IH. intros x H. apply IH. lia.
+Defined.
+
+(** Clearly, [N] has the same property. *)
+
+Local Open Scope N.
+
+Instance bounded_all_decidable0' (P: forall (x:N), Prop) {DP: forall x, Decidable (P x)} (n: N) :
+  Decidable (forall x, x < n -> P x).
+Proof.
+  destruct (decide (forall y, (y < N.to_nat n)%nat -> P (N.of_nat y))) as [H|H]; [left|right].
+  - intros x Hx. specialize (H (N.to_nat x)).
+    rewrite Nnat.N2Nat.id in H.
+    apply H, nat_compare_lt.
+    rewrite <- Nnat.N2Nat.inj_compare.
+    exact Hx.
+  - intro H'. apply H. clear H.
+    intros y Hy.
+    apply H'.
+    unfold N.lt.
+    rewrite Nnat.N2Nat.inj_compare, Nnat.Nat2N.id.
+    apply nat_compare_lt.
+    exact Hy.
+Defined.
+
+(** We also have a slightly stronger property. *)
+
+Instance bounded_all_decidable1
+           (n: N) (P: forall (x: N), x < n -> Prop)
+           {DP: forall x (H: x < n), Decidable (P x H)} : Decidable (forall x (H: x < n), P x H).
+Proof. (* TODO: simplify? *)
+  assert (forall x, Decidable (forall (H: x < n), P x H)) as D.
+  - intros x.
+    destruct (decide (x < n)) as [H|H].
+    + destruct (DP x H) as [Hd|Hd].
+      * left. intros H'. rewrite (uip H' H). assumption.
+      * right. contradict Hd. apply (Hd H).
+    + left. intros H'. contradict H. exact H'.
+  - destruct (bounded_all_decidable0' (fun x => forall (H: x < n), P x H) n) as [H|H];
+      [left|right]; firstorder.
+Qed.
+
+(** In order to prove the corresponding property for [nat], we seem to need
+an axiom or a different definition of [nat.le] than the one in the current
+standard library, cf. "Definitional Proof-Irrelevance without K" (2019). *)

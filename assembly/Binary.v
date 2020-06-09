@@ -273,9 +273,12 @@ Section bit_facts_section.
   Lemma insta_spec {n} (u: Bits n) (z: Z) :
     insta u z = 2^n * z + update 0 u.
   Proof.
-    revert u z. induction n; intros u z; depelim u; simp insta pow2.
-    - simpl update. simp updateN. lia.
-    - simpl update. simp updateN.
+    revert u z. induction n; intros u z.
+    - dependent elimination u.
+      simp insta pow2. simpl update. simp updateN.
+      lia.
+    - dependent elimination u as [b :: u].
+      simp insta pow2. simpl update. simp updateN.
       rewrite IHn. simpl update.
       set (x := updateN 0 u).
       rewrite Z.add_assoc.
@@ -316,11 +319,14 @@ Section bit_facts_section.
 
   Lemma insta0_nonneg {n} (u: Bits n) : 0 <= insta u 0.
   Proof.
-    induction n; depelim u; simp insta; [lia|].
-    apply Z.add_nonneg_nonneg; [|destruct h; simpl; lia].
-    specialize (IHn u).
-    rewrite Z.double_spec.
-    lia.
+    induction n.
+    - dependent elimination u. simp insta. lia.
+    - dependent elimination u as [b :: u].
+      simp insta.
+      apply Z.add_nonneg_nonneg; [|destruct b; simpl; lia].
+      specialize (IHn u).
+      rewrite Z.double_spec.
+      lia.
   Qed.
 
   Corollary update_nonneg {n} (x : N) (u : Bits n) : injected N (update (inj x) u).
@@ -362,7 +368,7 @@ Section bit_facts_section.
 
   Lemma insta0_limit {n} (u: Bits n) : insta u 0 < 2 ^ n.
   Proof.
-    induction n; depelim u; simp insta pow2.
+    induction n; dependent elimination u; simp insta pow2.
     - exact Z.lt_0_1.
     - apply div2_reflects_lt.
       rewrite div2_double2, div2_double.
@@ -436,10 +442,11 @@ Section bit_facts_section.
       apply (Zlt_not_le _ _ H).
       apply insta0_nonneg.
     - induction n.
-      + do 2 depelim u.
+      + dependent elimination u as [ [b] ].
         simp insta.
         destruct (_:bool); simpl; intro H; lia.
-      + depelim u. simpl Bsign. intros Hs. simp insta.
+      + dependent elimination u as [b :: u].
+        simpl Bsign. intros Hs. simp insta.
         apply div2_reflects_lt.
         rewrite div2_double2.
         simpl Z.div2.
@@ -463,15 +470,16 @@ Section bytes_section.
 
   Definition Bytes n := vector B8 n.
 
-  (* Equations is not able to handle these definitions as of version 1.2.1. *)
+  (* It seems Equations is not able to handle these definitions yet,
+     even though [dependent elimination] works as expected. *)
 
   Definition bitsToBytes {n} (u: Bits (n * 8)) : Bytes n.
   Proof.
     induction n.
     - exact [].
     - simpl in u.
-      do 8 depelim u.
-      exact ([h; h0; h1; h2; h3; h4; h5; h6] :: IHn u).
+      dependent elimination u as [b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u].
+      exact ([b0; b1; b2; b3; b4; b5; b6; b7] :: IHn u).
   Defined.
 
   Proposition bitsToBytes_equation_1 : @bitsToBytes (0 * 8) [] = [].
@@ -489,9 +497,8 @@ Section bytes_section.
   Proof.
     induction n.
     - exact [].
-    - depelim u.
-      depelim h. depelim h0. depelim h1. depelim h2. depelim h3. depelim h4. depelim h5. depelim h6. depelim h7.
-      exact (h :: h0 :: h1 :: h2 :: h3 :: h4 :: h5 :: h6 :: IHn u).
+    - dependent elimination u as [ [b0; b1; b2; b3; b4; b5; b6; b7] :: u].
+      exact (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: IHn u).
   Defined.
 
   Proposition bytesToBits_equation_1 : bytesToBits [] = [].
@@ -508,11 +515,10 @@ Section bytes_section.
   #[refine] Instance bytes_bijection n : Bijection (@bitsToBytes n) := { inverse := (@bytesToBits n) }.
   Proof.
     all: induction n; intro u.
-    1,3: depelim u; reflexivity.
-    - do 8 depelim u.
+    1,3: dependent elimination u; reflexivity.
+    - dependent elimination u as [b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u].
       simp bitsToBytes bytesToBits. rewrite IHn. reflexivity.
-    - depelim u.
-      depelim h. depelim h1. depelim h2. depelim h3. depelim h4. depelim h5. depelim h6. depelim h7. depelim h8.
+    - dependent elimination u as [ [b0; b1; b2; b3; b4; b5; b6; b7] :: u].
       simp bytesToBits bitsToBytes. rewrite IHn. reflexivity.
   Defined.
 
