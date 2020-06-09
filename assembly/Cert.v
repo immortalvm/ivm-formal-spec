@@ -1,6 +1,4 @@
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Dec Lens Mon Operations Bits Machine Rel Mono OpCodes2.
+From Assembly Require Import Mono.
 
 (* Does it create more problems than it solves? *)
 (* Set Implicit Arguments. *)
@@ -103,7 +101,7 @@ Qed.
 
 (** ** Cert *)
 
-Notation M := (@M _ _ estParams2).
+Notation M := (@M _ estParams2).
 
 Class Cert (spec: M bool) :=
   evidence s:
@@ -147,12 +145,12 @@ Qed.
 Instance dec_decidable {P: Prop} {HP: Decidable P}
          (f: P -> Prop) {Hf: forall H, Decidable (f H)}
          (g: not P -> Prop) {Hg: forall H, Decidable (g H)}:
-  Decidable match decision P with
+  Decidable match decide P with
             | left H => f H
             | right H => g H
             end.
 Proof.
-  destruct (decision P) as [H|H].
+  destruct (decide P) as [H|H].
   - apply Hf.
   - apply Hg.
 Defined.
@@ -172,13 +170,7 @@ Proof.
 Defined.
 
 
-
-
-
-
 (** ** Basic certs *)
-
-Require Import Assembly.OpCodes2.
 
 Instance cert1 {u: M unit} (b: bool)
          (H: forall s, match u s with
@@ -217,7 +209,7 @@ Ltac cert_start :=
   apply cert1; intros s;
   simp swallow; simpl;
   (destruct load as [[s' x]|] eqn:H1; [|exact I]);
-  (destruct decision; [subst x|exact I]).
+  (destruct decide; [subst x|exact I]).
 
 Section offset_opaque_section.
 
@@ -261,7 +253,7 @@ Definition requireStack (n: nat) : M unit :=
 Definition isZero := [PUSH1; toB8 1; LT].
 
 Definition boolRep (P: Prop) {DP: Decidable P} : Z :=
-  if decision P then (-1)%Z else 0%Z.
+  if decide P then (-1)%Z else 0%Z.
 
 Instance cert_isZero : Cert (swallow isZero;;
                              requireStack 1;;
@@ -288,7 +280,7 @@ Proof.
   setoid_rewrite bind_assoc.
 
 simpl.
-  (destruct decision; [subst x|exact I]).
+  (destruct decide; [subst x|exact I]).
 
   cert_start.
 
