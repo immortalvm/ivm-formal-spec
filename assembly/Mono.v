@@ -1,7 +1,6 @@
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Dec Lens Mon Bits Operations Machine Rel.
+From Assembly Require Export Machine Rel.
 Require Import Coq.Logic.PropExtensionality.
+
 Set Implicit Arguments.
 
 Arguments proj : clear implicits.
@@ -11,10 +10,10 @@ Arguments update {_} {_}.
 
 
 (** Global parameters from now on for convenience. *)
-Context {MP1: @MachineParams1 concreteParams0}.
+Context {MP1: MachineParams1}.
 
 (** Focus on the initial smonad from now on. *)
-Instance estParams2 : @MachineParams2 concreteParams0 MP1 :=
+Instance estParams2 : MachineParams2 :=
 {
   M := EST State;
   H_mon := est_smonad State;
@@ -312,9 +311,9 @@ Proof using.
   - destruct Hfg.
 Qed.
 
-Instance nextN_propr n : PropR (nextN n).
+Instance nextB_propr n : PropR (nextB n).
 Proof using.
-  repeat (unfold nextN, next; crush).
+  repeat (unfold nextB, next; crush).
   revert y.
   induction n as [|n IH];
     intro a;
@@ -345,9 +344,9 @@ Proof using.
   destruct (f a' HL') as [fa'|] eqn:Hfa; crush.
 Qed.
 
-Instance push64_propr z: PropR (push64 z).
+Instance pushZ_propr z: PropR (pushZ z).
 Proof using.
-  unfold push64. repeat crush.
+  unfold pushZ. repeat crush.
 Qed.
 
 Instance loadN_propr n a : PropR (loadN n a).
@@ -363,6 +362,8 @@ Proof using.
   unfold storeZ. repeat crush.
 Qed.
 
+Open Scope N.
+
 Instance setPixel_propr x y c : PropR (setPixel x y c).
 Proof using.
   (** Presumably, there is some way to automate more of this,
@@ -370,19 +371,19 @@ Proof using.
   repeat (unfold setPixel, updatePixel; crush).
   simpl.
   rename x0 into i, y0 into i', Hxy into Hi, HL into Hx.
-  destruct (decision (y < height i)) as [Hy|Hy];
+  destruct (decide (y < height i)) as [Hy|Hy];
     [|repeat crush].
   destruct Hi as [Hw [Hh Hi]].
 
-  destruct (decision (x < width i')) as [Hw'|Hw'];
+  destruct (decide (x < width i')) as [Hw'|Hw'];
     [| contradict Hw'; rewrite <- Hw; exact Hx ].
-  destruct (decision (y < height i')) as [Hh'|Hh'];
+  destruct (decide (y < height i')) as [Hh'|Hh'];
     [| contradict Hh'; rewrite <- Hh; exact Hy ].
 
   apply putImg_propr. exists Hw. exists Hh.
   intros x' Hx' y' Hy'. simpl.
 
-  destruct (decision (x' = x /\ y' = y)).
+  destruct (decide (x' = x /\ y' = y)).
   - reflexivity.
   - exact (Hi x' Hx' y' Hy').
 Qed.
@@ -390,7 +391,7 @@ Qed.
 Instance readPixel_propr x y : PropR (readPixel x y).
 Proof using.
   unfold readPixel. repeat crush.
-  destruct (decision (y < height (nth y0 allInputImages noImage))) as [Hh|Hh];
+  destruct (decide _) as [Hh|Hh];
     repeat crush.
 Qed.
 
@@ -407,16 +408,12 @@ Proof using.
   extensionality Hx.
   extensionality y.
   extensionality Hy.
-  specialize (Hp x Hx y Hy).
-  simpl in Hp.
-  specialize (Hc x Hx y Hy).
-  derive Hc (some_some Hc).
-  destruct Hc as [c Hc].
-  simpl in Hc.
-  rewrite Hc in *.
+  specialize (Hp x Hx y Hy). simpl in Hp.
+  specialize (Hc x Hx y Hy). simpl in Hc.
+  rewrite <- (some_extract Hc) in *.
   destruct (p' x Hx y Hy) as [c'|].
   - unfold rel in Hp.
-    destruct c as [[r g] b].
+    destruct (extract Hc) as [[r g] b].
     destruct c' as [[r' g'] b'].
     cbn in Hp.
     destruct Hp as [[Hr Hg] Hb].
@@ -436,7 +433,7 @@ Proof using.
     HL into Hc.
 
   destruct (image_complete_lemma Hi Hc).
-  destruct (decision (image_complete i)) as [Hc'|Hc'];
+  destruct (decide (image_complete i)) as [Hc'|Hc'];
     [|contradict Hc'; exact Hc].
 
   intros s s' Hs. split.
@@ -449,21 +446,17 @@ Qed.
 
 Global Instance oneStep_propr : PropR oneStep.
 Proof using.
-  unfold oneStep.
-  repeat crush.
-  destruct y as [|n]; repeat crush.
+  unfold oneStep. repeat crush.
+  destruct (y : N) eqn:Hy;
+    [ crush; reflexivity | ].
 
-  Ltac print := match goal with [|- _ (_ ?i)] => idtac i end.
-
-  Ltac step :=
-    print;
-    simp oneStep';
-    unfold putByte, putChar, addSample, readFrame;
-    repeat crush.
-
-  Time do 255 (destruct n as [|n]; [step|]). step.
-  (* Beware: This takes a long time!
-     This is mostly due to inefficiencies in coq-equations. *)
+  (* Presumably, there is a more elegant way to do this. *)
+  unfold oneStep'.
+  repeat (match goal with
+            [|- context [match _ with xI _ => _ | xO _ => _ | xH => _ end]] =>
+            destruct p end).
+  all:
+    unfold putByte, putChar, addSample, readFrame; repeat crush.
 Qed.
 
 (*

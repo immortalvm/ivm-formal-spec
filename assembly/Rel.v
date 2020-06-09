@@ -1,11 +1,4 @@
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Lens Mon.
-
-Require Import Coq.Relations.Relations.
-Require Import Coq.Classes.RelationClasses.
-
-Unset Implicit Arguments.
+From Assembly Require Import Basics.
 
 
 (** ** Relations ***)
