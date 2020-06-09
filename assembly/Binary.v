@@ -1,9 +1,10 @@
 From Assembly Require Import Init Lens.
-Require Coq.Init.Byte.
 
 Unset Suggest Proof Using.
 
 Local Open Scope Z.
+
+Notation Bits := Bvector.
 
 Section bits_section.
 
@@ -110,7 +111,7 @@ Section bits_section.
 
   Context (n: nat).
 
-  Global Instance lens_bits : Lens Z (Bvector n).
+  Global Instance lens_bits : Lens Z (Bits n).
   Proof.
     apply (lens_vector lens_odd lens_div2 n).
   Defined.
@@ -182,7 +183,7 @@ Section bit_facts_section.
 
   (** ** Characterizations *)
 
-  Definition toBits n : Z -> Bvector n := proj (Lens:=lens_bits n).
+  Definition toBits n : Z -> Bits n := proj (Lens:=lens_bits n).
 
   Proposition toBits_equation_1 z : toBits 0 z = [].
   Proof. reflexivity. Qed.
@@ -231,13 +232,13 @@ Section bit_facts_section.
       + apply pow2_nonneg.
   Qed.
 
-  Definition insta {n} (u:Bvector n) (z: Z) : Z :=
+  Definition insta {n} (u:Bits n) (z: Z) : Z :=
     inverse (Bijection:=bijection_bits n) (u, z).
 
-  Proposition toBits_insta {n} (u: Bvector n) z : toBits n (insta u z) = u.
+  Proposition toBits_insta {n} (u: Bits n) z : toBits n (insta u z) = u.
   Proof. apply projX_inverse. Qed.
 
-  Proposition toRest_insta {n} (u: Bvector n) z : toRest n (insta u z) = z.
+  Proposition toRest_insta {n} (u: Bits n) z : toRest n (insta u z) = z.
   Proof. apply projY_inverse. Qed.
 
   Proposition insta_equation_1 z : insta [] z = z.
@@ -245,7 +246,7 @@ Section bit_facts_section.
 
   Arguments inverseN {_ _ _ _ _ _ _}.
 
-  Proposition insta_equation_2 {n} (b:bool) (u:Bvector n) z :
+  Proposition insta_equation_2 {n} (b:bool) (u:Bits n) z :
     insta (b::u) z = Z.double (insta u z) + Z.b2z b.
   Proof.
     unfold insta. simpl. simp inverseN.
@@ -256,7 +257,7 @@ Section bit_facts_section.
        insta_equation_1
        @insta_equation_2 : insta.
 
-  Proposition insta_bijection z {n} (u: Bvector n) z' :
+  Proposition insta_bijection z {n} (u: Bits n) z' :
     toBits n z = u /\ toRest n z = z' <-> insta u z' = z.
   Proof.
     transitivity (proj (Lens:=lens_prod (independent_bits n)) z = (u, z')).
@@ -269,7 +270,7 @@ Section bit_facts_section.
 
   (** ** Update *)
 
-  Lemma insta_spec {n} (u: Bvector n) (z: Z) :
+  Lemma insta_spec {n} (u: Bits n) (z: Z) :
     insta u z = 2^n * z + update 0 u.
   Proof.
     revert u z. induction n; intros u z; depelim u; simp insta pow2.
@@ -287,10 +288,10 @@ Section bit_facts_section.
         reflexivity.
   Qed.
 
-  Corollary update_to_insta0 {n} (u: Bvector n) : update 0 u = insta u 0.
+  Corollary update_to_insta0 {n} (u: Bits n) : update 0 u = insta u 0.
   Proof. rewrite insta_spec. lia. Qed.
 
-  Lemma update_spec {n} (u: Bvector n) (z: Z) :
+  Lemma update_spec {n} (u: Bits n) (z: Z) :
     update z u = 2^n * (z / 2^n) + insta u 0.
   Proof.
     transitivity (insta u (toRest n z)).
@@ -313,7 +314,7 @@ Section bit_facts_section.
       reflexivity.
   Qed.
 
-  Lemma insta0_nonneg {n} (u: Bvector n) : 0 <= insta u 0.
+  Lemma insta0_nonneg {n} (u: Bits n) : 0 <= insta u 0.
   Proof.
     induction n; depelim u; simp insta; [lia|].
     apply Z.add_nonneg_nonneg; [|destruct h; simpl; lia].
@@ -322,7 +323,7 @@ Section bit_facts_section.
     lia.
   Qed.
 
-  Corollary update_nonneg {n} (x : N) (u : Bvector n) : injected N (update (inj x) u).
+  Corollary update_nonneg {n} (x : N) (u : Bits n) : injected N (update (inj x) u).
   Proof.
     rewrite update_spec.
     simpl. decide as H.
@@ -339,12 +340,12 @@ Section bit_facts_section.
 
   (** ** Unsigned *)
 
-  Instance lens_bits_N n : Lens N (Bvector n) :=
+  Instance lens_bits_N n : Lens N (Bits n) :=
     sublens (PX:=prism_N) (LY:=lens_bits n) update_nonneg.
 
-  Definition bitsToN {n} (u: Bvector n) : N := update 0%N u.
+  Definition bitsToN {n} (u: Bits n) : N := update 0%N u.
 
-  Proposition ofN_bitsToN {n} (u: Bvector n) : bitsToN u = insta u 0 :> Z.
+  Proposition ofN_bitsToN {n} (u: Bits n) : bitsToN u = insta u 0 :> Z.
   Proof.
     change Z.of_N with inj.
     rewrite <- update_to_insta0.
@@ -359,7 +360,7 @@ Section bit_facts_section.
     do 2 destruct (Z.odd _); simpl Z.b2z; lia.
   Qed.
 
-  Lemma insta0_limit {n} (u: Bvector n) : insta u 0 < 2 ^ n.
+  Lemma insta0_limit {n} (u: Bits n) : insta u 0 < 2 ^ n.
   Proof.
     induction n; depelim u; simp insta pow2.
     - exact Z.lt_0_1.
@@ -368,7 +369,7 @@ Section bit_facts_section.
       apply IHn.
   Qed.
 
-  Corollary bitsToN_limit {n} (u: Bvector n) : (bitsToN u < 2 ^ n)%N.
+  Corollary bitsToN_limit {n} (u: Bits n) : (bitsToN u < 2 ^ n)%N.
   Proof.
     apply N2Z.inj_lt.
     rewrite ofN_bitsToN, N2Z.inj_pow. simpl.
@@ -400,7 +401,7 @@ Section bit_facts_section.
   Qed.
 
  Corollary bitsToN_proj {n:nat} {x} (Hx: (x < 2 ^ n)%N) :
-    bitsToN (proj x : Bvector n) = x.
+    bitsToN (proj x : Bits n) = x.
   Proof.
     apply N2Z.inj.
     rewrite ofN_bitsToN.
@@ -418,15 +419,15 @@ Section bit_facts_section.
 
   (** ** Signed *)
 
-  Definition bitsToZ {n} (u: Bvector (S n)) : Z := insta u (if Bsign u then -1 else 0).
+  Definition bitsToZ {n} (u: Bits (S n)) : Z := insta u (if Bsign u then -1 else 0).
 
-  Proposition toBits_bitsToZ {n} (u: Bvector (S n)) : toBits _ (bitsToZ u) = u.
+  Proposition toBits_bitsToZ {n} (u: Bits (S n)) : toBits _ (bitsToZ u) = u.
   Proof. apply toBits_insta. Qed.
 
   (* "101" = -3 *)
   (* Compute bitsToZ [true; false; true]. *)
 
-  Proposition sign_bitsToZ {n} (u: Bvector (S n)) : bitsToZ u < 0 <-> Bsign u.
+  Proposition sign_bitsToZ {n} (u: Bits (S n)) : bitsToZ u < 0 <-> Bsign u.
   Proof.
     unfold bitsToZ.
     split.
@@ -447,74 +448,72 @@ Section bit_facts_section.
 
 End bit_facts_section.
 
-Notation B8 := (Bvector 8).
-Notation B16 := (Bvector 16).
-Notation B32 := (Bvector 32).
-Notation B64 := (Bvector 64).
+Notation B8 := (Bits 8).
+Notation B16 := (Bits 16).
+Notation B32 := (Bits 32).
+Notation B64 := (Bits 64).
 
 
 (** ** Bytes *)
-
-Notation byte := (Byte.byte).
 
 Section bytes_section.
 
   Open Scope vector.
   Open Scope program_scope.
 
-  Equations bytes_to_bits {n} `(vector byte n) : Bvector (n * 8) :=
-    bytes_to_bits [] := [];
-    bytes_to_bits (b :: r) :=
-      match Byte.to_bits b with
-        (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))) =>
-        b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: bytes_to_bits r
-      end.
+  Definition Bytes n := vector B8 n.
 
-  (** Not understood by Equations 1.2.1:
-  [[
-  Equations bits_to_bytes {n} `(Bvector (n * 8)) : vector byte n :=
-    bits_to_bytes [] := [];
-    bits_to_bytes (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: r) :=
-      Byte.of_bits (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))) :: bits_to_bytes r.
-   ]]
-   *)
+  (* Equations is not able to handle these definitions as of version 1.2.1. *)
 
-  Definition bits_to_bytes {n} (u: Bvector (n * 8)) : vector byte n.
+  Definition bitsToBytes {n} (u: Bits (n * 8)) : Bytes n.
   Proof.
     induction n.
     - exact [].
     - simpl in u.
       do 8 depelim u.
-      exact (Byte.of_bits (h, (h0, (h1, (h2, (h3, (h4, (h5, h6))))))) :: IHn u).
+      exact ([h; h0; h1; h2; h3; h4; h5; h6] :: IHn u).
   Defined.
 
-  Proposition bits_to_bytes_equation_1 : @bits_to_bytes (0 * 8) [] = [].
+  Proposition bitsToBytes_equation_1 : @bitsToBytes (0 * 8) [] = [].
   Proof. reflexivity. Qed.
 
-  Proposition bits_to_bytes_equation_2 {n} b0 b1 b2 b3 b4 b5 b6 b7 (u: Bvector (n * 8)) :
-    @bits_to_bytes (S n) (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u) =
-    (Byte.of_bits (b0, (b1, (b2, (b3, (b4, (b5, (b6, b7))))))) :: bits_to_bytes u).
+  Proposition bitsToBytes_equation_2 {n} b0 b1 b2 b3 b4 b5 b6 b7 (u: Bits (n * 8)) :
+    @bitsToBytes (S n) (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u) =
+    [b0; b1; b2; b3; b4; b5; b6; b7] :: bitsToBytes u.
   Proof. reflexivity. Qed.
 
-  Hint Rewrite bits_to_bytes_equation_1 @bits_to_bytes_equation_2 : bits_to_bytes.
+  Hint Rewrite bitsToBytes_equation_1 @bitsToBytes_equation_2 : bitsToBytes.
+  Opaque bitsToBytes.
 
-  #[refine] Instance bytes_bijection n : Bijection (@bits_to_bytes n) := { inverse := (@bytes_to_bits n) }.
+  Definition bytesToBits {n} (u: Bytes n) : Bits (n * 8).
+  Proof.
+    induction n.
+    - exact [].
+    - depelim u.
+      depelim h. depelim h0. depelim h1. depelim h2. depelim h3. depelim h4. depelim h5. depelim h6. depelim h7.
+      exact (h :: h0 :: h1 :: h2 :: h3 :: h4 :: h5 :: h6 :: IHn u).
+  Defined.
+
+  Proposition bytesToBits_equation_1 : bytesToBits [] = [].
+  Proof. reflexivity. Qed.
+
+  Proposition bytesToBits_equation_2 n b0 b1 b2 b3 b4 b5 b6 b7 (u: Bytes n) :
+    @bytesToBits (S n) ([b0; b1; b2; b3; b4; b5; b6; b7] :: u) =
+    b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: bytesToBits u.
+  Proof. reflexivity. Qed.
+
+  Hint Rewrite bytesToBits_equation_1 @bytesToBits_equation_2 : bytesToBits.
+  Opaque bytesToBits.
+
+  #[refine] Instance bytes_bijection n : Bijection (@bitsToBytes n) := { inverse := (@bytesToBits n) }.
   Proof.
     all: induction n; intro u.
     1,3: depelim u; reflexivity.
-    - do 8 depelim u. simp bits_to_bytes bytes_to_bits.
-      rewrite IHn.
-      rewrite Byte.to_bits_of_bits.
-      reflexivity.
+    - do 8 depelim u.
+      simp bitsToBytes bytesToBits. rewrite IHn. reflexivity.
     - depelim u.
-      transitivity ((Byte.of_bits (Byte.to_bits h)) :: u);
-        [ | f_equal; apply Byte.of_bits_to_bits].
-      simp bytes_to_bits.
-      set (v := Byte.to_bits h).
-      repeat destruct v as [? v].
-      simp bits_to_bytes.
-      f_equal.
-      apply IHn.
+      depelim h. depelim h1. depelim h2. depelim h3. depelim h4. depelim h5. depelim h6. depelim h7. depelim h8.
+      simp bytesToBits bitsToBytes. rewrite IHn. reflexivity.
   Defined.
 
 End bytes_section.

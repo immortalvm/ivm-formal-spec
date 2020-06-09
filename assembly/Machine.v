@@ -11,7 +11,11 @@ Notation toB64 := (toBits 64).
 Open Scope Z.
 Open Scope vector.
 
-Coercion bitsToN : Bvector >-> N.
+Coercion bytesToBits : Bytes >-> Bits.
+Coercion bitsToN : Bits >-> N.
+
+(** Now we have coercions [Bytes >-> Bits >-> N >-> Z]
+    and also [nat >-> Z] and [option >-> bool >-> Prop]. *)
 
 (* Global parameters! *)
 Context
