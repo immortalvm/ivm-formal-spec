@@ -135,13 +135,17 @@ Section bits_section.
 End bits_section.
 
 Arguments Bsign {_} _.
+Coercion N.of_nat : nat >-> N.
+Coercion Z.of_N : N >-> Z.
+
+(** Including the direct coercion, [Z.of_nat], as well would create
+problems (and a warning) since it is (unfortunately) not convertible to
+the composite. Instead we will rely on [setoid_rewrite [<-] nat_N_Z] when
+necessary. *)
 
 Section bit_facts_section.
 
-  Coercion Z.of_nat : nat >-> Z.
-  Coercion N.of_nat : nat >-> N.
   Open Scope vector.
-
 
   (** ** Helpers *)
 
@@ -153,6 +157,7 @@ Section bit_facts_section.
 
   Lemma pow2_equation_2 n : 2^(S n) = 2 * (2^n).
   Proof.
+    setoid_rewrite nat_N_Z.
     rewrite Nat2Z.inj_succ, Z.pow_succ_r.
     - reflexivity.
     - apply Nat2Z.is_nonneg.
@@ -165,6 +170,7 @@ Section bit_facts_section.
 
   Lemma pow2_pos (n: nat) : 0 < 2^n.
   Proof.
+    setoid_rewrite nat_N_Z.
     apply Z.pow_pos_nonneg.
     - lia.
     - apply Nat2Z.is_nonneg.
@@ -338,7 +344,7 @@ Section bit_facts_section.
 
   Definition bitsToN {n} (u: Bvector n) : N := update 0%N u.
 
-  Proposition ofN_bitsToN {n} (u: Bvector n) : Z.of_N (bitsToN u) = insta u 0.
+  Proposition ofN_bitsToN {n} (u: Bvector n) : bitsToN u = insta u 0 :> Z.
   Proof.
     change Z.of_N with inj.
     rewrite <- update_to_insta0.
@@ -367,6 +373,7 @@ Section bit_facts_section.
     apply N2Z.inj_lt.
     rewrite ofN_bitsToN, N2Z.inj_pow. simpl.
     rewrite nat_N_Z.
+    setoid_rewrite <- nat_N_Z.
     apply insta0_limit.
   Qed.
 
@@ -402,6 +409,7 @@ Section bit_facts_section.
     apply insta_toBits.
     - apply N2Z.is_nonneg.
     - change 2 with (Z.of_N 2%N).
+      setoid_rewrite nat_N_Z.
       rewrite <- nat_N_Z, <- N2Z.inj_pow.
       apply N2Z.inj_lt.
       exact Hx.

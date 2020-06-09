@@ -1,9 +1,17 @@
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Dec Lens Mon Bits Operations.
+From Assembly Require Import Basics Operations.
 Require Assembly.OpCodes.
+
 Set Implicit Arguments.
 
+Notation toB8 := (toBits 8).
+Notation toB16 := (toBits 16).
+Notation toB32 := (toBits 32).
+Notation toB64 := (toBits 64).
+
+Open Scope Z.
+Open Scope vector.
+
+Coercion bitsToN : Bvector >-> N.
 
 (* Global parameters! *)
 Context
