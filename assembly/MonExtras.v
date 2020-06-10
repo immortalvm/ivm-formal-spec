@@ -1,10 +1,8 @@
-Require Import Utf8.
-
-From Assembly Require Import Lens Mon.
+From Assembly Require Import Init Lens Mon.
 
 
 (** The results in this file are not used elsehwere, but they can be
-useful for the understanding of the subject.*)
+useful for understanding the subject.*)
 
 
 (** ** The trivial [SMonad] *)
@@ -142,7 +140,7 @@ Section inv_lens_section.
   Qed.
 
   Lemma inv_lens_inv (s: S) :
-    let (fH, x) := proj (Lens:=lens_prod _ _) s in
+    let (fH, x) := proj (Lens:=lens_prod _) s in
     proj1_sig fH x = s.
   Proof using.
     simpl. rewrite update_proj. reflexivity.

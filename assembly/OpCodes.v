@@ -1,6 +1,6 @@
-Require Import Utf8.
+Require Import Coq.ZArith.ZArith.
 
-Open Scope nat_scope.
+Local Open Scope N.
 
 Notation EXIT := 0.
 Notation NOP := 1.

@@ -1,11 +1,4 @@
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Lens Mon.
-
-Require Import Coq.Relations.Relations.
-Require Import Coq.Classes.RelationClasses.
-
-Unset Implicit Arguments.
+From Assembly Require Import Basics.
 
 
 (** ** Relations ***)
@@ -22,6 +15,13 @@ Arguments rel {_} _.
 Section basics_section.
 
   Context {X: Type}.
+
+  Instance true_relation : Rel X | 30 := fun _ _ => True.
+
+  Instance true_relation_equivalence : Equivalence true_relation.
+  Proof using.
+    split; intro; intros; exact I.
+  Qed.
 
   (* Fallback to Leibniz' equality. *)
   Global Instance eq_relation : Rel X | 20 := eq.
@@ -80,6 +80,25 @@ Section basics_section.
     - transitivity y2; assumption.
   Qed.
 
+  Context (RX': Rel X).
+
+  Instance and_relation : Rel X | 30 := fun x x' => RX x x' /\ RX' x x'.
+
+  Instance and_reflexive {HrX: Reflexive RX} {HrX': Reflexive RX'} : Reflexive and_relation.
+  Proof using.
+    intros x; split; reflexivity.
+  Qed.
+
+  Instance and_symmetric {HrX: Symmetric RX} {HrX': Symmetric RX'} : Symmetric and_relation.
+  Proof using.
+    intros x y [H H']; split; symmetry; assumption.
+  Qed.
+
+  Instance and_transitive {HrX: Transitive RX} {HrX': Transitive RX'} : Transitive and_relation.
+  Proof using.
+    intros x1 x2 x3 [H12 H12'] [H23 H23']; split; transitivity x2; assumption.
+  Qed.
+
 End basics_section.
 
 
@@ -89,46 +108,25 @@ Section lens_section.
 
   Context {S X} (LX: Lens S X).
 
-  Definition aligned (s s' : S) :=
-    update s (proj s') = s'.
+  Context {RX: Rel X}.
 
-  (** In other words, [aligned s s'] means that [s] and [s'] are equal
-      except for their projections onto [X]. *)
-
-  Instance aligned_equivalence : Equivalence aligned.
-  Proof using.
-    split.
-    - intros s. unfold aligned. rewrite update_proj. reflexivity.
-    - intros s s'. unfold aligned. intros H. rewrite <- H.
-      rewrite update_update, update_proj. reflexivity.
-    - intros s1 s2 s3. unfold aligned. intros H12 H23.
-      rewrite <- H12 in H23.
-      rewrite update_update in H23.
-      exact H23.
-  Qed.
-
-  Context (RX: Rel X).
-
-  Definition lens_relation : relation S :=
-    fun s s' => aligned s s' /\ RX (proj s) (proj s').
+  Definition lens_relation : relation S := fun s s' => proj s ⊑ proj s'.
 
   Global Instance lens_relation_reflexive {HrX: Reflexive RX} : Reflexive lens_relation.
   Proof using.
-    unfold lens_relation. intros s. split; reflexivity.
+    unfold lens_relation. intros s. reflexivity.
   Qed.
 
   Global Instance lens_relation_symmetric {HsX: Symmetric RX} : Symmetric lens_relation.
   Proof using.
-    unfold lens_relation. intros s s' [? ?].
-    split; symmetry; assumption.
+    unfold lens_relation. intros s s' H.
+    symmetry; assumption.
   Qed.
 
   Global Instance lens_relation_transitive {HtX: Transitive RX} : Transitive lens_relation.
   Proof using.
-    unfold lens_relation. intros s1 s2 s3 [? ?] [? ?].
-    split.
-    - transitivity s2; assumption.
-    - transitivity (proj s2); assumption.
+    unfold lens_relation. intros s1 s2 s3 H12 H23.
+    transitivity (proj s2); assumption.
   Qed.
 
 End lens_section.
@@ -159,7 +157,7 @@ Section proper_section.
 
   Local Notation RM := (est_relation).
 
-  Lemma ret_propR : PropR (@ret _ M _ A).
+  Lemma ret_propr : PropR (@ret _ M _ A).
   Proof using.
     intros a a' Ha.
     intros s s' Hs.
@@ -169,7 +167,7 @@ Section proper_section.
 
   Context {B} {RB: Rel B}.
 
-  Global Instance bind_propR: PropR (@bind _ M _ A B).
+  Global Instance bind_propr: PropR (@bind _ M _ A B).
   Proof using.
     intros ma ma' Hma f f' Hf.
     intros s s' Hs. simpl.
@@ -182,18 +180,18 @@ Section proper_section.
     - exact I.
   Qed.
 
-  Global Instance err_propR: PropR (err : M A).
+  Global Instance err_propr: PropR (err : M A).
   Proof using.
     intros s s' Hs. exact I.
   Qed.
 
-  Global Instance get_propR : PropR (get : M S).
+  Global Instance get_propr : PropR (get : M S).
   Proof using.
     intros s s' Hs.
     split; assumption.
   Qed.
 
-  Global Instance put_propR : PropR (put : S -> M unit).
+  Global Instance put_propr : PropR (put : S -> M unit).
   Proof using.
     intros s s' Hs.
     intros t t' Ht.

@@ -1,7 +1,4 @@
-Require Import Equations.Equations.
-
-From Assembly Require Import Lens Mon Bits Dec Operations Machine.
-
+From Assembly Require Import Machine.
 From RecordUpdate Require Import RecordSet.
 
 (** The purpose of this file is to prove the (rather trivial) fact that
@@ -13,7 +10,7 @@ mkState {
   state_memory: Memory;
   state_pc: Addr;
   state_sp: Addr;
-  state_inp: nat;
+  state_inp: N;
   state_image: Image (option OutputColor);
   state_bytes: list Byte;
   state_chars: list Char;
@@ -43,7 +40,7 @@ Local Ltac derive_lens f :=
 Definition MEM : Lens State Memory. derive_lens state_memory. Defined.
 Definition PC : Lens State Addr. derive_lens state_pc. Defined.
 Definition SP : Lens State Addr. derive_lens state_sp. Defined.
-Definition INP : Lens State nat. derive_lens state_inp. Defined.
+Definition INP : Lens State N. derive_lens state_inp. Defined.
 Definition OUT_CHARS : Lens State (list Char). derive_lens state_chars. Defined.
 Definition OUT_BYTES : Lens State (list Byte). derive_lens state_bytes. Defined.
 Definition OUT_SOUND : Lens State Sound. derive_lens state_sound. Defined.
@@ -94,7 +91,7 @@ Instance independent_INP_SP: Independent INP SP. crush. Defined.
 
 Instance independent_PC_SP: Independent PC SP. crush. Defined.
 
-Instance concreteParams1 : @MachineParams1 concreteParams0 :=
+Instance concreteParams1 : MachineParams1 :=
 {
     State := State;
 
@@ -156,7 +153,7 @@ Instance concreteParams1 : @MachineParams1 concreteParams0 :=
     independent_PC_SP := independent_PC_SP;
 }.
 
-Instance concreteParams2 : @MachineParams2 concreteParams0 concreteParams1 :=
+Instance concreteParams2 : MachineParams2 :=
 {
     M := EST State;
     H_mon := est_smonad State;

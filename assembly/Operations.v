@@ -1,8 +1,6 @@
-Require Import Utf8.
+From Assembly Require Import Basics.
 
-Require Import Equations.Equations.
-
-From Assembly Require Import Convenience Dec Lens Mon Bits.
+Unset Suggest Proof Using.
 
 (* Cf. the 'sigma' type of Equations. *)
 Set Primitive Projections.
@@ -10,39 +8,84 @@ Global Unset Printing Primitive Projection Parameters.
 
 Set Implicit Arguments.
 
-Open Scope monad_scope.
+Local Open Scope N.
+
+
+(** ** Images *)
+
+Record Image (C: Type) :=
+  mkImage {
+      width: N;
+      height: N;
+      pixel (x: N) (Hx: x < width) (y: N) (Hy: y < height): C;
+    }.
+
+Definition noImage {C}: Image C.
+  refine {|
+      width := 0;
+      height := 0;
+      pixel x Hx y Hy := _;
+    |}.
+  lia.
+Defined.
+
+Local Definition image_telescope {C} (img: Image C) : sigma(fun w=>sigma(fun h=>forall x (Hx:x<w) y (Hy:y<h), C)) :=
+  match img with @mkImage _ w h p => sigmaI _ w (sigmaI _ h p) end.
+
+Lemma inj_right_image {C} {w h p p'} :
+  {|width:=w; height:=h; pixel:=p|} = {|width:=w; height:=h; pixel:=p'|} :> Image C
+  -> p = p'.
+Proof.
+  intros Hi.
+  match type of Hi with
+  | ?i = ?i' => assert (image_telescope i = image_telescope i') as Ht;
+                 [f_equal; exact Hi | ]
+  end.
+  unfold image_telescope in Ht.
+  do 2 derive Ht (EqDec.inj_right_sigma _ _ _ Ht).
+  exact Ht.
+Qed.
+
+Definition updatePixel {C} (x y: N) (c: C) (im: Image C) : Image C :=
+{|
+  width := width im;
+  height := height im;
+  pixel x' Hx y' Hy :=
+    if decide ((x' = x) /\ (y' = y))
+    then c
+    else pixel im Hx Hy
+|}.
 
 
 (** ** Machine parameters
 
 Abstractions makes working with Coq much easier. *)
 
-Section core_section.
+Module Type MachineParameters.
+  Parameter Addr: Type.
+  Parameter H_eqdec: EqDec Addr.
+  Parameter available: Addr -> bool.
+  Parameter offset: Z -> Addr -> Addr. (* This should be a group action. *)
+  Parameter Cell: Type.
 
-  Class MachineParams0 :=
-  {
-    Addr: Type;
-    H_eqdec: EqDec Addr;
-    available: Addr -> bool;
-    offset: Z -> Addr -> Addr; (* This should be a group action. *)
-    Cell: Type;
+  Parameter InputColor: Type.
+  Parameter allInputImages: list (Image InputColor).
 
-    InputColor: Type;
-    allInputImages: list (Image InputColor);
+  Parameter OutputColor: Type.
+  Parameter Char: Type.
+  Parameter Byte: Type.
+  Parameter Sample: Type.
+End MachineParameters.
 
-    OutputColor: Type;
-    Char: Type;
-    Byte: Type;
-    Sample: Type;
-  }.
+Module Core (MP: MachineParameters).
 
-  Context {MP0: MachineParams0}.
+  Export MP.
 
   Definition Memory := forall (a: Addr), available a -> option Cell.
 
   Record Sound := mkSound
   {
-    rate: nat;
+    rate: N;
     samples (Hr: rate <> 0) : list (Sample * Sample); (* reversed *)
   }.
 
@@ -62,7 +105,7 @@ Section core_section.
     PC: Lens State Addr;
     SP: Lens State Addr;
 
-    INP: Lens State nat; (* Index of current input frame. *)
+    INP: Lens State N; (* Index of current input frame. *)
 
     (** The following lists all have the latest element first. *)
     OUT_CHARS : Lens State (list Char);
@@ -123,6 +166,8 @@ Section core_section.
     independent_PC_SP: Independent PC SP;
   }.
 
+ Section core_section.
+
   Context {MP1: MachineParams1}.
 
   Class MachineParams2 :=
@@ -140,7 +185,15 @@ Section core_section.
   Definition put' {X} (LX: Lens State X) := put (SMonad := smonad_lens M LX).
 
 
-  (** ** Memory *)
+  (** The definitions above are arguably too strict since they mean that
+  the machine cannot have additional state such as logging. One might
+  consider using a weaker notion of lenses, but it is probably better to
+  work up to the equivalence relation [s⊑s' /\ s'⊑s], see Mono.v. The
+  current approach essentially corresponds to using the corresponding
+  quotient type.
+
+
+  ** Memory *)
 
   Definition load (a: Addr): M Cell :=
     assert* available a as H in
@@ -201,14 +254,14 @@ Section core_section.
 
   Local Definition Input := Image InputColor.
 
-  Definition readFrame (i: nat) : M (nat * nat) :=
+  Definition readFrame (i: N) : M (N * N) :=
     put' INP i;;
-    let img := nth i allInputImages noImage in
+    let img := nth (N.to_nat i) allInputImages noImage in
     ret (width img, height img).
 
-  Definition readPixel (x y : nat) : M InputColor :=
+  Definition readPixel (x y : N) : M InputColor :=
     let* i := get' INP in
-    let img := nth i allInputImages noImage in
+    let img := nth (N.to_nat i) allInputImages noImage in
     assert* x < width img as Hx in
     assert* y < height img as Hy in
     ret (pixel img Hx Hy).
@@ -234,7 +287,7 @@ Section core_section.
     let* samples := get' OUT_SOUND in
     put' OUT_SOUND (extendSamples l r samples).
 
-  Definition setPixel (x y: nat) (c: OutputColor) : M unit :=
+  Definition setPixel (x y: N) (c: OutputColor) : M unit :=
     let* img := get' OUT_IMAGE in
     assert* x < width img in
     assert* y < height img in
@@ -251,10 +304,10 @@ Section core_section.
     ret {|
         width := width img;
         height := height img;
-        pixel x Hx y Hy := proj1_sig (some_some (H_complete x Hx y Hy));
+        pixel x Hx y Hy := extract (H_complete x Hx y Hy);
       |}.
 
-  Definition newFrame (w r h: nat) : M unit :=
+  Definition newFrame (w r h: N) : M unit :=
     let* bytes := get' OUT_BYTES in
     let* chars := get' OUT_CHARS in
     let* sound := get' OUT_SOUND in
@@ -281,4 +334,5 @@ Section core_section.
            pixel _ _ _ _ := None;
          |}.
 
-End core_section.
+ End core_section.
+End Core.
