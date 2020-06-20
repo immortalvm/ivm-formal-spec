@@ -1,5 +1,6 @@
 From Assembly Require Import Init Lens Mon.
 
+Unset Suggest Proof Using.
 
 (** The results in this file are not used elsehwere, but they can be
 useful for understanding the subject.*)
@@ -48,7 +49,7 @@ Section no_side_effects_section.
     noSideEffects: forall B (mb: m B), ma;; mb = mb.
 
   Global Instance noEff_unit {A} (ma: m A) (H: ma;; ret tt = ret tt): NoSideEffects ma.
-  Proof using.
+  Proof.
     intros B mb.
     transitivity (ma;; ret tt;; mb).
     - setoid_rewrite ret_bind. reflexivity.
@@ -56,7 +57,7 @@ Section no_side_effects_section.
   Qed.
 
   Global Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
-  Proof using.
+  Proof.
     apply noEff_unit. rewrite ret_bind. reflexivity.
   Qed.
 
@@ -64,7 +65,7 @@ Section no_side_effects_section.
            {A B} (ma: m A) (f: A -> m B)
            {Ha: NoSideEffects ma}
            {Hb: forall x, NoSideEffects (f x)} : NoSideEffects (bind ma f).
-  Proof using.
+  Proof.
     intros C mc.
     rewrite bind_assoc.
     setoid_rewrite Hb.
@@ -80,7 +81,7 @@ Existing Instance est_smonad.
     (Think about logging/monitoring.) *)
 
 Instance noEff_get {S} : NoSideEffects S (EST S) get.
-Proof using.
+Proof.
   intros B mb.
   simpl.
   extensionality s.
@@ -126,7 +127,7 @@ Section inv_lens_section.
   Defined.
 
   Instance inv_lens_independent : Independent inv_lens PX.
-  Proof using.
+  Proof.
     split.
     - intros s [f Hf]. simpl.
       rewrite <- (Hf (proj s)), proj_update. reflexivity.
@@ -142,7 +143,7 @@ Section inv_lens_section.
   Lemma inv_lens_inv (s: S) :
     let (fH, x) := proj (Lens:=lens_prod _) s in
     proj1_sig fH x = s.
-  Proof using.
+  Proof.
     simpl. rewrite update_proj. reflexivity.
   Qed.
 

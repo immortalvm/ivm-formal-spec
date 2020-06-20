@@ -1,5 +1,7 @@
 From Assembly Require Import Basics.
 
+Unset Suggest Proof Using.
+
 
 (** ** Relations ***)
 
@@ -19,7 +21,7 @@ Section basics_section.
   Instance true_relation : Rel X | 30 := fun _ _ => True.
 
   Instance true_relation_equivalence : Equivalence true_relation.
-  Proof using.
+  Proof.
     split; intro; intros; exact I.
   Qed.
 
@@ -40,12 +42,12 @@ Section basics_section.
       end.
 
   Global Instance option_relation_reflexive {HrX: Reflexive RX} : Reflexive option_relation.
-  Proof using.
+  Proof.
     unfold option_relation. intros [x|]; reflexivity.
   Qed.
 
   Global Instance option_relation_transitive {HtX: Transitive RX} : Transitive option_relation.
-  Proof using.
+  Proof.
     intros [x|] [y|] [z|] Hxy Hyz; cbn in *; try assumption.
     - transitivity y; assumption.
     - exfalso. assumption.
@@ -63,17 +65,17 @@ Section basics_section.
       end.
 
   Global Instance prod_relation_reflexive {HrX: Reflexive RX} {HrY: Reflexive RY} : Reflexive prod_relation.
-  Proof using.
+  Proof.
     intros [x y]. cbn. split; reflexivity.
   Qed.
 
   Global Instance prod_relation_symmetric {HsX: Symmetric RX} {HsY: Symmetric RY} : Symmetric prod_relation.
-  Proof using.
+  Proof.
     intros [x y] [x1 y1] [Hx Hy]. split; symmetry; assumption.
   Qed.
 
   Global Instance prod_relation_transitive {HtX: Transitive RX} {HtY: Transitive RY} : Transitive prod_relation.
-  Proof using.
+  Proof.
     intros [x1 y1] [x2 y2] [x3 y3] [Hx12 Hy12] [Hx23 Hy23].
     split.
     - transitivity x2; assumption.
@@ -85,17 +87,17 @@ Section basics_section.
   Instance and_relation : Rel X | 30 := fun x x' => RX x x' /\ RX' x x'.
 
   Instance and_reflexive {HrX: Reflexive RX} {HrX': Reflexive RX'} : Reflexive and_relation.
-  Proof using.
+  Proof.
     intros x; split; reflexivity.
   Qed.
 
   Instance and_symmetric {HrX: Symmetric RX} {HrX': Symmetric RX'} : Symmetric and_relation.
-  Proof using.
+  Proof.
     intros x y [H H']; split; symmetry; assumption.
   Qed.
 
   Instance and_transitive {HrX: Transitive RX} {HrX': Transitive RX'} : Transitive and_relation.
-  Proof using.
+  Proof.
     intros x1 x2 x3 [H12 H12'] [H23 H23']; split; transitivity x2; assumption.
   Qed.
 
@@ -113,18 +115,18 @@ Section lens_section.
   Definition lens_relation : relation S := fun s s' => proj s ⊑ proj s'.
 
   Global Instance lens_relation_reflexive {HrX: Reflexive RX} : Reflexive lens_relation.
-  Proof using.
+  Proof.
     unfold lens_relation. intros s. reflexivity.
   Qed.
 
   Global Instance lens_relation_symmetric {HsX: Symmetric RX} : Symmetric lens_relation.
-  Proof using.
+  Proof.
     unfold lens_relation. intros s s' H.
     symmetry; assumption.
   Qed.
 
   Global Instance lens_relation_transitive {HtX: Transitive RX} : Transitive lens_relation.
-  Proof using.
+  Proof.
     unfold lens_relation. intros s1 s2 s3 H12 H23.
     transitivity (proj s2); assumption.
   Qed.
@@ -158,7 +160,7 @@ Section proper_section.
   Local Notation RM := (est_relation).
 
   Lemma ret_propr : PropR (@ret _ M _ A).
-  Proof using.
+  Proof.
     intros a a' Ha.
     intros s s' Hs.
     simpl.
@@ -168,7 +170,7 @@ Section proper_section.
   Context {B} {RB: Rel B}.
 
   Global Instance bind_propr: PropR (@bind _ M _ A B).
-  Proof using.
+  Proof.
     intros ma ma' Hma f f' Hf.
     intros s s' Hs. simpl.
     specialize (Hma s s' Hs).
@@ -181,18 +183,18 @@ Section proper_section.
   Qed.
 
   Global Instance err_propr: PropR (err : M A).
-  Proof using.
+  Proof.
     intros s s' Hs. exact I.
   Qed.
 
   Global Instance get_propr : PropR (get : M S).
-  Proof using.
+  Proof.
     intros s s' Hs.
     split; assumption.
   Qed.
 
   Global Instance put_propr : PropR (put : S -> M unit).
-  Proof using.
+  Proof.
     intros s s' Hs.
     intros t t' Ht.
     split.

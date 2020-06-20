@@ -1,5 +1,7 @@
 From Assembly Require Import Mono.
 
+Unset Suggest Proof Using.
+
 (* Does it create more problems than it solves? *)
 (* Set Implicit Arguments. *)
 
@@ -45,7 +47,7 @@ Arguments Exit {_} {_} {_}.
 Arguments More {_} {_} {_} {_}.
 
 Lemma generalize_stop {s1 s2 s3 c} (Hs: s3 ⊑ s2) (Hr: Reach s2 c s1) : Reach s3 c s1.
-Proof using.
+Proof.
   induction Hr as [s1 H | s1' s1 Ho H | c s1' s1 Ho Hr IH];
     [apply Stop | apply (Exit Ho) | exact (More Ho IH)];
     transitivity s2; assumption.
@@ -58,7 +60,7 @@ Instance osb_relation : Rel (option (State * bool)) :=
 Notation oneStep := (@oneStep Mono.MP1 estParams2).
 
 Lemma generalize_start {s1 s2 s3 c} (Hr: Reach s3 c s2) (Hs: s2 ⊑s1) : Reach s3 c s1.
-Proof using. (* TODO: clean up *)
+Proof. (* TODO: clean up *)
   revert s1 Hs.
   induction Hr as [s2 H | s2' s2 Ho H | c s2' s2 Ho Hr IH]; intros s1 Hs.
   - apply Stop; transitivity s2; assumption.
@@ -92,7 +94,7 @@ Proof using. (* TODO: clean up *)
 Qed.
 
 Lemma reach_comp {s1 s2 s3 t} (H23: Reach s3 t s2) (H12: Reach s2 true s1) : Reach s3 t s1.
-Proof using.
+Proof.
   depind H12.
   - exact (generalize_start H23 H).
   - exact (More H (IHReach _ _ H23)).
@@ -115,7 +117,7 @@ Local Notation terminated := (ret false) (only parsing).
 
 (** The empty program has no effect. *)
 Instance cert_id : Cert (not_terminated).
-Proof using.
+Proof.
   intros s.
   simpl.
   apply Stop.
@@ -126,7 +128,7 @@ Qed.
 Instance cert_comp (u: M bool) {Cu: Cert u} (v: M bool) {Cv: Cert v} :
   Cert (let* t := u in
         if t then v else ret false).
-Proof using.
+Proof.
   intros s. specialize (Cu s). simpl.
   destruct (u s) as [[s' t]|] eqn:Hu; [|exact I].
   destruct t eqn:Ht.
@@ -177,33 +179,35 @@ Instance cert1 {u: M unit} (b: bool)
                   | Some (s', _) => Reach s' b s
                   | None => True
                   end) : Cert (u;; ret b).
-Proof using.
+Proof.
   intros s.
   specialize (H s).
   simpl.
   destruct (u s) as [[s' _]|]; exact H.
 Qed.
 
-Equations swallow (ops: list Cell) : M unit :=
+(* TODO: Move to Init.v *)
+Instance Z_EqDec: EqDec Z := Z.eq_dec.
+
+Equations swallow (ops: list Z) : M unit :=
   swallow [] := ret tt;
   swallow (op :: rest) :=
     let* pc := get' PC in
     let* x := load pc in
-    assert* x = op in
+    assert* x = op :> Z in
     put' PC (offset 1 pc);;
     swallow rest.
 
 (* TODO: Replace faulty proof in Convenience.v. *)
 Lemma to_list_equation_1: forall A, to_list []%vector = nil :> list A.
-Proof using. reflexivity. Qed.
+Proof. reflexivity. Qed.
 Hint Rewrite to_list_equation_1 : to_list.
 
 (* TODO: simplify? *)
 Ltac comp :=
   repeat (
       simpl
-    || simp to_list fromLittleEndian toBits bitListToNat
-    || unfold to_BitList).
+    || simp to_list fromLittleEndian toBits bitListToNat).
 
 Ltac cert_start :=
   apply cert1; intros s;
@@ -217,7 +221,7 @@ Section offset_opaque_section.
 
   Global Instance cert_exit : Cert (swallow [EXIT];;
                                     terminated).
-  Proof using.
+  Proof.
     cert_start.
     set (stop := update _ _ _).
     refine (Exit _ ltac:(reflexivity)).
@@ -228,7 +232,7 @@ Section offset_opaque_section.
 
   Instance cert_nop: Cert (swallow [NOP];;
                            not_terminated).
-  Proof using.
+  Proof.
     cert_start.
     set (stop := update _ _ _).
     refine (More _ (Stop ltac:(reflexivity))).

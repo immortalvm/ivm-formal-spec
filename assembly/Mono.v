@@ -1,6 +1,7 @@
 From Assembly Require Export Machine Rel.
 Require Import Coq.Logic.PropExtensionality.
 
+Unset Suggest Proof Using.
 Set Implicit Arguments.
 
 Arguments proj : clear implicits.
@@ -31,12 +32,12 @@ Instance memory_relation : Rel Memory :=
   fun m m' => forall a Ha, m a Ha ⊑ m' a Ha.
 
 Instance memory_relation_reflexive : Reflexive memory_relation.
-Proof using.
+Proof.
   intros m a Ha. reflexivity.
 Qed.
 
 Instance memory_relation_transitive : Transitive memory_relation.
-Proof using.
+Proof.
   intros m1 m2 m3 H12 H23 a Ha.
   specialize (H12 a Ha).
   specialize (H23 a Ha).
@@ -57,7 +58,7 @@ Instance img_relation : Rel (Image (option OutputColor)) :=
       @pixel _ i' x (rew Hw in Hx) y (rew Hh in Hy).
 
 Instance img_relation_reflexive : Reflexive img_relation.
-Proof using.
+Proof.
   intros i.
   exists eq_refl, eq_refl.
   intros x Hx y Hy.
@@ -65,7 +66,7 @@ Proof using.
 Qed.
 
 Instance img_relation_transitive : Transitive img_relation.
-Proof using.
+Proof.
   intros i1 i2 i3 [Hw12 [Hh12 H12]] [Hw23 [Hh23 H23]].
   exists (eq_Transitive _ _ _ Hw12 Hw23).
   exists (eq_Transitive _ _ _ Hh12 Hh23).
@@ -162,31 +163,31 @@ Local Ltac get_tactic :=
   intros s s' Hs; split; [|srel_destruct Hs]; assumption.
 
 Instance getMem_propr : PropR (get' MEM).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getImg_propr : PropR (get' OUT_IMAGE).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getByt_propr: PropR (get' OUT_BYTES).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getChr_propr: PropR (get' OUT_CHARS).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getSnd_propr: PropR (get' OUT_SOUND).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getLog_propr: PropR (get' LOG).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getInp_propr: PropR (get' INP).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getPc_propr: PropR (get' PC).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 Instance getSp_propr: PropR (get' SP).
-Proof using. get_tactic. Qed.
+Proof. get_tactic. Qed.
 
 
 (** *** Put *)
@@ -203,31 +204,31 @@ Local Ltac put_tactic :=
   try assumption.
 
 Instance putMem_propr : PropR (put' MEM).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putImg_propr : PropR (put' OUT_IMAGE).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putByt_propr: PropR (put' OUT_BYTES).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putChr_propr: PropR (put' OUT_CHARS).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putSnd_propr: PropR (put' OUT_SOUND).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putLog_propr: PropR (put' LOG).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putInp_propr: PropR (put' INP).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putPc_propr: PropR (put' PC).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 Instance putSp_propr: PropR (put' SP).
-Proof using. put_tactic. Qed.
+Proof. put_tactic. Qed.
 
 
 (** Load *)
@@ -303,7 +304,7 @@ Ltac crush :=
   end.
 
 Instance load_propr a : PropR (load a).
-Proof using.
+Proof.
   unfold load.
   repeat crush; specialize (Hfg a HL);
     rewrite Hu, Hv in *.
@@ -312,7 +313,7 @@ Proof using.
 Qed.
 
 Instance nextB_propr n : PropR (nextB n).
-Proof using.
+Proof.
   repeat (unfold nextB, next; crush).
   revert y.
   induction n as [|n IH];
@@ -323,17 +324,17 @@ Proof using.
 Qed.
 
 Instance popN_propr: PropR popN.
-Proof using.
+Proof.
   repeat (unfold popN, loadMany; crush).
 Qed.
 
 Instance pop64_propr: PropR pop64.
-Proof using.
+Proof.
   unfold pop64. repeat crush.
 Qed.
 
 Instance storeMany_propr a lst : PropR (storeMany a lst).
-Proof using.
+Proof.
   revert a.
   induction lst as [|x r IH]; intro a; repeat (crush || simp storeMany).
   unfold store.
@@ -345,12 +346,12 @@ Proof using.
 Qed.
 
 Instance pushZ_propr z: PropR (pushZ z).
-Proof using.
+Proof.
   unfold pushZ. repeat crush.
 Qed.
 
 Instance loadN_propr n a : PropR (loadN n a).
-Proof using.
+Proof.
   unfold loadN. repeat crush.
   revert a.
   induction n as [|n IH]; intro a; simp loadMany; repeat crush.
@@ -358,14 +359,14 @@ Proof using.
 Qed.
 
 Instance storeZ_propr n a z : PropR (storeZ n a z).
-Proof using.
+Proof.
   unfold storeZ. repeat crush.
 Qed.
 
 Open Scope N.
 
 Instance setPixel_propr x y c : PropR (setPixel x y c).
-Proof using.
+Proof.
   (** Presumably, there is some way to automate more of this,
       but I am not sure whether it is worth the effort.*)
   repeat (unfold setPixel, updatePixel; crush).
@@ -389,7 +390,7 @@ Proof using.
 Qed.
 
 Instance readPixel_propr x y : PropR (readPixel x y).
-Proof using.
+Proof.
   unfold readPixel. repeat crush.
   destruct (decide _) as [Hh|Hh];
     repeat crush.
@@ -398,7 +399,7 @@ Qed.
 Lemma image_complete_lemma
       {i i': Image (option OutputColor)}
       (Hi: i ⊑ i') (Hc: image_complete i) : i = i'.
-Proof using.
+Proof.
   destruct i as [w h p].
   destruct i' as [w' h' p'].
   destruct Hi as [Hw [Hh Hp]].
@@ -422,7 +423,7 @@ Proof using.
 Qed.
 
 Instance newFrame_propr w h r: PropR (newFrame w h r).
-Proof using.
+Proof.
   repeat (unfold newFrame, extractImage; crush).
   simpl.
   clear r y y0 y1.
@@ -445,7 +446,7 @@ Qed.
 (** Putting it all together... *)
 
 Global Instance oneStep_propr : PropR oneStep.
-Proof using.
+Proof.
   unfold oneStep. repeat crush.
   destruct (y : N) eqn:Hy;
     [ crush; reflexivity | ].
