@@ -146,13 +146,26 @@ Ltac srel_destruct H :=
   let H0 := fresh H "_mem" in
   let H1 := fresh H "_img" in
   let H2 := fresh H "_byt" in
-  let H2 := fresh H "_chr" in
-  let H3 := fresh H "_snd" in
-  let H4 := fresh H "_log" in
-  let H5 := fresh H "_inp" in
-  let H6 := fresh H "_pc" in
-  let H7 := fresh H "_sp" in
+  let H3 := fresh H "_chr" in
+  let H4 := fresh H "_snd" in
+  let H5 := fresh H "_log" in
+  let H6 := fresh H "_inp" in
+  let H7 := fresh H "_pc" in
+  let H8 := fresh H "_sp" in
   destruct H as [H0 [H1 [H2 [H3 [H4 [H5 [H6 [H7 H8]]]]]]]].
+
+Instance srel_reflexive : Reflexive state_relation.
+Proof.
+  intros s. repeat split; reflexivity.
+Qed.
+
+Instance srel_transitive : Transitive state_relation.
+Proof.
+  intros s1 s2 s3 H12 H23.
+  srel_destruct H12.
+  srel_destruct H23.
+  repeat split; transitivity s2; assumption.
+Qed.
 
 Local Ltac rewr := repeat (independent_rewrite1 || lens_rewrite1 || simpl).
 
@@ -363,7 +376,7 @@ Proof.
   unfold storeZ. repeat crush.
 Qed.
 
-Open Scope N.
+Local Open Scope N.
 
 Instance setPixel_propr x y c : PropR (setPixel x y c).
 Proof.

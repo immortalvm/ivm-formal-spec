@@ -5,33 +5,6 @@ Unset Suggest Proof Using.
 (* Does it create more problems than it solves? *)
 (* Set Implicit Arguments. *)
 
-(* TODO: Move to Mono.v *)
-Ltac srel_destruct H :=
-  unfold rel, state_relation, and_relation, lens_relation in H;
-  let H0 := fresh H "_mem" in
-  let H1 := fresh H "_img" in
-  let H2 := fresh H "_byt" in
-  let H3 := fresh H "_chr" in
-  let H4 := fresh H "_snd" in
-  let H5 := fresh H "_log" in
-  let H6 := fresh H "_inp" in
-  let H7 := fresh H "_pc" in
-  let H8 := fresh H "_sp" in
-  destruct H as [H0 [H1 [H2 [H3 [H4 [H5 [H6 [H7 H8]]]]]]]].
-
-Instance srel_reflexive : Reflexive state_relation.
-Proof using.
-  intros s. repeat split; reflexivity.
-Qed.
-
-Instance srel_transitive : Transitive state_relation.
-Proof using.
-  intros s1 s2 s3 H12 H23.
-  srel_destruct H12.
-  srel_destruct H23.
-  repeat split; transitivity s2; assumption.
-Qed.
-
 
 (** ** Certified programs *)
 
@@ -139,39 +112,6 @@ Proof.
 Qed.
 
 
-
-
-
-(* TODO: Move *)
-
-Instance dec_decidable {P: Prop} {HP: Decidable P}
-         (f: P -> Prop) {Hf: forall H, Decidable (f H)}
-         (g: not P -> Prop) {Hg: forall H, Decidable (g H)}:
-  Decidable match decide P with
-            | left H => f H
-            | right H => g H
-            end.
-Proof.
-  destruct (decide P) as [H|H].
-  - apply Hf.
-  - apply Hg.
-Defined.
-
-Instance opt_decidable {X}
-         (f: X -> Prop) {Hf: forall x, Decidable (f x)}
-         (Q: Prop) {HQ: Decidable Q}
-         {ox: option X} :
-  Decidable match ox with
-            | Some x => f x
-            | None => Q
-            end.
-Proof.
-  destruct ox as [x|].
-  - apply Hf.
-  - exact HQ.
-Defined.
-
-
 (** ** Basic certs *)
 
 Instance cert1 {u: M unit} (b: bool)
@@ -186,9 +126,6 @@ Proof.
   destruct (u s) as [[s' _]|]; exact H.
 Qed.
 
-(* TODO: Move to Init.v *)
-Instance Z_EqDec: EqDec Z := Z.eq_dec.
-
 Equations swallow (ops: list Z) : M unit :=
   swallow [] := ret tt;
   swallow (op :: rest) :=
@@ -197,11 +134,6 @@ Equations swallow (ops: list Z) : M unit :=
     assert* x = op :> Z in
     put' PC (offset 1 pc);;
     swallow rest.
-
-(* TODO: Replace faulty proof in Convenience.v. *)
-Lemma to_list_equation_1: forall A, to_list []%vector = nil :> list A.
-Proof. reflexivity. Qed.
-Hint Rewrite to_list_equation_1 : to_list.
 
 (* TODO: simplify? *)
 Ltac comp :=
@@ -219,6 +151,7 @@ Section offset_opaque_section.
 
   Opaque offset.
 
+  Import OpCodes.
   Global Instance cert_exit : Cert (swallow [EXIT];;
                                     terminated).
   Proof.

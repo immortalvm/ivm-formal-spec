@@ -71,6 +71,7 @@ Notation as_bool x := (if x then true else false).
 (** We are not interested in Vector.eq_dec. *)
 Notation eq_dec := (Classes.eq_dec).
 
+Instance Z_EqDec: EqDec Z := Z.eq_dec.
 Instance N_EqDec: EqDec N := N.eq_dec.
 
 Class Decidable (P: Prop) : Type :=
@@ -167,6 +168,36 @@ Proof.
   - reflexivity.
   - exact (none_rect H).
 Qed.
+
+
+(* ** Decidable match statements *)
+
+Instance match_decide_decidable {P: Prop} {DP: Decidable P}
+         (f: P -> Prop) {Df: forall H, Decidable (f H)}
+         (g: not P -> Prop) {Dg: forall H, Decidable (g H)}:
+  Decidable match decide P with
+            | left H => f H
+            | right H => g H
+            end.
+Proof.
+  destruct (decide P) as [H|H].
+  - apply Df.
+  - apply Dg.
+Defined.
+
+Instance match_option_decidable {X}
+         (f: X -> Prop) {Df: forall x, Decidable (f x)}
+         (Q: Prop) {DQ: Decidable Q}
+         {ox: option X} :
+  Decidable match ox with
+            | Some x => f x
+            | None => Q
+            end.
+Proof.
+  destruct ox as [x|].
+  - apply Df.
+  - exact DQ.
+Defined.
 
 
 (* ** Decidable predicates on integers *)
