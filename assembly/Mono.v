@@ -325,9 +325,9 @@ Proof.
   - destruct Hfg.
 Qed.
 
-Instance nextB_propr n : PropR (nextB n).
+Instance next_propr n : PropR (next n).
 Proof.
-  repeat (unfold nextB, next; crush).
+  repeat (unfold next; crush).
   revert y.
   induction n as [|n IH];
     intro a;
@@ -336,14 +336,9 @@ Proof.
   apply IH.
 Qed.
 
-Instance popN_propr: PropR popN.
-Proof.
-  repeat (unfold popN, loadMany; crush).
-Qed.
-
 Instance pop64_propr: PropR pop64.
 Proof.
-  unfold pop64. repeat crush.
+  repeat (unfold pop64, loadMany; crush).
 Qed.
 
 Instance storeMany_propr a lst : PropR (storeMany a lst).
@@ -363,12 +358,10 @@ Proof.
   unfold pushZ. repeat crush.
 Qed.
 
-Instance loadN_propr n a : PropR (loadN n a).
+Instance loadN_propr n a : PropR (loadMany n a).
 Proof.
-  unfold loadN. repeat crush.
   revert a.
   induction n as [|n IH]; intro a; simp loadMany; repeat crush.
-  apply IH.
 Qed.
 
 Instance storeZ_propr n a z : PropR (storeZ n a z).
@@ -461,7 +454,7 @@ Qed.
 Global Instance oneStep_propr : PropR oneStep.
 Proof.
   unfold oneStep. repeat crush.
-  destruct (y : N) eqn:Hy;
+  destruct ((y: Bytes 1): N) eqn:Hy;
     [ crush; reflexivity | ].
 
   (* Presumably, there is a more elegant way to do this. *)
@@ -472,7 +465,3 @@ Proof.
   all:
     unfold putByte, putChar, addSample, readFrame; repeat crush.
 Qed.
-
-(*
-Declare Instance oneStep_propr : PropR oneStep.
- *)

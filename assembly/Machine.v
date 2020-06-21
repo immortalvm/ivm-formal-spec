@@ -58,12 +58,6 @@ Section machine_section.
 
   Existing Instance H_mon.
 
-  Definition nextB n : M (Bytes n) := next n.
-
-  (* Definition nextN (n: nat) : M N := *)
-  (*   let* bytes := nextB n in *)
-  (*   ret (bytes: N). *)
-
   Definition toBytes (n: nat) z := bitsToBytes (toBits (n * 8) z).
 
   Coercion to_list : vector >-> list.
@@ -71,17 +65,9 @@ Section machine_section.
   Definition pushZ (z: Z) : M unit :=
     pushMany (toBytes 8 z).
 
-  Definition popN : M N :=
-    let* bytes := popMany 8 in
-    ret ((bytes: Bytes 8) : N).
-
   Definition pop64 : M B64 :=
-    let* x := popN in
-    ret (toB64 x).
-
-  Definition loadN (n: nat) (a: Z) : M N :=
-    let* bytes := loadMany n (toB64 a) in
-    ret ((bytes : Bytes n) : N).
+    let* bytes := popMany 8 in
+    ret ((bytes : Bytes 8) : B64).
 
   Definition storeZ (n: nat) (a: Z) (x: Z) : M unit :=
     storeMany (toB64 a) (map Some (toBytes n x)).
@@ -93,16 +79,16 @@ Section machine_section.
     oneStep' NOP := ret tt;
 
     oneStep' JUMP :=
-      let* a := popN in
+      let* a := pop64 in
       put' PC (toB64 a);
 
     oneStep' JUMP_ZERO :=
-        let* o := nextB 1 in
-        let* x := popN in
-        (if (decide (x=0)%N)
+        let* o := next 1 in
+        let* x := pop64 in
+        (if (decide (x = 0 :> Z))
          then
            let* pc := get' PC in
-           put' PC (offset (bitsToZ (toB8 o)) pc)
+           put' PC (offset (o: Bytes 1) pc)
          else
            ret tt);
 
@@ -122,97 +108,97 @@ Section machine_section.
         pushZ 0;
 
     oneStep' PUSH1 :=
-        let* x := nextB 1 in
-        pushZ x;
+        let* x := next 1 in
+        pushZ (x: Bytes 1);
 
     oneStep' PUSH2 :=
-        let* x := nextB 2 in
-        pushZ x;
+        let* x := next 2 in
+        pushZ (x: Bytes 2);
 
     oneStep' PUSH4 :=
-        let* x := nextB 4 in
-        pushZ x;
+        let* x := next 4 in
+        pushZ (x: Bytes 4);
 
     oneStep' PUSH8 :=
-        let* x := nextB 8 in
-        pushZ x;
+        let* x := next 8 in
+        pushZ (x : Bytes 8);
 
     oneStep' SIGX1 :=
-        let* x := popN in
+        let* x := pop64 in
         pushZ (bitsToZ (toB8 x));
 
     oneStep' SIGX2 :=
-        let* x := popN in
+        let* x := pop64 in
         pushZ (bitsToZ (toB16 x));
 
     oneStep' SIGX4 :=
-        let* x := popN in
+        let* x := pop64 in
         pushZ (bitsToZ (toB32 x));
 
     oneStep' LOAD1 :=
-        let* a := popN in
-        let* x := loadN 1 a in
-        pushZ x;
+        let* a := pop64 in
+        let* x := loadMany 1 a in
+        pushZ (x: Bytes 1);
 
     oneStep' LOAD2 :=
-        let* a := popN in
-        let* x := loadN 2 a in
-        pushZ x;
+        let* a := pop64 in
+        let* x := loadMany 2 a in
+        pushZ (x: Bytes 2);
 
     oneStep' LOAD4 :=
-        let* a := popN in
-        let* x := loadN 4 a in
-        pushZ x;
+        let* a := pop64 in
+        let* x := loadMany 4 a in
+        pushZ (x: Bytes 4);
 
     oneStep' LOAD8 :=
-        let* a := popN in
-        let* x := loadN 8 a in
-        pushZ x;
+        let* a := pop64 in
+        let* x := loadMany 8 a in
+        pushZ (x: Bytes 8);
 
     oneStep' STORE1 :=
-        let* a := popN in
-        let* x := popN in
+        let* a := pop64 in
+        let* x := pop64 in
         storeZ 1 a x;
 
     oneStep' STORE2 :=
-        let* a := popN in
-        let* x := popN in
+        let* a := pop64 in
+        let* x := pop64 in
         storeZ 2 a x;
 
     oneStep' STORE4 :=
-        let* a := popN in
-        let* x := popN in
+        let* a := pop64 in
+        let* x := pop64 in
         storeZ 4 a x;
 
     oneStep' STORE8 :=
-        let* a := popN in
-        let* x := popN in
+        let* a := pop64 in
+        let* x := pop64 in
         storeZ 8 a x;
 
     oneStep' ADD :=
-        let* x := popN in
-        let* y := popN in
+        let* x := pop64 in
+        let* y := pop64 in
         pushZ (x + y);
 
     oneStep' MULT :=
-        let* x := popN in
-        let* y := popN in
+        let* x := pop64 in
+        let* y := pop64 in
         pushZ (x * y);
 
     oneStep' DIV :=
-        let* x := popN in
-        let* y := popN in
-        pushZ (if decide (x=0)%N then 0 else y / x);
+        let* x := pop64 in
+        let* y := pop64 in
+        pushZ (if decide (x = 0 :> Z) then 0 else y / x);
 
     oneStep' REM :=
-        let* x := popN in
-        let* y := popN in
-        pushZ (if decide (x=0)%N then 0 else y mod x);
+        let* x := pop64 in
+        let* y := pop64 in
+        pushZ (if decide (x = 0 :> Z) then 0 else y mod x);
 
     oneStep' LT :=
-        let* x := popN in
-        let* y := popN in
-        pushZ (if decide (y < x)%N then -1 else 0);
+        let* x := pop64 in
+        let* y := pop64 in
+        pushZ (if decide (y < x) then -1 else 0);
 
     oneStep' AND :=
         let* x := pop64 in
@@ -234,51 +220,51 @@ Section machine_section.
         pushZ (Vector.map2 xorb x y : B64);
 
     oneStep' READ_FRAME :=
-        let* i := popN in
+        let* i := pop64 in
         let* pair := readFrame i in
         pushZ (fst pair);;
         pushZ (snd pair);
 
     oneStep' READ_PIXEL :=
-        let* y := popN in
-        let* x := popN in
+        let* y := pop64 in
+        let* x := pop64 in
         let* c := readPixel x y in
         pushZ c;
 
     oneStep' NEW_FRAME :=
-        let* r := popN in
-        let* h := popN in
-        let* w := popN in
+        let* r := pop64 in
+        let* h := pop64 in
+        let* w := pop64 in
         newFrame w h r;
 
     oneStep' SET_PIXEL :=
         let* b := pop64 in
         let* g := pop64 in
         let* r := pop64 in
-        let* y := popN in
-        let* x := popN in
+        let* y := pop64 in
+        let* x := pop64 in
         setPixel x y (r, g, b);
 
     oneStep' ADD_SAMPLE :=
-        let* r := popN in
-        let* l := popN in
+        let* r := pop64 in
+        let* l := pop64 in
         addSample (toB16 l) (toB16 r);
 
     oneStep' PUT_CHAR :=
-        let* c := popN in
+        let* c := pop64 in
         putChar (toB32 c);
 
     oneStep' PUT_BYTE :=
-        let* b := popN in
+        let* b := pop64 in
         putByte (toB8 b);
 
     oneStep' _ := err.
 
   Definition oneStep : M bool :=
-    let* op := nextB 1 in
-    match (op: N) with
+    let* op := next 1 in
+    match ((op: Bytes 1): N) with
     | EXIT => ret false
-    | _ => oneStep' op;; ret true
+    | _ => oneStep' (op: Bytes 1);; ret true
     end.
 
 End machine_section.
