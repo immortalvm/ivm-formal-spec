@@ -75,7 +75,7 @@ Section machine_section.
   Import OpCodes.
 
   (* Without [noind] solving obligations seems to go on forever. *)
-  Equations(noind) oneStep' (op: N) : M unit :=
+  Equations(noind) oneStep' (op: Z) : M unit :=
     oneStep' NOP := ret tt;
 
     oneStep' JUMP :=
@@ -262,7 +262,7 @@ Section machine_section.
 
   Definition oneStep : M bool :=
     let* op := next 1 in
-    match ((op: Bytes 1): N) with
+    match ((op: Bytes 1): Z) with
     | EXIT => ret false
     | _ => oneStep' (op: Bytes 1);; ret true
     end.

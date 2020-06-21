@@ -454,8 +454,8 @@ Qed.
 Global Instance oneStep_propr : PropR oneStep.
 Proof.
   unfold oneStep. repeat crush.
-  destruct ((y: Bytes 1): N) eqn:Hy;
-    [ crush; reflexivity | ].
+  destruct ((y: Bytes 1): Z) eqn:Hy;
+    [ crush; reflexivity | | simp oneStep'; repeat crush].
 
   (* Presumably, there is a more elegant way to do this. *)
   unfold oneStep'.

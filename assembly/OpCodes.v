@@ -1,6 +1,6 @@
 Require Import Coq.ZArith.ZArith.
 
-Local Open Scope N.
+Local Open Scope Z.
 
 Notation EXIT := 0.
 Notation NOP := 1.
