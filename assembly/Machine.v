@@ -267,4 +267,56 @@ Section machine_section.
     | _ => oneStep' (op: Bytes 1);; ret true
     end.
 
+
+  (** ** Chaining steps *)
+
+  Definition chain (u v : M bool) :=
+    let* cont := u in
+    if cont then v else ret false.
+
+  Unset Suggest Proof Using.
+
+  Lemma true_chain (u: M bool) : chain (ret true) u = u.
+  Proof.
+    unfold chain. rewrite ret_bind. reflexivity.
+  Qed.
+
+  Lemma chain_true (u: M bool) : chain u (ret true) = u.
+  Proof.
+    unfold chain.
+    rewrite <- bind_ret.
+    f_equal.
+    extensionality cont.
+    destruct cont; reflexivity.
+  Qed.
+
+  Lemma chain_assoc (u v w : M bool) : chain (chain u v) w = chain u (chain v w).
+  Proof.
+    unfold chain.
+    smon_rewrite.
+    f_equal.
+    extensionality x.
+    destruct x; [reflexivity|].
+    rewrite ret_bind.
+    reflexivity.
+  Qed.
+
+  (** In other words, this defines a monoid (up to functional extensionality). *)
+
+  Lemma false_chain (u: M bool) : chain (ret false) u = ret false.
+  Proof.
+    unfold chain. rewrite ret_bind. reflexivity.
+  Qed.
+
+  Equations nSteps (n: nat) : M bool :=
+    nSteps 0 := ret true;
+    nSteps (S n) := chain oneStep (nSteps n).
+
+  Lemma nSteps_action (m n: nat) : nSteps (m + n) = chain (nSteps m) (nSteps n).
+  Proof.
+    revert n. induction m; intros n; simpl Nat.add; simp nSteps.
+    - rewrite true_chain. reflexivity.
+    - rewrite chain_assoc, IHm. reflexivity.
+  Qed.
+
 End machine_section.

@@ -465,3 +465,9 @@ Proof.
   all:
     unfold putByte, putChar, addSample, readFrame; repeat crush.
 Qed.
+
+Global Instance nSteps_propr n : PropR (nSteps n).
+Proof.
+  induction n; simp nSteps; repeat crush.
+  destruct y; repeat crush.
+Qed.
