@@ -145,34 +145,34 @@ Section state_section.
 
   (** Initial SMonad *)
 
-  Definition EST A : Type := S -> option (S * A).
+  Definition EST A : Type := S -> option (A * S).
 
   #[refine]
   Global Instance est_smonad : SMonad S EST :=
   {
-    ret A a s := Some (s, a);
+    ret A a s := Some (a, s);
     bind A B ma f s :=
       match ma s with
       | None => None
-      | Some (s', a) => f a s'
+      | Some (a, s') => f a s'
       end;
     err _ _ := None;
     get s := Some (s, s);
-    put s _ := Some (s, tt);
+    put s _ := Some (tt, s);
   }.
   Proof.
     - intros A ma.
       extensionality s.
-      destruct (ma s) as [[s' a]|]; reflexivity.
+      destruct (ma s) as [[a s']|]; reflexivity.
     - intros A a B f.
       extensionality s.
       reflexivity.
     - intros A ma B f C g.
       extensionality s.
-      destruct (ma s) as [[s' a]|]; reflexivity.
+      destruct (ma s) as [[a s']|]; reflexivity.
     - intros A ma B.
       extensionality s.
-      destruct (ma s) as [[s' a]|]; reflexivity.
+      destruct (ma s) as [[a s']|]; reflexivity.
     - reflexivity.
     - reflexivity.
     - reflexivity.
@@ -185,7 +185,7 @@ Section state_section.
     let* s := get in
     match ma s with
     | None => err
-    | Some (s', a) => put s';; ret a
+    | Some (a, s') => put s';; ret a
     end.
 
   Lemma est_characterization A (ma: EST A) : from_est ma = ma.
@@ -193,7 +193,7 @@ Section state_section.
     unfold from_est.
     simpl.
     extensionality s.
-    destruct (ma s) as [[s' a]|]; reflexivity.
+    destruct (ma s) as [[a s']|]; reflexivity.
   Qed.
 
   Lemma est_unique m `{SMonad S m} F `{SMorphism EST (SM0:=est_smonad) m F} A (ma: EST A) : F A ma = from_est ma.
@@ -202,7 +202,7 @@ Section state_section.
     unfold from_est at 1.
     rewrite morph_bind, morph_get. unfold from_est. f_equal.
     extensionality s.
-    destruct (ma s) as [[s' a]|].
+    destruct (ma s) as [[a s']|].
     - rewrite morph_bind, morph_put. f_equal.
       extensionality u. destruct u.
       rewrite morph_ret. reflexivity.
@@ -220,9 +220,9 @@ Section state_section.
       rewrite bind_assoc.
       f_equal.
       extensionality s.
-      destruct (ma s) as [[s' a]|].
+      destruct (ma s) as [[a s']|].
       + smon_rewrite.
-        destruct (f a s') as [[s'' b]|]; now smon_rewrite.
+        destruct (f a s') as [[b s'']|]; now smon_rewrite.
       + now smon_rewrite.
     - intros A.
       unfold from_est. simpl. now smon_rewrite.

@@ -153,7 +153,7 @@ Section proper_section.
   Defined.
 
   (** Make sure we got what we wanted. *)
-  Goal est_relation = fun_relation RS (option_relation (prod_relation RS RA)).
+  Goal est_relation = fun_relation RS (option_relation (prod_relation RA RS)).
     reflexivity.
   Qed.
 
@@ -174,9 +174,9 @@ Section proper_section.
     intros ma ma' Hma f f' Hf.
     intros s s' Hs. simpl.
     specialize (Hma s s' Hs).
-    destruct (ma s) as [(t,a)|]; destruct (ma' s') as [(t',a')|].
+    destruct (ma s) as [(a,t)|]; destruct (ma' s') as [(a',t')|].
     - destruct Hma as [Ht Ha].
-      exact (Hf _ _ Ha _ _ Ht).
+      exact (Hf _ _ Ht _ _ Ha).
     - contradict Hma.
     - exact I.
     - exact I.
@@ -198,8 +198,8 @@ Section proper_section.
     intros s s' Hs.
     intros t t' Ht.
     split.
-    - assumption.
     - reflexivity.
+    - assumption.
   Qed.
 
 End proper_section.

@@ -173,7 +173,7 @@ Local Ltac rewr := repeat (independent_rewrite1 || lens_rewrite1 || simpl).
 (** *** Get *)
 
 Local Ltac get_tactic :=
-  intros s s' Hs; split; [|srel_destruct Hs]; assumption.
+  intros s s' Hs; split; [srel_destruct Hs|]; assumption.
 
 Instance getMem_propr : PropR (get' MEM).
 Proof. get_tactic. Qed.
@@ -209,7 +209,7 @@ Local Ltac put_tactic :=
   intros x x' Hx;
   (* try (cbv in Hx; subst x); *)
   intros s s' Hs;
-  (split; [|reflexivity]);
+  (split; [reflexivity|]);
   srel_destruct Hs;
   repeat split;
   unfold lens_relation;
@@ -444,8 +444,8 @@ Proof.
     [|contradict Hc'; exact Hc].
 
   intros s s' Hs. split.
-  - exact Hs.
   - destruct (proof_irrelevance _ Hc Hc'). reflexivity.
+  - exact Hs.
 Qed.
 
 
