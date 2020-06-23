@@ -468,6 +468,6 @@ Qed.
 
 Global Instance nSteps_propr n : PropR (nSteps n).
 Proof.
-  induction n; simp nSteps; repeat crush.
+  induction n; simp nSteps; unfold chain; repeat crush.
   destruct y; repeat crush.
 Qed.
