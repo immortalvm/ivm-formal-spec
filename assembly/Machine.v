@@ -36,17 +36,14 @@ Module concreteParameters <: MachineParameters.
   Definition Char := B32.
   Definition Byte := B8.
   Definition Sample := B16.
-
-  Identity Coercion Addr_identity_coercion : Addr >-> B64.
-  Identity Coercion Cell_identity_coercion : Cell >-> B8.
-  Identity Coercion InputColor_identity_coercion : InputColor >-> B8.
-  Identity Coercion Char_identity_coercion : Char >-> B32.
-  Identity Coercion Byte_identity_coercion : Byte >-> B8.
-  Identity Coercion Sample_identity_coercion : Sample >-> B16.
 End concreteParameters.
 
 Module ConcreteCore := Core concreteParameters.
 Export ConcreteCore.
+
+(* TODO: Is there a more elegant way to achieve this? *)
+Definition cells_to_bytes {n} : Cells n -> Bytes n := id.
+Coercion cells_to_bytes : Cells >-> Bytes.
 
 Section machine_section.
 
@@ -67,7 +64,7 @@ Section machine_section.
 
   Definition pop64 : M B64 :=
     let* bytes := popMany 8 in
-    ret ((bytes : Bytes 8) : B64).
+    ret (bytes : B64).
 
   Definition storeZ (n: nat) (a: Z) (x: Z) : M unit :=
     storeMany (toB64 a) (map Some (toBytes n x)).
@@ -88,7 +85,7 @@ Section machine_section.
         (if (decide (x = 0 :> Z))
          then
            let* pc := get' PC in
-           put' PC (offset (o: Bytes 1) pc)
+           put' PC (offset o pc)
          else
            ret tt);
 
@@ -109,19 +106,19 @@ Section machine_section.
 
     oneStep' PUSH1 :=
         let* x := next 1 in
-        pushZ (x: Bytes 1);
+        pushZ x;
 
     oneStep' PUSH2 :=
         let* x := next 2 in
-        pushZ (x: Bytes 2);
+        pushZ x;
 
     oneStep' PUSH4 :=
         let* x := next 4 in
-        pushZ (x: Bytes 4);
+        pushZ x;
 
     oneStep' PUSH8 :=
         let* x := next 8 in
-        pushZ (x : Bytes 8);
+        pushZ x;
 
     oneStep' SIGX1 :=
         let* x := pop64 in
@@ -138,22 +135,22 @@ Section machine_section.
     oneStep' LOAD1 :=
         let* a := pop64 in
         let* x := loadMany 1 a in
-        pushZ (x: Bytes 1);
+        pushZ x;
 
     oneStep' LOAD2 :=
         let* a := pop64 in
         let* x := loadMany 2 a in
-        pushZ (x: Bytes 2);
+        pushZ x;
 
     oneStep' LOAD4 :=
         let* a := pop64 in
         let* x := loadMany 4 a in
-        pushZ (x: Bytes 4);
+        pushZ x;
 
     oneStep' LOAD8 :=
         let* a := pop64 in
         let* x := loadMany 8 a in
-        pushZ (x: Bytes 8);
+        pushZ x;
 
     oneStep' STORE1 :=
         let* a := pop64 in
@@ -262,9 +259,9 @@ Section machine_section.
 
   Definition oneStep : M bool :=
     let* op := next 1 in
-    match ((op: Bytes 1): Z) with
+    match (op: Z) with
     | EXIT => ret false
-    | _ => oneStep' (op: Bytes 1);; ret true
+    | _ => oneStep' op;; ret true
     end.
 
 

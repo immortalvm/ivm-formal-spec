@@ -62,24 +62,26 @@ Definition updatePixel {C} (x y: N) (c: C) (im: Image C) : Image C :=
 Abstractions makes working with Coq much easier. *)
 
 Module Type MachineParameters.
-  Parameter Addr: Type.
-  Parameter H_eqdec: EqDec Addr.
-  Parameter available: Addr -> bool.
-  Parameter offset: Z -> Addr -> Addr. (* This should be a group action. *)
-  Parameter Cell: Type.
+  Parameter Inline Addr: Type.
+  Parameter Inline H_eqdec: EqDec Addr.
+  Parameter Inline available: Addr -> bool.
+  Parameter Inline offset: Z -> Addr -> Addr. (* This should be a group action. *)
+  Parameter Inline Cell: Type.
 
-  Parameter InputColor: Type.
-  Parameter allInputImages: list (Image InputColor).
+  Parameter Inline InputColor: Type.
+  Parameter Inline allInputImages: list (Image InputColor).
 
-  Parameter OutputColor: Type.
-  Parameter Char: Type.
-  Parameter Byte: Type.
-  Parameter Sample: Type.
+  Parameter Inline OutputColor: Type.
+  Parameter Inline Char: Type.
+  Parameter Inline Byte: Type.
+  Parameter Inline Sample: Type.
 End MachineParameters.
 
 Module Core (MP: MachineParameters).
 
   Export MP.
+
+  Definition Cells := vector Cell.
 
   Definition Memory := forall (a: Addr), available a -> option Cell.
 
@@ -210,7 +212,7 @@ Module Core (MP: MachineParameters).
     put' MEM s'.
 
   (* TODO: noind is used to circumvent what appears to be an Equation bug. *)
-  Equations(noind) loadMany (n: nat) (_: Addr): M (Vector.t Cell n) :=
+  Equations(noind) loadMany (n: nat) (_: Addr): M (Cells n) :=
     loadMany 0 _ := ret Vector.nil;
     loadMany (S n) a :=
       let* x := load a in
@@ -226,7 +228,7 @@ Module Core (MP: MachineParameters).
 
   (** ** Registers *)
 
-  Definition next (n: nat) : M (Vector.t Cell n) :=
+  Definition next (n: nat) : M (Cells n) :=
     let* pc := get' PC in
     let* res := loadMany n pc in
     put' PC (offset n pc);;
@@ -239,7 +241,7 @@ Module Core (MP: MachineParameters).
     put' SP a;;
     storeMany a (map Some u).
 
-  Definition popMany (n: nat): M (Vector.t Cell n) :=
+  Definition popMany (n: nat): M (Cells n) :=
     let* sp := get' SP in
     let* res := loadMany n sp in
     (* Instead of marking the memory as undefined here,

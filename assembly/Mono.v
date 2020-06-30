@@ -256,7 +256,6 @@ Ltac crush :=
   | [x: _ * _ |- _] => destruct x; simpl fst; simpl snd
   | [H: rel (prod_relation _ _) _ _ |- _] => destruct H
 
-
   | [|- put' MEM _ ⊑ put' MEM _] => unshelve eapply putMem_propr
   | [|- put' OUT_IMAGE _ ⊑ put' OUT_IMAGE _] => unshelve eapply putImg_propr
   | [|- put' OUT_BYTES _ ⊑ put' OUT_BYTES _] => unshelve eapply putByt_propr
@@ -454,7 +453,7 @@ Qed.
 Global Instance oneStep_propr : PropR oneStep.
 Proof.
   unfold oneStep. repeat crush.
-  destruct ((y: Bytes 1): Z) eqn:Hy;
+  destruct (y: Z) eqn:Hy;
     [ crush; reflexivity | | simp oneStep'; repeat crush].
 
   (* Presumably, there is a more elegant way to do this. *)
