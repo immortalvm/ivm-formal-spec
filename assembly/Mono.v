@@ -2,16 +2,7 @@ From Assembly Require Export Machine Rel.
 Require Import Coq.Logic.PropExtensionality.
 
 Unset Suggest Proof Using.
-Set Implicit Arguments.
 
-Arguments proj : clear implicits.
-Arguments proj {_} {_}.
-Arguments update : clear implicits.
-Arguments update {_} {_}.
-
-
-(** Global parameters from now on for convenience. *)
-Context {MP1: MachineParams1}.
 
 Section mono_section.
 
