@@ -134,72 +134,68 @@ Section lens_section.
 End lens_section.
 
 
-(** ** Proper operations in [EST] *)
+(** ** Proper effects *)
 
 (** Like [Proper], but for [Rel]. *)
 Class PropR {X: Type} {RX: Rel X} (x: X) := propR : x ⊑ x.
 
 Section proper_section.
 
-  Context {S} {RS: Rel S}.
+  Context (S: Type) {RS: Rel S}.
 
-  Local Notation M := (EST S).
+  Class SMonadPropR
+        (M: Type -> Type)
+        {SM: SMonad S M}
+        {RM: forall X (RX: Rel X), Rel (M X)} :=
+  {
+    ret_propr {X} (RX: Rel X) : PropR (ret (m:=M) (A:=X));
+    bind_propr {X Y} (RX: Rel X) (RY: Rel Y) : PropR (bind (m:=M) (A:=X) (B:=Y));
+    err_least {X} (RX: Rel X) (mx: M X) : err (m:=M) (A:=X) ⊑ mx;
+    get_propr : PropR (@get _ _ SM);
+    put_propr : PropR (@put _ _ SM);
+  }.
 
-  Context {A} {RA: Rel A}.
-
-  Global Instance est_relation: Rel (M A).
+  Instance est_relation {A} {RA: Rel A}: Rel (EST S A).
   Proof.
     typeclasses eauto.
   Defined.
 
   (** Make sure we got what we wanted. *)
-  Goal est_relation = fun_relation RS (option_relation (prod_relation RA RS)).
+  Goal @est_relation = fun A RA => fun_relation RS (option_relation (prod_relation RA RS)).
     reflexivity.
   Qed.
 
-  Local Notation RM := (est_relation).
-
-  Lemma ret_propr : PropR (@ret _ M _ A).
+  Instance est_pmon : SMonadPropR (EST S).
   Proof.
-    intros a a' Ha.
-    intros s s' Hs.
-    simpl.
-    split; assumption.
-  Qed.
-
-  Context {B} {RB: Rel B}.
-
-  Global Instance bind_propr: PropR (@bind _ M _ A B).
-  Proof.
-    intros ma ma' Hma f f' Hf.
-    intros s s' Hs. simpl.
-    specialize (Hma s s' Hs).
-    destruct (ma s) as [(a,t)|]; destruct (ma' s') as [(a',t')|].
-    - destruct Hma as [Ht Ha].
-      exact (Hf _ _ Ht _ _ Ha).
-    - contradict Hma.
-    - exact I.
-    - exact I.
-  Qed.
-
-  Global Instance err_propr: PropR (err : M A).
-  Proof.
-    intros s s' Hs. exact I.
-  Qed.
-
-  Global Instance get_propr : PropR (get : M S).
-  Proof.
-    intros s s' Hs.
-    split; assumption.
-  Qed.
-
-  Global Instance put_propr : PropR (put : S -> M unit).
-  Proof.
-    intros s s' Hs.
-    intros t t' Ht.
     split.
-    - reflexivity.
-    - assumption.
+    - intros
+        X RX
+        a a' Ha
+        s s' Hs.
+      simpl.
+      split; assumption.
+
+    - intros X Y RX RY.
+      intros ma ma' Hma f f' Hf.
+      intros s s' Hs. simpl.
+      specialize (Hma s s' Hs).
+      destruct (ma s) as [(a,t)|]; destruct (ma' s') as [(a',t')|].
+      + destruct Hma as [Ht Ha].
+        exact (Hf _ _ Ht _ _ Ha).
+      + contradict Hma.
+      + exact I.
+      + exact I.
+
+    - intros X RX mx
+             s s' Hs.
+      exact I.
+
+    - intros s s' Hs.
+      split; assumption.
+
+    - intros s s' Hs.
+      intros t t' Ht.
+      now split.
   Qed.
 
 End proper_section.
