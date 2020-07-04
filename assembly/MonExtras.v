@@ -77,17 +77,6 @@ End no_side_effects_section.
 
 Existing Instance est_smonad.
 
-(** [NoSideEffects get] does not hold in general.
-    (Think about logging/monitoring.) *)
-
-Instance noEff_get {S} : NoSideEffects S (EST S) get.
-Proof.
-  intros B mb.
-  simpl.
-  extensionality s.
-  reflexivity.
-Qed.
-
 
 (** ** Every (very well-behaved) lens is a product lens
 
