@@ -35,6 +35,11 @@ Ltac destructs H :=
 
 Ltac idestructs := repeat (let X := fresh in intro X; destructs X).
 
+(** Introduce abstract provable assumption. *)
+Tactic Notation "given" constr(P) "as" ident(H) :=
+  let T := type of P in
+  cut T; [intro H|exact P].
+
 
 (** ** Booleans *)
 
