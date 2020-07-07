@@ -422,6 +422,11 @@ Section bit_facts_section.
       exact Hx.
   Qed.
 
+  Proposition toBits_bitsToN {n} (u: Bits n) : toBits n (bitsToN u) = u.
+  Proof.
+    rewrite ofN_bitsToN, toBits_insta. reflexivity.
+  Qed.
+
 
   (** ** Signed *)
 
