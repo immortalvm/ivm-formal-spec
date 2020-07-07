@@ -195,7 +195,7 @@ Module Core (MP: MachineParameters).
   quotient type.
 
 
-  ** Memory *)
+  ** Memory and stack *)
 
   Definition load (a: Addr): M Cell :=
     assert* available a as H in
@@ -211,13 +211,27 @@ Module Core (MP: MachineParameters).
     let s' a' H := if eq_dec a a' then o else s a' H in
     put' MEM s'.
 
+
+  Open Scope vector.
+
   (* TODO: noind is used to circumvent what appears to be an Equation bug. *)
   Equations(noind) loadMany (n: nat) (_: Addr): M (Cells n) :=
-    loadMany 0 _ := ret Vector.nil;
+    loadMany 0 _ := ret [];
     loadMany (S n) a :=
       let* x := load a in
       let* r := loadMany n (offset 1 a) in
-      ret (Vector.cons x r).
+      ret (x :: r).
+
+  Equations(noind) next (n: nat) : M (Cells n) :=
+    next 0 := ret [];
+    next (S n) :=
+      let* pc := get' PC in
+      let* x := load pc in
+      put' PC (offset 1 pc);;
+      let* r := next n in
+      ret (x :: r).
+
+  Close Scope vector.
 
   Equations storeMany (_: Addr) (_: list (option Cell)) : M unit :=
     storeMany _ [] := ret tt;
@@ -225,13 +239,12 @@ Module Core (MP: MachineParameters).
       store a x;;
       storeMany (offset 1 a) u.
 
-
-  (** ** Registers *)
-
-  Definition next (n: nat) : M (Cells n) :=
-    let* pc := get' PC in
-    let* res := loadMany n pc in
-    put' PC (offset n pc);;
+  (* Instead of marking the freed stack as undefined here,
+     we will express this in the corresponding [Cert]s. *)
+  Definition popMany (n: nat): M (Cells n) :=
+    let* sp := get' SP in
+    let* res := loadMany n sp in
+    put' SP (offset n sp);;
     ret res.
 
   Definition pushMany (u: list Cell): M unit :=
@@ -240,16 +253,6 @@ Module Core (MP: MachineParameters).
     let a := offset (- List.length u) sp in
     put' SP a;;
     storeMany a (map Some u).
-
-  Definition popMany (n: nat): M (Cells n) :=
-    let* sp := get' SP in
-    let* res := loadMany n sp in
-    (* Instead of marking the memory as undefined here,
-       we will express this in the corresponding [Cert]s.
-       [storeMany sp (repeat None n);;]
-    *)
-    put' SP (offset n sp);;
-    ret res.
 
 
   (** ** Input *)
