@@ -165,7 +165,7 @@ Proof.
   exact (bind_propr State RX RY mx mx' Hmx f f' Hf).
 Qed.
 
-Local Ltac crush0 :=
+Ltac crush0 :=
   match goal with
   | [ |- ret _ ⊑ ret _ ] => unshelve eapply ret_propr; [apply PM|]
   | [|- err ⊑ _] => unshelve eapply err_least, PM
@@ -437,6 +437,8 @@ Proof.
   - destruct (proof_irrelevance _ HL HL0). reflexivity.
   - contradict HR. exact HL.
 Qed.
+
+Close Scope N.
 
 
 (** ** Monotone steps *)
