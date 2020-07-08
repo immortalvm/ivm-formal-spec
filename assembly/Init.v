@@ -15,6 +15,13 @@ Export EqNotations.
 Unset Suggest Proof Using.
 
 
+(** ** Basics *)
+
+(** The standard library confuses currying and uncurrying. *)
+Notation curry := prod_uncurry.
+Notation uncurry := prod_curry.
+
+
 (** ** Tactics *)
 
 Tactic Notation "by_lia" constr(P) "as" ident(H) := assert P as H; [lia|].
@@ -273,3 +280,54 @@ Qed.
 (** In order to prove the corresponding property for [nat], we seem to need
 an axiom or a different definition of [nat.le] than the one in the current
 standard library, cf. "Definitional Proof-Irrelevance without K" (2019). *)
+
+
+(** ** Vectors and lists *)
+
+Close Scope list_scope.
+(** This opens [vector_scope]. *)
+Export VectorNotations.
+
+Export ListNotations.
+Open Scope list_scope. (* Partly shadows vector_scope. *)
+
+Notation vector := (Vector.t).
+
+Derive Signature NoConfusion NoConfusionHom for vector.
+
+Instance vector_eqdec {A} {Ha: EqDec A} {n} : EqDec (vector A n).
+Proof. eqdec_proof. Defined.
+
+Arguments Vector.nil {A}.
+Arguments Vector.cons : default implicits.
+
+Lemma to_list_equation_1 {A} : to_list []%vector = [] :> list A.
+Proof. reflexivity. Qed.
+
+Lemma to_list_equation_2 {A n} (x: A) (u: vector A n) : to_list (x :: u)%vector = x :: (to_list u).
+Proof. reflexivity. Qed.
+
+Hint Rewrite
+     @to_list_equation_1
+     @to_list_equation_2 : to_list.
+
+Lemma to_list_injective {A n} (u v: vector A n) : to_list u = to_list v -> u = v.
+Proof.
+  induction n.
+  - dependent elimination u.
+    dependent elimination v.
+    reflexivity.
+  - dependent elimination u as [(x :: u)%vector].
+    dependent elimination v as [(y :: v)%vector].
+    simp to_list. intro Heq.
+    f_equal; [|apply (IHn u v)]; congruence.
+Qed.
+
+Lemma length_to_list {A n} (v: vector A n) : length (to_list v) = n.
+Proof.
+  depind v.
+  - reflexivity.
+  - simp to_list. simpl length. rewrite IHv. reflexivity.
+Qed.
+
+(* Coercion Vector.to_list : vector >-> list. *)
