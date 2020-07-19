@@ -9,43 +9,58 @@ Declare Scope monad_scope.
 
 Reserved Notation "ma >>= f" (at level 69, left associativity).
 
-Class SMonad (S: Type) (m: Type -> Type): Type :=
+Class SMonad (S: Type) (M: Type -> Type): Type :=
 {
-  ret {A} : A -> m A;
-  bind {A B} (_: m A) : (A -> m B) -> m B
-    where "ma >>= f" := (bind ma f);
+  ret {X} : X -> M X;
+  bind {X Y} (mx: M X) (f: X -> M Y) : M Y
+    where "mx >>= f" := (bind mx f);
 
-  bind_ret A (ma: m A) : ma >>= ret = ma;
-  ret_bind A (a: A) B (f: A -> m B) : ret a >>= f = f a;
-  bind_assoc A (ma: m A) B f C (g: B -> m C) : (ma >>= f) >>= g = ma >>= (fun a => f a >>= g);
+  bind_ret {X} (mx: M X) : mx >>= ret = mx;
+  ret_bind {X} (x: X) {Y} (f: X -> M Y) : ret x >>= f = f x;
+  bind_assoc {X} (mx: M X) {Y} f {Z} (g: Y -> M Z) : (mx >>= f) >>= g = mx >>= (fun x => f x >>= g);
+  bind_extensional {X Y} (f g: X -> M Y) (Hfg: forall x, f x = g x) (mx: M X) : mx >>= f = mx >>= g;
 
-  err {A} : m A;
-  bind_err A (ma: m A) B : ma >>= (fun _ => err) = (err : m B);
-  err_bind A B (f: A -> m B) : err >>= f = err;
+  err {X} : M X;
+  bind_err {X} (mx: M X) {Y} : mx >>= (fun _ => err) = (err : M Y);
+  err_bind {X Y} (f: X -> M Y) : err >>= f = err;
 
-  get : m S;
-  put (s: S) : m unit;
+  get : M S;
+  put (s: S) : M unit;
   put_put s s' : put s >>= (fun _ => put s') = put s';
-  put_get s B (f: S -> m B) : put s >>= (fun _ => get >>= f) = put s >>= fun _ => f s;
-  get_put B (f: S -> m B) : get >>= (fun s => put s >>= (fun _ => f s)) = get >>= f;
-  get_ret B (mb: m B) : get >>= (fun _ => mb) = mb;
-  get_get B (f: S -> S -> m B) : get >>= (fun s => get >>= (fun s' => f s s')) = get >>= (fun s => f s s);
+  put_get s : put s >>= (fun _ => get) = put s >>= (fun _ => ret s);
+  get_put : get >>= put = ret tt;
+  get_ret : get >>= (fun _ => ret tt) = ret tt;
+  get_get Y (f: S -> S -> M Y) : get >>= (fun s => get >>= (fun s' => f s s')) =
+                               get >>= (fun s => f s s);
 }.
+
+Notation "mx >>= f" := (bind mx f) : monad_scope.
+
+(** [get_get] expresses that the current state is deterministic.
+    Presumably, it is derivable from the other axioms if we assume:
+[[
+    forall {X Y} {mxy mxy': M (X * Y)}
+        (H1: let* xy := mxy in
+             ret (fst xy) = let* xy := mxy' in
+                            ret (fst xy))
+        (H2: let* xy := mxy in
+             ret (snd xy) = let* xy := mxy' in
+                            ret (snd xy)) : mxy = mxy'.
+]]
+*)
 
 (* Note to self:
 * Order of associativity switched since ivm.v.
 * I had to move the [B] argument to [bind] to make it an instance of [Proper] (see below).
 *)
 
-Notation "ma >>= f" := (bind ma f) : monad_scope.
-
 (* We prefer a notation which does not require do-end blocks. *)
-Notation "'let*' a := ma 'in' mb" := (bind ma (fun a => mb))
+Notation "'let*' x := mx 'in' my" := (bind mx (fun x => my))
                                        (at level 60, right associativity,
-                                        format "'[hv' let*  a  :=  ma  'in'  '//' mb ']'") : monad_scope.
-Notation "ma ;; mb" := (bind ma (fun _ => mb))
+                                        format "'[hv' let*  x  :=  mx  'in'  '//' my ']'") : monad_scope.
+Notation "mx ;; my" := (bind mx (fun _ => my))
                          (at level 60, right associativity,
-                          format "'[hv' ma ;;  '//' mb ']'") : monad_scope.
+                          format "'[hv' mx ;;  '//' my ']'") : monad_scope.
 
 Notation "'assert*' P 'in' result" :=
   (if (decide P%type) then result else err)
@@ -59,77 +74,143 @@ Notation "'assert*' P 'as' H 'in' result" :=
    end) (at level 60, right associativity,
          format "'[hv' assert*  P  'as'  H  'in'  '//' result ']'") : monad_scope.
 
-
-(** ** Rewriting *)
-
 Open Scope monad_scope.
 
-Instance bind_proper {S m} {SM: SMonad S m} {A B}:
-  Proper ( eq ==> pointwise_relation A eq ==> eq ) (@bind S m SM A B).
-Proof.
-  intros ma ma' H_ma f f' H_f. f_equal.
-  - exact H_ma.
-  - extensionality a. f_equal.
-Qed.
 
-Lemma unit_lemma {A} (f: unit -> A) : f = fun _ => f tt.
-Proof.
-  extensionality x. destruct x. reflexivity.
-Qed.
+(** ** Basics *)
 
-Lemma bind_ret' {S m} {SM: SMonad S m} (mu: m unit) : mu;; ret tt = mu.
-Proof.
-  rewrite <- bind_ret.
-  setoid_rewrite unit_lemma.
-  reflexivity.
-Qed.
+Section Basics.
 
-Lemma put_put' {S m} {SM: SMonad S m} (s s' : S) {B} (f: unit -> m B) :
-  put s;; (put s' >>= f) = put s' >>= f.
-Proof.
-  rewrite <- bind_assoc, put_put.
-  reflexivity.
-Qed.
+  Context S M {SM: SMonad S M}.
 
+  Global Instance bind_proper {X Y}:
+    Proper ( eq ==> pointwise_relation X eq ==> eq ) (@bind S M SM X Y).
+  Proof.
+    intros mx mx' Hmx f f' Hf. destruct Hmx.
+    apply bind_extensional, Hf.
+  Qed.
+
+  Proposition bind_unit (mu: M unit) {Y} (f: unit -> M Y) :
+    mu >>= f = mu;; f tt.
+  Proof. apply bind_extensional. intros []. reflexivity. Qed.
+
+  Corollary bind_ret_tt (mu: M unit) : mu;; ret tt = mu.
+  Proof.
+    setoid_rewrite <- bind_unit. apply bind_ret.
+  Qed.
+
+  Proposition put_put' s s' Y (f: unit -> unit -> M Y) :
+    let* x := put s in
+    let* y := put s' in
+    f x y = put s';;
+            f tt tt.
+  Proof.
+    setoid_rewrite bind_unit.
+    setoid_rewrite (bind_unit (put s') _).
+    setoid_rewrite <- bind_assoc.
+    setoid_rewrite put_put.
+    reflexivity.
+  Qed.
+
+  Proposition put_get' s Y (f: unit -> S -> M Y) :
+    let* x := put s in
+    let* s' := get in
+    f x s' = put s;;
+             f tt s.
+  Proof.
+    setoid_rewrite bind_unit.
+    setoid_rewrite <- bind_assoc.
+    setoid_rewrite put_get.
+    setoid_rewrite bind_assoc.
+    setoid_rewrite ret_bind.
+    reflexivity.
+  Qed.
+
+  Proposition get_put' Y (f: S -> unit -> M Y) :
+    let* s := get in
+    let* x := put s in
+    f s x = let* s := get in
+            f s tt.
+  Proof.
+    setoid_rewrite bind_unit.
+    transitivity (let* s := get in
+                  let* s' := get in
+                  put s';;
+                  f s tt).
+    - setoid_rewrite get_get.
+      reflexivity.
+    - setoid_rewrite <- bind_assoc.
+      setoid_rewrite get_put.
+      setoid_rewrite ret_bind.
+      reflexivity.
+  Qed.
+
+  Proposition ret_tt_bind {X} (mx: M X) : ret tt;; mx = mx.
+  Proof. apply ret_bind. Qed.
+
+  Proposition get_ret' Y (my: M Y) : get;; my = my.
+  Proof.
+    setoid_rewrite <- ret_tt_bind at 3.
+    setoid_rewrite <- bind_assoc.
+    setoid_rewrite get_ret.
+    apply ret_bind.
+  Qed.
+
+End Basics.
+
+(** This is not really used for rewriting, though. *)
 Create HintDb smon discriminated.
 
-(** As of Coq 8.11.1, [rewrite_strat] does not work reliably with "hints"
-    and "repeat", see https://github.com/coq/coq/issues/4197.
-    See also: https://stackoverflow.com/a/39348396 *)
+Hint Rewrite @bind_ret : smon.
+Hint Rewrite @ret_bind : smon.
+Hint Rewrite @bind_assoc : smon.
+Hint Rewrite @bind_err : smon.
+Hint Rewrite @err_bind : smon.
 
-Hint Rewrite @bind_ret using (typeclasses eauto) : smon.
-Hint Rewrite @bind_ret' using (typeclasses eauto) : smon.
-Hint Rewrite @ret_bind using (typeclasses eauto) : smon.
-Hint Rewrite @bind_assoc using (typeclasses eauto) : smon.
-Hint Rewrite @bind_err using (typeclasses eauto) : smon.
-Hint Rewrite @err_bind using (typeclasses eauto) : smon.
-Hint Rewrite @put_put using (typeclasses eauto) : smon.
-Hint Rewrite @put_put' using (typeclasses eauto) : smon.
-Hint Rewrite @put_get using (typeclasses eauto) : smon.
-Hint Rewrite @get_put using (typeclasses eauto) : smon.
-Hint Rewrite @get_ret using (typeclasses eauto) : smon.
-Hint Rewrite @get_get using (typeclasses eauto) : smon.
+Hint Rewrite @put_put : smon.
+Hint Rewrite @put_get : smon.
+Hint Rewrite @get_put : smon.
+Hint Rewrite @get_ret : smon.
+Hint Rewrite @get_get : smon.
 
-(** For some reason [rewrite_strat (repeat (outermost (hints smon)))]
-    stops prematurely. *)
-(* Ltac smon_rewrite := repeat (rewrite_strat (choice (outermost (hints smon)) (outermost unit_lemma))). *)
+Hint Rewrite @bind_unit : smon.
+Hint Rewrite @bind_ret_tt : smon.
+Hint Rewrite @put_put' : smon.
+Hint Rewrite @put_get' : smon.
+Hint Rewrite @get_put' : smon.
+Hint Rewrite @get_ret' : smon.
 
-Ltac smon_rewrite1 := rewrite_strat (choice (outermost (hints smon))
-                                    (* Add more special cases here if necessary. *)
-                                    (choice (outermost get_put)
-                                    (choice (outermost get_get)
-                                            (outermost unit_lemma)))).
+(*
+Ltac smon_rewrite1 := rewrite_strat (outermost (hints smon)).
+ *)
 
-Ltac smon_rewrite := repeat smon_rewrite1.
+Ltac smon_rewrite1 := rewrite_strat
+                        (* Add more special cases here when necessary. *)
+                        (choice (outermost bind_ret)
+                        (choice (outermost ret_bind)
+                        (choice (outermost bind_assoc)
+                        (choice (outermost bind_err)
 
-Goal forall {S m A B} {SM: SMonad S m} (g: S -> A) (f: A -> m B),
+                        (choice (outermost put_put)
+                        (choice (outermost get_put)
+                        (choice (outermost get_get)
+
+                        (choice (outermost put_put')
+                        (choice (outermost put_get')
+                        (choice (outermost get_put')
+
+                        (* This should have been sufficient *)
+                        (outermost (hints smon)))))))))))).
+
+Ltac smon_rewrite := repeat smon_rewrite1; try reflexivity.
+
+Goal forall {S M X Y} {SM: SMonad S M} (g: S -> X) (f: X -> M Y),
     let* s := get in put s;; f (g s) = let* s := get in f (g s).
-  intros S m A B SM g f.
+  intros S M X Y SM g f.
   smon_rewrite.
-  reflexivity.
 Qed.
 
-Section state_section.
+Section Initial.
 
   Context (S: Type).
 
@@ -161,24 +242,11 @@ Section state_section.
     put s _ := Some (tt, s);
   }.
   Proof.
-    - intros A ma.
-      extensionality s.
-      destruct (ma s) as [[a s']|]; reflexivity.
-    - intros A a B f.
-      extensionality s.
-      reflexivity.
-    - intros A ma B f C g.
-      extensionality s.
-      destruct (ma s) as [[a s']|]; reflexivity.
-    - intros A ma B.
-      extensionality s.
-      destruct (ma s) as [[a s']|]; reflexivity.
-    - reflexivity.
-    - reflexivity.
-    - reflexivity.
-    - reflexivity.
-    - reflexivity.
-    - reflexivity.
+    all: try reflexivity.
+    all: intros;
+      extensionality s;
+      destruct (mx s) as [[a s']|];
+      reflexivity || f_equal.
   Defined.
 
   Definition from_est {m} `{SMonad S m} {A} (ma: EST A) : m A :=
@@ -213,7 +281,7 @@ Section state_section.
   Proof.
     split.
     - intros A a. unfold from_est. simpl.
-      rewrite get_put, get_ret. reflexivity.
+      rewrite get_put', get_ret'. reflexivity.
     - intros A ma B f.
       unfold from_est.
       simpl.
@@ -222,36 +290,38 @@ Section state_section.
       extensionality s.
       destruct (ma s) as [[a s']|].
       + smon_rewrite.
-        destruct (f a s') as [[b s'']|]; now smon_rewrite.
-      + now smon_rewrite.
+        destruct (f a s') as [[b s'']|];
+          smon_rewrite.
+      + smon_rewrite.
     - intros A.
-      unfold from_est. simpl. now smon_rewrite.
-    - unfold from_est. simpl. now smon_rewrite.
-    - intros s. unfold from_est. simpl. now smon_rewrite.
+      unfold from_est. simpl. smon_rewrite.
+    - unfold from_est. simpl. smon_rewrite.
+    - intros s. unfold from_est. simpl. smon_rewrite.
   Qed.
 
-End state_section.
+End Initial.
 
 
 (** ** Lenses *)
 
-Section lens_section.
+Section Lens.
 
   Context {S: Type}
-          (m: Type -> Type) `{SM: SMonad S m}
+          (M: Type -> Type) `{SM: SMonad S M}
           {X: Type} `(LX: Lens S X).
 
   #[refine]
-  Global Instance smonad_lens: SMonad X m :=
+  Global Instance smonad_lens: SMonad X M :=
   {
-    ret := @ret S m SM;
-    bind := @bind S m SM;
-    err := @err S m SM;
+    ret := @ret S M SM;
+    bind := @bind S M SM;
+    err := @err S M SM;
     get := let* s := get in ret (proj s);
     put x := let* s := get in put (update s x);
   }.
   Proof.
-    all: intros; repeat (lens_rewrite1 || smon_rewrite1); reflexivity.
+    all: intros; repeat (lens_rewrite1 || smon_rewrite1); try reflexivity.
+    - apply bind_extensional. assumption.
   Defined.
 
-End lens_section.
+End Lens.
