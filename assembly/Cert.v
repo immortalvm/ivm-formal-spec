@@ -3,7 +3,6 @@ From Assembly Require Import Mono.
 Unset Suggest Proof Using.
 
 
-
 Definition Cert (spec: M bool) :=
   exists (f: State -> nat), spec ⊑ let* s := get in
                            nSteps (f s).
@@ -16,7 +15,7 @@ Proof.
   unfold nCert, Cert.
   intros H.
   exists (fun _ => n).
-  rewrite get_ret.
+  smon_rewrite.
   exact H.
 Qed.
 
@@ -41,27 +40,12 @@ Proof.
   - dependent elimination o1.
     simp swallow.
     smon_rewrite.
-    reflexivity.
   - dependent elimination o1 as [ @Vector.cons x m o1 ].
     simpl (swallow _).
     simp swallow.
     rewrite (IHm o1).
     rewrite bind_assoc.
     reflexivity.
-Qed.
-
-(* TODO: Move *)
-Lemma assert_bind {P} {DP: Decidable P} {X} {mx: M X} {Y} {f: X -> M Y} :
-  (assert* P in mx) >>= f = assert* P in (mx >>= f).
-Proof.
-  destruct (decide P); [ | rewrite err_bind ]; reflexivity.
-Qed.
-
-(* TODO: Move *)
-Lemma assert_bind' {P} {DP: Decidable P} {X} {f: P -> M X} {Y} {g: X -> M Y} :
-  (assert* P as H in f H) >>= g = assert* P as H in (f H >>= g).
-Proof.
-  destruct (decide P); [ | rewrite err_bind ]; reflexivity.
 Qed.
 
 (* TODO: Move *)
@@ -204,7 +188,7 @@ Qed.
 (* TODO: Where did we make it opaque. *)
 Transparent put'.
 
-(* TODO: Move *)
+(* TODO: Move
 Corollary add_ret_tt {S: Type} {M: Type -> Type} {SM: SMonad S M} (mu: M unit) :
   mu = mu;; ret tt.
 Proof.
@@ -222,6 +206,7 @@ Proof.
   rewrite bind_assoc, get_put, get_ret.
   reflexivity.
 Qed.
+*)
 
 (* TODO: Move *)
 Proposition to_lensmonad_bind
@@ -239,7 +224,7 @@ Lemma get_put_prime
       {LX: Lens State X} : get' LX >>= put' LX = ret tt.
 Proof.
   unfold get', put'.
-  rewrite to_lensmonad_bind, get_put'.
+  rewrite to_lensmonad_bind, get_put.
   reflexivity.
 Qed.
 
@@ -252,7 +237,7 @@ Proposition update_state
             (f: X -> X) : let* x := get' LX in
                          put' LX (f x) = let* s := get in
                                          put (update s (f (proj s))).
-Proof. unfold get'. cbn. smon_rewrite. reflexivity. Qed.
+Proof. unfold get'. cbn. smon_rewrite. Qed.
 
 
 Opaque get'.
@@ -264,7 +249,7 @@ Proof.
   unfold store.
   destruct (Machine.available' a).
   - cbn.
-    rewrite update_state, <- get_put'.
+    rewrite update_state, <- get_put.
     repeat crush.
     srel_destruct Hst.
     repeat split;
@@ -293,7 +278,7 @@ Proof.
       apply (bind_propr _ _).
       * apply store_none_less.
       * crush. apply IHn.
-    + rewrite <- add_ret_tt.
+    + setoid_rewrite bind_ret_tt.
       reflexivity.
 Qed.
 
@@ -316,15 +301,13 @@ Qed.
 
 Opaque get'.
 
-(* TODO: Move *)
-Proposition add_ret_tt' {S: Type} {M: Type -> Type} {SM: SMonad S M}
-            {X Y} (mx: M X) (f: X -> M Y) : mx >>= f = let* x := mx in
-                                                      ret tt;;
-                                                      f x.
+Lemma rel_ret_tt mu Y (my my' : M Y) :
+  mu ⊑ ret tt -> my ⊑ my' -> mu;; my ⊑ my'.
 Proof.
-  apply bind_ext.
-  intros x. rewrite ret_bind.
-  reflexivity.
+  intros Hu Hy.
+  assert (my' = ret tt;; my') as H.
+  - rewrite ret_bind. reflexivity.
+  - rewrite H. repeat crush; assumption.
 Qed.
 
 Corollary abandoning_pop :
@@ -333,9 +316,10 @@ Corollary abandoning_pop :
   ret v ⊑ pop64.
 Proof.
   rewrite <- bind_ret.
-  setoid_rewrite add_ret_tt' at 5.
   repeat crush.
-  apply abandoned_less.
+  apply rel_ret_tt.
+  - apply abandoned_less.
+  - repeat crush.
 Qed.
 
 
@@ -345,7 +329,7 @@ Corollary chain_ret_true u : chain u (ret true) = u.
 Proof.
   unfold chain.
   rewrite <- bind_ret.
-  apply bind_ext.
+  apply bind_extensional.
   intros [|]; reflexivity.
 Qed.
 
@@ -377,6 +361,7 @@ Hint Rewrite @ofN_bitsToN @fromBits_toBits_mod : cong.
 
 Hint Opaque cong : rewrite.
 
+(* TODO: move *)
 Proposition eq_cong n z z' : z = z' -> cong n z z'.
 Proof. intros H. subst z. reflexivity. Qed.
 
@@ -396,8 +381,8 @@ Proof.
     simp abandonedAfter.
     rewrite bind_assoc.
     rewrite IHm.
-    apply bind_ext. intros [].
-    apply bind_ext. intros [].
+    apply bind_extensional. intros [].
+    apply bind_extensional. intros [].
     f_equal.
     unfold offset.
 
@@ -446,14 +431,9 @@ Lemma put_get_prime
 Proof.
   unfold get', put'.
   setoid_rewrite <- bind_ret.
-  setoid_rewrite to_lensmonad_bind.
-
-
-  , put_get.
+  rewrite to_lensmonad_bind, put_get.
   reflexivity.
 Qed.
-
-
 
 (* TODO: Move *)
 Lemma next_loadMany n:
