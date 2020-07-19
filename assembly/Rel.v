@@ -148,54 +148,11 @@ Section proper_section.
         {SM: SMonad S M}
         {RM: forall X (RX: Rel X), Rel (M X)} :=
   {
-    ret_propr {X} (RX: Rel X) : PropR (ret (m:=M) (A:=X));
-    bind_propr {X Y} (RX: Rel X) (RY: Rel Y) : PropR (bind (m:=M) (A:=X) (B:=Y));
-    err_least {X} (RX: Rel X) (mx: M X) : err (m:=M) (A:=X) ⊑ mx;
+    ret_propr {X} (RX: Rel X) : PropR (ret (M:=M) (X:=X));
+    bind_propr {X Y} (RX: Rel X) (RY: Rel Y) : PropR (bind (M:=M) (X:=X) (Y:=Y));
+    err_least {X} (RX: Rel X) (mx: M X) : err (M:=M) (X:=X) ⊑ mx;
     get_propr : PropR (@get _ _ SM);
     put_propr : PropR (@put _ _ SM);
   }.
-
-  Instance est_relation {A} {RA: Rel A}: Rel (EST S A).
-  Proof.
-    typeclasses eauto.
-  Defined.
-
-  (** Make sure we got what we wanted. *)
-  Goal @est_relation = fun A RA => fun_relation RS (option_relation (prod_relation RA RS)).
-    reflexivity.
-  Qed.
-
-  Instance est_pmon : SMonadPropR (EST S).
-  Proof.
-    split.
-    - intros
-        X RX
-        a a' Ha
-        s s' Hs.
-      simpl.
-      split; assumption.
-
-    - intros X Y RX RY.
-      intros ma ma' Hma f f' Hf.
-      intros s s' Hs. simpl.
-      specialize (Hma s s' Hs).
-      destruct (ma s) as [(a,t)|]; destruct (ma' s') as [(a',t')|].
-      + destruct Hma as [Ht Ha].
-        exact (Hf _ _ Ht _ _ Ha).
-      + contradict Hma.
-      + exact I.
-      + exact I.
-
-    - intros X RX mx
-             s s' Hs.
-      exact I.
-
-    - intros s s' Hs.
-      split; assumption.
-
-    - intros s s' Hs.
-      intros t t' Ht.
-      now split.
-  Qed.
 
 End proper_section.
