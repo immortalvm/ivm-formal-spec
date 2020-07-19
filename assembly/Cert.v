@@ -198,6 +198,433 @@ Proof.
   - exact Cv.
 Qed.
 
+
+(** ** Available stack *)
+
+(* TODO: Where did we make it opaque. *)
+Transparent put'.
+
+(* TODO: Move *)
+Corollary add_ret_tt {S: Type} {M: Type -> Type} {SM: SMonad S M} (mu: M unit) :
+  mu = mu;; ret tt.
+Proof.
+  rewrite <- bind_ret at 1.
+  apply bind_ext.
+  intros [].
+  reflexivity.
+Qed.
+
+(* TODO: Move *)
+Lemma get_put' (S: Type) (M: Type -> Type) (SM: SMonad S M) :
+  get >>= put = ret tt.
+Proof.
+  rewrite add_ret_tt at 1.
+  rewrite bind_assoc, get_put, get_ret.
+  reflexivity.
+Qed.
+
+(* TODO: Move *)
+Proposition to_lensmonad_bind
+      {MP1 : MachineParams1}
+      {MP2 : MachineParams2}
+      {X : Type}
+      {LX: Lens State X} : @bind _ _ H_mon = @bind _ _ (smonad_lens M LX).
+Proof. reflexivity. Qed.
+
+(* TODO: Move *)
+Lemma get_put_prime
+      {MP1 : MachineParams1}
+      {MP2 : MachineParams2}
+      {X : Type}
+      {LX: Lens State X} : get' LX >>= put' LX = ret tt.
+Proof.
+  unfold get', put'.
+  rewrite to_lensmonad_bind, get_put'.
+  reflexivity.
+Qed.
+
+(* TODO: Move. Is this the most natural lemma? *)
+Proposition update_state
+            (MP1 : MachineParams1)
+            (MP2 : MachineParams2)
+            (X : Type)
+            (LX: Lens State X)
+            (f: X -> X) : let* x := get' LX in
+                         put' LX (f x) = let* s := get in
+                                         put (update s (f (proj s))).
+Proof. unfold get'. cbn. smon_rewrite. reflexivity. Qed.
+
+
+Opaque get'.
+Opaque put'.
+
+
+Lemma store_none_less a : store a None ⊑ ret tt.
+Proof.
+  unfold store.
+  destruct (Machine.available' a).
+  - cbn.
+    rewrite update_state, <- get_put'.
+    repeat crush.
+    srel_destruct Hst.
+    repeat split;
+      unfold lens_relation;
+      [ rewrite proj_update; repeat crush; apply Hst_mem
+      | rewrite projY_updateX; assumption .. ].
+  - apply (err_least _).
+Qed.
+
+(****)
+
+Equations abandonedBefore (a: B64) (n: nat) : M unit :=
+  abandonedBefore _ 0 := ret tt;
+  abandonedBefore a (S n) :=
+    let a' := offset (-1) a in
+    store a' None;;
+    abandonedBefore a' n.
+
+Lemma abandonedBefore_less a n : abandonedBefore a n ⊑ ret tt.
+Proof.
+  revert a.
+  induction n; intros a; simp abandonedBefore.
+  - repeat crush.
+  - enough (ret tt = ret tt;; ret tt) as H.
+    + rewrite H.
+      apply (bind_propr _ _).
+      * apply store_none_less.
+      * crush. apply IHn.
+    + rewrite <- add_ret_tt.
+      reflexivity.
+Qed.
+
+Definition abandoned n :=
+  let* a := get' SP in
+  abandonedBefore a (n * 8).
+
+Transparent get'.
+
+Corollary abandoned_less n : abandoned n ⊑ ret tt.
+Proof.
+  unfold abandoned, get'.
+  cbn.
+  rewrite bind_assoc.
+  rewrite <- get_ret.
+  repeat crush.
+  rewrite ret_bind.
+  apply abandonedBefore_less.
+Qed.
+
+Opaque get'.
+
+(* TODO: Move *)
+Proposition add_ret_tt' {S: Type} {M: Type -> Type} {SM: SMonad S M}
+            {X Y} (mx: M X) (f: X -> M Y) : mx >>= f = let* x := mx in
+                                                      ret tt;;
+                                                      f x.
+Proof.
+  apply bind_ext.
+  intros x. rewrite ret_bind.
+  reflexivity.
+Qed.
+
+Corollary abandoning_pop :
+  let* v := pop64 in
+  abandoned 8;;
+  ret v ⊑ pop64.
+Proof.
+  rewrite <- bind_ret.
+  setoid_rewrite add_ret_tt' at 5.
+  repeat crush.
+  apply abandoned_less.
+Qed.
+
+
+(** ** Is zero *)
+
+Corollary chain_ret_true u : chain u (ret true) = u.
+Proof.
+  unfold chain.
+  rewrite <- bind_ret.
+  apply bind_ext.
+  intros [|]; reflexivity.
+Qed.
+
+Equations popN (n: nat) : M (vector B64 n) :=
+  popN 0 := ret [];
+  popN (S n) := let* h := pop64 in
+                let* r := popN n in
+                ret (h :: r).
+
+Equations abandonedAfter (a: B64) (n: nat) : M unit :=
+  abandonedAfter _ 0 := ret tt;
+  abandonedAfter a (S n) :=
+    store a None;;
+    abandonedAfter (offset 1 a) n.
+
+(* TODO: move *)
+Corollary toBits_cong' n z : cong n (toBits n z) z.
+Proof.
+  rewrite ofN_bitsToN, fromBits_toBits_mod.
+  apply cong_mod.
+  lia.
+Qed.
+
+Hint Rewrite toBits_cong'.
+(*
+Hint Rewrite @ofN_bitsToN @fromBits_toBits_mod : cong.
+Hint Rewrite @ofN_bitsToN @fromBits_toBits_mod : cong.
+ *)
+
+Hint Opaque cong : rewrite.
+
+Proposition eq_cong n z z' : z = z' -> cong n z z'.
+Proof. intros H. subst z. reflexivity. Qed.
+
+Existing Instance cong_equivalence.
+
+Lemma abandonedAfter_action (a: B64) (m n: nat) :
+  abandonedAfter a (m + n) = abandonedAfter a m;;
+                             abandonedAfter (offset m a) n.
+Proof.
+  revert a; induction m; intros a.
+  - unfold offset. cbn.
+    rewrite ofN_bitsToN, toBits_fromBits.
+    simp abandonedAfter.
+    rewrite ret_bind.
+    reflexivity.
+  - simpl Init.Nat.add.
+    simp abandonedAfter.
+    rewrite bind_assoc.
+    rewrite IHm.
+    apply bind_ext. intros [].
+    apply bind_ext. intros [].
+    f_equal.
+    unfold offset.
+
+    autorewrite with cong.
+    (** Hangs: [rewrite toBits_cong'] *)
+    transitivity (m + (1 + a)).
+    + apply cong_add_proper, toBits_cong'. reflexivity.
+    + apply eq_cong. lia.
+Qed.
+
+(* TODO: move *)
+Instance cong_toBits_proper n : Proper (cong n ==> eq) (toBits n).
+Proof. intros z z' Hz. apply toBits_cong. exact Hz. Qed.
+
+Corollary fromBits_toBits' n (u: Bits n) : toBits n u = u.
+Proof. rewrite ofN_bitsToN. apply toBits_fromBits. Qed.
+
+(* TODO: move *)
+Proposition generalizer
+      {MP1 : MachineParams1}
+      {MP2 : MachineParams2}
+      {X Y: Type}
+      {mx: M X}
+      {f: X -> M Y}
+      {my: M Y}
+      (H : mx >>= f = my)
+      {Z: Type}
+      (g: Y -> M Z) : let* x := mx in
+                     let* y := f x in
+                     g y = let* y := my in
+                           g y.
+Proof.
+  rewrite <- bind_assoc.
+  rewrite H.
+  reflexivity.
+Qed.
+
+Opaque loadMany.
+
+Transparent get' put'.
+Lemma put_get_prime
+      {MP1 : MachineParams1}
+      {MP2 : MachineParams2}
+      {X : Type}
+      {LX: Lens State X} (x: X) : put' LX x;; get' LX = put' LX x;; ret x.
+Proof.
+  unfold get', put'.
+  setoid_rewrite <- bind_ret.
+  setoid_rewrite to_lensmonad_bind.
+
+
+  , put_get.
+  reflexivity.
+Qed.
+
+
+
+(* TODO: Move *)
+Lemma next_loadMany n:
+  next n = let* pc := get' PC in
+           let* ops := loadMany n pc in
+           put' PC (offset n pc);;
+           ret ops.
+Proof.
+  induction n; simp next.
+  - unfold offset.
+    cbn.
+    setoid_rewrite loadMany_equation_1. (** [simp loadMany] does not work here. *)
+    setoid_rewrite fromBits_toBits'.
+    setoid_rewrite ret_bind.
+    setoid_rewrite (generalizer get_put_prime).
+    rewrite ret_bind.
+    reflexivity.
+  - rewrite IHn. clear IHn.
+    setoid_rewrite loadMany_equation_2.
+    repeat setoid_rewrite bind_assoc.
+
+    setoid_rewrite <- bind_assoc at 1.
+    Set Printing Implicit.
+    setoid_rewrite (to_lensmonad_bind (LX:=PC)).
+    setoid_rewrite (generalizer put_get).
+
+
+
+
+  unfold next.
+
+
+
+
+Lemma abandonedBefore_abandonedAfter a n :
+  abandonedBefore a n = abandonedAfter (offset (-n) a) n.
+Proof.
+  revert a.
+  induction n; intros a; simp abandonedBefore abandonedAfter; unfold offset.
+  - reflexivity.
+  - rewrite IHn.
+    f_equal.
+    + f_equal.
+      f_equal.
+
+      cbn.
+
+Definition withAddrUndefined {X} (u : M X) (a: B64) : M X :=
+  match decide (available a) with
+  | right _ => u
+  | left H =>
+    let* mem := get' MEM in
+    store a None;;
+    let* res := u in
+    store a (mem a H);;
+    ret res
+  end.
+
+Equations withAddrsUndefined {X} (u : M X) (start: B64) n : M X :=
+  withAddrsUndefined _ _ 0 := u;
+  withAddrsUndefined u start 0 :=
+
+
+Definition notAffectedBy {X} (u : M X) (a: B64) : Prop := forall (H: available a),
+    let* e := get' MEM in
+    store a None;;
+    let* res := u in
+    store a (e a H);;
+    ret res = u.
+
+(* PROBLEM: There's no way we can prove this with the existing axioms. *)
+Instance notAffectedBy_decidable {X} (u : M X) (a: B64) :
+  Decidable (notAffectedBy u a).
+Proof.
+  unfold notAffectedBy.
+
+
+
+
+
+Lemma popN_abandoned_swallow {X} m n ops (rest: M X) :
+  (let* v := popN n in
+  abandoned (m + n);;
+  swallow ops;;
+  rest) =
+
+
+
+
+Definition code_isZero := [PUSH1; 1; LT].
+
+Lemma ncert_isZero :
+  nCert 2 (let* x := pop64 in
+           abandoned 2;;
+           swallow code_isZero;;
+           pushZ (if decide (x = 0 :> Z) then -1 else 0);;
+           not_terminated).
+Proof.
+  unfold nCert, code_isZero.
+  simp nSteps.
+  setoid_rewrite chain_ret_true.
+  unfold chain.
+
+
+
+
+(** ** ??? *)
+
+(* TODO: Rename? Move up? *)
+Definition uphold (u: M bool) : M unit :=
+  let* cont := u in
+  assert* cont in
+  ret tt.
+
+Lemma uphold_chain
+      {u u' v v': M bool} (Hu: u ⊑ u') (Hv: v ⊑ v') : uphold u;; v ⊑ chain u' v'.
+Proof.
+  unfold uphold, chain.
+  rewrite bind_assoc.
+  apply (bind_propr _ _).
+  - exact Hu.
+  - repeat crush.
+    destruct y; cbn; smon_rewrite.
+    + exact Hv.
+    + apply (err_least _).
+Qed.
+
+(* TODO *)
+Context
+  (TB: Transitive (@rel (M bool) _))
+  (TU: Transitive (@rel (M unit) _))
+.
+
+Lemma uphold_lemma (u v w: M bool) :
+  u;; not_terminated ⊑ uphold v;; w ->
+  u;; not_terminated ⊑ chain v w.
+Proof.
+  (* This would have been easier with transitivity. *)
+  unfold uphold, chain.
+  intros H.
+
+
+
+  setoid_rewrite assert_bind.
+
+
+
+
+
+
+
+Lemma chain_prime u v : chain' u v ⊑ chain u v.
+
+
+
+  -> m1;; not_terminated ⊑ chain v1 v2
+
+
+
+
+
+  rewrite swallow_lemma.
+
+
+
+
+
+
+
+
+
 (** To be continued.
 It seems possible that we will need an extra axiom at some,
 ensuring that [⊑] is transitive on [M bool], but we'll see. *)
