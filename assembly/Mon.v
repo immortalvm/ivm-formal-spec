@@ -158,51 +158,20 @@ Section Basics.
 
 End Basics.
 
-(** This is not really used for rewriting, though. *)
-Create HintDb smon discriminated.
-
-Hint Rewrite @bind_ret : smon.
-Hint Rewrite @ret_bind : smon.
-Hint Rewrite @bind_assoc : smon.
-Hint Rewrite @bind_err : smon.
-Hint Rewrite @err_bind : smon.
-
-Hint Rewrite @put_put : smon.
-Hint Rewrite @put_get : smon.
-Hint Rewrite @get_put : smon.
-Hint Rewrite @get_ret : smon.
-Hint Rewrite @get_get : smon.
-
-Hint Rewrite @bind_unit : smon.
-Hint Rewrite @bind_ret_tt : smon.
-Hint Rewrite @put_put' : smon.
-Hint Rewrite @put_get' : smon.
-Hint Rewrite @get_put' : smon.
-Hint Rewrite @get_ret' : smon.
-
-(*
-Ltac smon_rewrite1 := rewrite_strat (outermost (hints smon)).
- *)
-
-Ltac smon_rewrite1 := rewrite_strat
-                        (* Add more special cases here when necessary. *)
-                        (choice (outermost bind_ret)
-                        (choice (outermost ret_bind)
-                        (choice (outermost bind_assoc)
-                        (choice (outermost bind_err)
-
-                        (choice (outermost put_put)
-                        (choice (outermost get_put)
-                        (choice (outermost get_get)
-
-                        (choice (outermost put_put')
-                        (choice (outermost put_get')
-                        (choice (outermost get_put')
-
-                        (* This should have been sufficient *)
-                        (outermost (hints smon)))))))))))).
-
-Ltac smon_rewrite := repeat smon_rewrite1; try reflexivity.
+Ltac smon_rewrite :=
+  setoid_rewrite <- bind_ret;
+  repeat (setoid_rewrite bind_assoc);
+  repeat (setoid_rewrite ret_bind);
+  repeat (setoid_rewrite err_bind);
+  repeat (setoid_rewrite bind_err);
+  repeat (setoid_rewrite put_put'
+          || setoid_rewrite put_get'
+          || setoid_rewrite get_put'
+          || setoid_rewrite get_ret'
+          || setoid_rewrite get_get);
+  repeat (setoid_rewrite bind_ret
+          || setoid_rewrite bind_ret_tt);
+  try reflexivity.
 
 Goal forall {S M X Y} {SM: SMonad S M} (g: S -> X) (f: X -> M Y),
     let* s := get in put s;; f (g s) = let* s := get in f (g s).
@@ -320,7 +289,7 @@ Section Lens.
     put x := let* s := get in put (update s x);
   }.
   Proof.
-    all: intros; repeat (lens_rewrite1 || smon_rewrite1); try reflexivity.
+    all: intros; repeat (lens_rewrite1 || smon_rewrite).
     - apply bind_extensional. assumption.
   Defined.
 
