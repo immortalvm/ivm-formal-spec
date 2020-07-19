@@ -8,7 +8,7 @@ useful for understanding the subject.*)
 
 (** ** The trivial [SMonad] *)
 
-Section trivial_smonad_section.
+Section Trivial.
 
   Context (S: Type).
 
@@ -32,12 +32,12 @@ Section trivial_smonad_section.
       [SMonads]. Thus, we shall express and prove such properties only for
       the initial [SMonad]. *)
 
-End trivial_smonad_section.
+End Trivial.
 
 
 (** ** No side-effects *)
 
-Section no_side_effects_section.
+Section No_side_effects.
 
   Open Scope monad_scope.
 
@@ -73,7 +73,7 @@ Section no_side_effects_section.
     reflexivity.
   Qed.
 
-End no_side_effects_section.
+End No_side_effects.
 
 Existing Instance est_smonad.
 
@@ -85,7 +85,7 @@ converse of [lens_fst]: If [Lens S X], then [S ≅ X * S'] for some S'. *)
 
 Require Coq.Logic.ProofIrrelevance.
 
-Section inv_lens_section.
+Section Inv_lens.
 
   Import Coq.Logic.ProofIrrelevance.
 
@@ -136,4 +136,4 @@ Section inv_lens_section.
     simpl. rewrite update_proj. reflexivity.
   Qed.
 
-End inv_lens_section.
+End Inv_lens.
