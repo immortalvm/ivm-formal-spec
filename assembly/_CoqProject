@@ -4,6 +4,7 @@ Init.v
 Lens.v
 LensExtras.v
 Binary.v
+BinaryExtras.v
 Mon.v
 MonExtras.v
 Basics.v
