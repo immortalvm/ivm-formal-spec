@@ -342,31 +342,6 @@ Proof.
 Qed.
 
 
-(** *** Ring homomorphism *)
-
-Local Definition add {n} (u v : Bits n) : Bits n :=
-  toBits n (fromBits u + fromBits v).
-
-Local Definition mul {n} (u v : Bits n) : Bits n :=
-  toBits n (fromBits u * fromBits v).
-
-Local Lemma inj_add n (x y : Z) : toBits n (x + y) = add (toBits n x) (toBits n y).
-Proof.
-  apply toBits_congruence.
-  setoid_rewrite fromBits_toBits_mod.
-  apply Z.add_mod.
-  apply pow2_nonzero.
-Qed.
-
-Local Lemma inj_mul n (x y : Z) : toBits n (x * y) = mul (toBits n x) (toBits n y).
-Proof.
-  apply toBits_congruence.
-  setoid_rewrite fromBits_toBits_mod.
-  apply Z.mul_mod.
-  apply pow2_nonzero.
-Qed.
-
-
 (** *** Via [N] *)
 
 Definition bitsToN {n} (u: Bits n) : N := Z.to_N (fromBits u).
@@ -431,11 +406,145 @@ Proof.
 Qed.
 
 
+(** *** Multiplication and addition *)
+
+Local Proposition inj_0 : N.of_nat 0 = 0%N.
+Proof. reflexivity. Qed.
+
+Local Proposition inj_1 : N.of_nat 1 = 1%N.
+Proof. reflexivity. Qed.
+
+Local Proposition Ninj_1 : Z.of_N 1 = 1%Z.
+Proof. reflexivity. Qed.
+
+Hint Rewrite <- N.add_1_l Z.add_1_l : ZZ.
+
+Hint Rewrite
+     inj_0 inj_1
+     Nnat.Nat2N.inj_add
+     Nnat.Nat2N.inj_mul
+
+     N2Z.inj_0 Ninj_1
+     N2Z.inj_add
+     N2Z.inj_mul
+
+     Z.add_assoc
+     Z.add_0_l Z.add_0_r
+     Z.add_opp_l Z.add_opp_r
+
+     Z.sub_0_l
+     Z.sub_opp_l Z.sub_opp_r
+     Z.sub_0_l Z.sub_0_r
+
+     Z.opp_0
+     Z.opp_involutive
+
+     Z.mul_assoc
+     Z.mul_0_l Z.mul_0_r
+     Z.mul_1_l Z.mul_1_r
+     Z.mul_opp_l Z.mul_opp_r
+
+     Z.mul_add_distr_l Z.mul_add_distr_r
+     Z.mul_sub_distr_l Z.mul_sub_distr_r
+
+     Z.double_spec
+     Z.div2_div
+
+     pow2_equation_0
+     pow2_equation_1
+     pow2_equation_2
+  : ZZ.
+
+Section irel_section.
+
+  Context {X Y} (f: X -> Y) (R: relation Y).
+
+  Definition irel : relation X := fun x x' => R (f x) (f x').
+
+  Instance irel_reflexive {HR: Reflexive R} : Reflexive irel.
+  Proof. unfold irel. intros x. reflexivity. Qed.
+
+  Instance irel_symmetric {HR: Symmetric R} : Symmetric irel.
+  Proof. unfold irel. intros x y H. symmetry. exact H. Qed.
+
+  Instance irel_transitive {HR: Transitive R} : Transitive irel.
+  Proof. unfold irel. intros x y z Hxy Hyz. transitivity (f y); assumption. Qed.
+
+  Instance irel_equivalence {HR: Equivalence R} : Equivalence irel.
+  Proof. split; typeclasses eauto. Qed.
+
+End irel_section.
+
+(* TODO: move up *)
+Proposition pow2_action (m n: nat) : 2%Z^(m + n)%nat = 2%Z^m * 2%Z^n.
+Proof.
+  setoid_rewrite nat_N_Z.
+  rewrite Nat2Z.inj_add.
+  apply Zpower_exp; apply Z.le_ge; apply Nat2Z.is_nonneg.
+Qed.
+
+Section cong_section.
+
+  Context (n: nat).
+
+  Definition cong := irel (fun (z:Z) => z mod 2^n) eq.
+
+  Instance cong_equivalence : Equivalence cong.
+  Proof.
+    apply irel_equivalence.
+    typeclasses eauto.
+  Qed.
+
+  Instance cong_add_proper : Proper (cong ==> cong ==> cong) Z.add.
+  Proof.
+    intros x x' Hx y y' Hy. unfold cong, irel in *.
+    setoid_rewrite Z.add_mod; [ | apply pow2_nonzero ..].
+    f_equal. f_equal; assumption.
+  Qed.
+
+  Instance cong_mul_proper : Proper (cong ==> cong ==> cong) Z.mul.
+  Proof.
+    intros x x' Hx y y' Hy. unfold cong, irel in *.
+    setoid_rewrite Z.mul_mod; [ | apply pow2_nonzero ..].
+    f_equal. f_equal; assumption.
+  Qed.
+
+  Corollary toBits_cong z z' : cong z z' <-> toBits n z = toBits n z'.
+  Proof.
+    unfold cong, irel.
+    rewrite toBits_congruence.
+    reflexivity.
+  Qed.
+
+  (** Essentially just transitivity and symmetry. *)
+  Instance cong_cong_proper : Proper (cong ==> cong ==> iff) cong.
+  Proof. typeclasses eauto. Qed.
+
+  Proposition cong_mod (z: Z) (m: nat) (Hm: m >= n) : cong (z mod 2^m) z.
+  Proof.
+    unfold cong, irel.
+    by_lia (m = n + (m - n))%nat as H.
+    rewrite H at 1.
+    rewrite pow2_action.
+    rewrite <- Znumtheory.Zmod_div_mod.
+    - reflexivity.
+    - apply pow2_pos.
+    - apply Z.mul_pos_pos; apply pow2_pos.
+    - auto with zarith.
+  Qed.
+
+End cong_section.
+
+Hint Rewrite cong_mod : cong.
+Hint Rewrite <- toBits_cong : cong.
+
+
 (** *** Transparency *)
 
-(* TODO: Is this a good idea? *)
+(* TODO: Is this a good idea?
 Transparent cleave.
 Transparent join.
+*)
 
 
 (** ** Bytes *)
