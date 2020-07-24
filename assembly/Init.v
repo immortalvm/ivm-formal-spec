@@ -331,3 +331,38 @@ Proof.
 Qed.
 
 (* Coercion Vector.to_list : vector >-> list. *)
+
+
+(** ** Relations *)
+
+Section relation_section.
+
+  Context {X} {R: relation X}.
+
+  (* Making this global would likely ruin proof search. *)
+  Instance eq_subrelation {HR: Reflexive R} : subrelation eq R.
+  Proof. intros x x' Hx. subst x. reflexivity. Qed.
+
+End relation_section.
+
+(** *** Inverse image **)
+
+Section irel_section.
+
+  Context {X Y} (f: X -> Y) (R: relation Y).
+
+  Definition irel : relation X := fun x x' => R (f x) (f x').
+
+  Global Instance irel_reflexive {HR: Reflexive R} : Reflexive irel.
+  Proof. unfold irel. intros x. reflexivity. Qed.
+
+  Global Instance irel_symmetric {HR: Symmetric R} : Symmetric irel.
+  Proof. unfold irel. intros x y H. symmetry. exact H. Qed.
+
+  Global Instance irel_transitive {HR: Transitive R} : Transitive irel.
+  Proof. unfold irel. intros x y z Hxy Hyz. transitivity (f y); assumption. Qed.
+
+  Global Instance irel_equivalence {HR: Equivalence R} : Equivalence irel.
+  Proof. split; typeclasses eauto. Qed.
+
+End irel_section.

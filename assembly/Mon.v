@@ -91,6 +91,16 @@ Section Basics.
     apply bind_extensional, Hf.
   Qed.
 
+  Proposition bind_extensional'
+              {X} {mx mx': M X} (Hmx: mx = mx')
+              {Y} (f f' : X -> M Y) (Hf: forall x, f x = f' x) :
+    mx >>= f = mx' >>= f'.
+  Proof.
+    subst mx.
+    apply bind_extensional.
+    exact Hf.
+  Qed.
+
   Proposition bind_unit (mu: M unit) {Y} (f: unit -> M Y) :
     mu >>= f = mu;; f tt.
   Proof. apply bind_extensional. intros []. reflexivity. Qed.
@@ -129,8 +139,8 @@ Section Basics.
 
   Proposition get_put' Y (f: S -> unit -> M Y) :
     let* s := get in
-    let* x := put s in
-    f s x = let* s := get in
+    let* u := put s in
+    f s u = let* s := get in
             f s tt.
   Proof.
     setoid_rewrite bind_unit.
@@ -180,6 +190,7 @@ Ltac smon_rewrite :=
   repeat (setoid_rewrite ret_bind);
   repeat (setoid_rewrite err_bind);
   repeat (setoid_rewrite bind_err);
+  repeat (setoid_rewrite bind_unit);
   repeat (setoid_rewrite put_put'
           || setoid_rewrite put_get'
           || setoid_rewrite get_put'
@@ -195,16 +206,17 @@ Goal forall {S M X Y} {SM: SMonad S M} (g: S -> X) (f: X -> M Y),
   smon_rewrite.
 Qed.
 
+
 (** ** Lenses *)
 
-Section Lens.
+Section lens_section.
 
   Context {S: Type}
-          (M: Type -> Type) `{SM: SMonad S M}
-          {X: Type} `(LX: Lens S X).
+          {M: Type -> Type} `{SM: SMonad S M}
+          {X: Type} (LX: Lens S X).
 
   #[refine]
-  Global Instance smonad_lens: SMonad X M :=
+  Global Instance smonad_lens: SMonad X M | 10 :=
   {
     ret := @ret S M SM;
     bind := @bind S M SM;
@@ -217,4 +229,89 @@ Section Lens.
     - apply bind_extensional. assumption.
   Defined.
 
-End Lens.
+  Definition get' := get (SMonad := smonad_lens).
+  Definition put' := put (SMonad := smonad_lens).
+
+  (** The definitions above are arguably too strict since they mean that
+  the machine cannot have additional state such as logging. One might
+  consider using a weaker notion of lenses, but it is probably better to
+  work up to the equivalence relation [s⊑s' /\ s'⊑s], see Mono.v. The
+  current approach essentially corresponds to using the quotient type. *)
+
+  Proposition to_lens_bind: @bind _ _ SM = @bind _ _ smonad_lens.
+  Proof. reflexivity. Qed.
+
+  Proposition get_get_prime Y (f: X -> X -> M Y) : let* x := get' in
+                                                 let* x' := get' in
+                                                 f x x' = let* x := get' in
+                                                          f x x.
+  Proof.
+    unfold get'.
+    rewrite to_lens_bind.
+    apply get_get.
+  Qed.
+
+  Lemma get_put_prime Y (f: X -> unit -> M Y) :
+    let* x := get' in
+    let* u := put' x in
+    f x u = let* x := get' in
+            f x tt.
+  Proof.
+    unfold get', put'.
+    rewrite to_lens_bind, get_put'.
+    reflexivity.
+  Qed.
+
+  (* TODO: Is this the most natural lemma? *)
+  Proposition update_state
+              (f: X -> X) : let* x := get' in
+                           put' (f x) = let* s := get in
+                                        put (update s (f (proj s))).
+  Proof. unfold get'. cbn. smon_rewrite. Qed.
+
+End lens_section.
+
+Section lenses_section.
+
+  Context {S: Type}
+          {M: Type -> Type} `{SM: SMonad S M}
+          {X: Type} (LX: Lens S X)
+          {Y: Type} (LY: Lens S Y).
+
+  Proposition flip_get_get {A} (f: X -> Y -> M A) :
+    let* x := get' LX in
+    let* y := get' LY in
+    f x y = let* y := get' LY in
+            let* x := get' LX in
+            f x y.
+  Proof. smon_rewrite. Qed.
+
+  Context {HI: Independent LX LY}.
+
+  Proposition flip_put_get {A} (x: X) (f: unit -> Y -> M A) :
+    let* u := put' LX x in
+    let* y := get' LY in
+    f u y = let* y := get' LY in
+            let* u := put' LX x in
+            f u y.
+  Proof.
+    smon_rewrite.
+    independent_rewrite.
+    reflexivity.
+  Qed.
+
+  Proposition flip_put_put {A} (x: X) (y: Y) (f: unit -> unit -> M A) :
+    let* u := put' LX x in
+    let* v := put' LY y in
+    f u v = let* v := put' LY y in
+            let* u := put' LX x in
+            f u v.
+  Proof.
+    smon_rewrite.
+    independent_rewrite.
+    reflexivity.
+  Qed.
+
+End lenses_section.
+
+Global Opaque get' put'.

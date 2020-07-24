@@ -35,7 +35,11 @@ Proof.
 Qed.
 
 
-(** *** Powers of two *)
+(** *** Powers of two
+
+We focus on [2^n] for natural numbers n. Using [Z.shiftl] would be more
+efficient, but we mainly use [2^n] for specification purposes (not
+computations). *)
 
 Lemma pow2_equation_0 : 2^0 = 1.
 Proof. reflexivity. Qed.
@@ -45,8 +49,7 @@ Proof. simpl. exact pow2_equation_0. Qed.
 
 Lemma pow2_equation_2 n : 2^(S n) = 2 * (2^n).
 Proof.
-  setoid_rewrite nat_N_Z.
-  rewrite Nat2Z.inj_succ, Z.pow_succ_r.
+  rewrite nat_N_Z, nat_N_Z, Nat2Z.inj_succ, Z.pow_succ_r.
   - reflexivity.
   - apply Nat2Z.is_nonneg.
 Qed.
@@ -58,10 +61,8 @@ Hint Rewrite
 
 Lemma pow2_pos (n: nat) : 0 < 2^n.
 Proof.
-  setoid_rewrite nat_N_Z.
-  apply Z.pow_pos_nonneg.
-  - lia.
-  - apply Nat2Z.is_nonneg.
+  rewrite nat_N_Z.
+  apply Z.pow_pos_nonneg, Nat2Z.is_nonneg; lia.
 Qed.
 
 Corollary pow2_nonneg (n: nat) : 0 <= 2^n.
@@ -77,8 +78,69 @@ Proof.
   - set (H := pow2_nonneg n). lia.
 Qed.
 
+Proposition pow2_action (m n: nat) : 2%Z^(m + n)%nat = 2%Z^m * 2%Z^n.
+Proof.
+  repeat rewrite nat_N_Z.
+  rewrite Nat2Z.inj_add.
+  apply Zpower_exp; apply Z.le_ge; apply Nat2Z.is_nonneg.
+Qed.
 
-(** *** Double and div2 *)
+
+(** *** Congruence modulo [2^n] *)
+
+Section cong_section.
+
+  Context (n: nat).
+
+  Definition cong := irel (fun (z:Z) => z mod 2^n) eq.
+
+  Goal Equivalence cong.
+    typeclasses eauto.
+  Qed.
+
+  Proposition eq_cong z z' : z = z' -> cong z z'.
+  Proof. apply eq_subrelation. Qed.
+
+  Global Instance cong_add_proper : Proper (cong ==> cong ==> cong) Z.add.
+  Proof.
+    intros x x' Hx y y' Hy. unfold cong, irel in *.
+    setoid_rewrite Z.add_mod; [ | apply pow2_nonzero ..].
+    f_equal. f_equal; assumption.
+  Qed.
+
+  Global Instance cong_mul_proper : Proper (cong ==> cong ==> cong) Z.mul.
+  Proof.
+    intros x x' Hx y y' Hy. unfold cong, irel in *.
+    setoid_rewrite Z.mul_mod; [ | apply pow2_nonzero ..].
+    f_equal. f_equal; assumption.
+  Qed.
+
+  (** Essentially just transitivity and symmetry. *)
+  Global Instance cong_cong_proper : Proper (cong ==> cong ==> iff) cong.
+  Proof. typeclasses eauto. Qed.
+
+  Proposition cong_mod (z: Z) (m: nat) (Hm: m >= n) : cong (z mod 2^m) z.
+  Proof.
+    unfold cong, irel.
+    by_lia (m = n + (m - n))%nat as H.
+    rewrite H at 1.
+    rewrite pow2_action.
+    rewrite <- Znumtheory.Zmod_div_mod.
+    - reflexivity.
+    - apply pow2_pos.
+    - apply Z.mul_pos_pos; apply pow2_pos.
+    - auto with zarith.
+  Qed.
+
+End cong_section.
+
+(* TODO: Is this ever used? *)
+Hint Rewrite cong_mod : cong.
+
+
+(** *** Double and div2
+
+Converting to/from bits we use [Z.double] and [Z.div2] for efficiency. *)
 
 Proposition div2_double z : Z.div2 (Z.double z) = z.
 Proof.
@@ -455,96 +517,25 @@ Hint Rewrite
      pow2_equation_2
   : ZZ.
 
-Section irel_section.
 
-  Context {X Y} (f: X -> Y) (R: relation Y).
+(** **)
 
-  Definition irel : relation X := fun x x' => R (f x) (f x').
-
-  Instance irel_reflexive {HR: Reflexive R} : Reflexive irel.
-  Proof. unfold irel. intros x. reflexivity. Qed.
-
-  Instance irel_symmetric {HR: Symmetric R} : Symmetric irel.
-  Proof. unfold irel. intros x y H. symmetry. exact H. Qed.
-
-  Instance irel_transitive {HR: Transitive R} : Transitive irel.
-  Proof. unfold irel. intros x y z Hxy Hyz. transitivity (f y); assumption. Qed.
-
-  Instance irel_equivalence {HR: Equivalence R} : Equivalence irel.
-  Proof. split; typeclasses eauto. Qed.
-
-End irel_section.
-
-(* TODO: move up *)
-Proposition pow2_action (m n: nat) : 2%Z^(m + n)%nat = 2%Z^m * 2%Z^n.
+Proposition toBits_cong n z z' : cong n z z' <-> toBits n z = toBits n z'.
 Proof.
-  setoid_rewrite nat_N_Z.
-  rewrite Nat2Z.inj_add.
-  apply Zpower_exp; apply Z.le_ge; apply Nat2Z.is_nonneg.
+  unfold cong, irel.
+  rewrite toBits_congruence.
+  reflexivity.
 Qed.
 
-Section cong_section.
-
-  Context (n: nat).
-
-  Definition cong := irel (fun (z:Z) => z mod 2^n) eq.
-
-  Instance cong_equivalence : Equivalence cong.
-  Proof.
-    apply irel_equivalence.
-    typeclasses eauto.
-  Qed.
-
-  Instance cong_add_proper : Proper (cong ==> cong ==> cong) Z.add.
-  Proof.
-    intros x x' Hx y y' Hy. unfold cong, irel in *.
-    setoid_rewrite Z.add_mod; [ | apply pow2_nonzero ..].
-    f_equal. f_equal; assumption.
-  Qed.
-
-  Instance cong_mul_proper : Proper (cong ==> cong ==> cong) Z.mul.
-  Proof.
-    intros x x' Hx y y' Hy. unfold cong, irel in *.
-    setoid_rewrite Z.mul_mod; [ | apply pow2_nonzero ..].
-    f_equal. f_equal; assumption.
-  Qed.
-
-  Corollary toBits_cong z z' : cong z z' <-> toBits n z = toBits n z'.
-  Proof.
-    unfold cong, irel.
-    rewrite toBits_congruence.
-    reflexivity.
-  Qed.
-
-  (** Essentially just transitivity and symmetry. *)
-  Instance cong_cong_proper : Proper (cong ==> cong ==> iff) cong.
-  Proof. typeclasses eauto. Qed.
-
-  Proposition cong_mod (z: Z) (m: nat) (Hm: m >= n) : cong (z mod 2^m) z.
-  Proof.
-    unfold cong, irel.
-    by_lia (m = n + (m - n))%nat as H.
-    rewrite H at 1.
-    rewrite pow2_action.
-    rewrite <- Znumtheory.Zmod_div_mod.
-    - reflexivity.
-    - apply pow2_pos.
-    - apply Z.mul_pos_pos; apply pow2_pos.
-    - auto with zarith.
-  Qed.
-
-End cong_section.
-
-Hint Rewrite cong_mod : cong.
+(* TODO: Ever used? *)
 Hint Rewrite <- toBits_cong : cong.
 
-
-(** *** Transparency *)
-
-(* TODO: Is this a good idea?
-Transparent cleave.
-Transparent join.
-*)
+Instance toBits_proper n : Proper (cong n ==> eq) (toBits n).
+Proof.
+  intros z z' Hz.
+  apply toBits_cong.
+  exact Hz.
+Qed.
 
 
 (** ** Bytes *)

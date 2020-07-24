@@ -8,10 +8,19 @@ Global Unset Printing Primitive Projection Parameters.
 
 Set Implicit Arguments.
 
-Local Open Scope N.
+
+(** ** [Z]-actions *)
+
+Class Z_action {X} (f: Z -> X -> X) : Prop :=
+{
+  Z_action_zero x : f 0 x = x;
+  Z_action_add z z' x : f (z + z')%Z x = f z (f z' x);
+}.
 
 
 (** ** Images *)
+
+Local Open Scope N.
 
 Record Image (C: Type) :=
   mkImage {
@@ -29,7 +38,8 @@ Definition noImage {C}: Image C.
   lia.
 Defined.
 
-Local Definition image_telescope {C} (img: Image C) : sigma(fun w=>sigma(fun h=>forall x (Hx:x<w) y (Hy:y<h), C)) :=
+Local Definition image_telescope {C} (img: Image C) :
+  sigma(fun w => sigma(fun h => forall x (Hx: x<w) y (Hy: y<h), C)) :=
   match img with @mkImage _ w h p => sigmaI _ w (sigmaI _ h p) end.
 
 Lemma inj_right_image {C} {w h p p'} :
@@ -65,7 +75,8 @@ Module Type MachineParameters.
   Parameter Inline Addr: Type.
   Parameter Inline H_eqdec: EqDec Addr.
   Parameter Inline available: Addr -> bool.
-  Parameter Inline offset: Z -> Addr -> Addr. (* This should be a group action. *)
+  Parameter Inline offset: Z -> Addr -> Addr.
+  Parameter offset_action: Z_action offset.
   Parameter Inline Cell: Type.
 
   Parameter Inline InputColor: Type.
@@ -172,6 +183,8 @@ Module Core (MP: MachineParameters).
 
   Context {MP1: MachineParams1}.
 
+  Existing Instance offset_action.
+
   Class MachineParams2 :=
   {
     M: Type -> Type;
@@ -183,34 +196,29 @@ Module Core (MP: MachineParameters).
   Existing Instance H_eqdec.
   Existing Instance H_mon.
 
-  Definition get' {X} (LX: Lens State X) := get (SMonad := smonad_lens M LX).
-  Definition put' {X} (LX: Lens State X) := put (SMonad := smonad_lens M LX).
-
-
-  (** The definitions above are arguably too strict since they mean that
-  the machine cannot have additional state such as logging. One might
-  consider using a weaker notion of lenses, but it is probably better to
-  work up to the equivalence relation [s⊑s' /\ s'⊑s], see Mono.v. The
-  current approach essentially corresponds to using the corresponding
-  quotient type.
-
-
-  ** Memory and stack *)
-
-  Definition load (a: Addr): M Cell :=
-    assert* available a as H in
-    let* s := get' MEM in
-    match s a H with
+  Definition extr {X} (ox: option X) : M X :=
+    match ox with
     | Some x => ret x
-    | _ => err
+    | None => err
     end.
 
-  Definition store (a: Addr) (o: option Cell) : M unit :=
+
+  (** ** Memory and stack *)
+
+  Definition load0 (a: Addr): M (option Cell) :=
+    assert* available a as H in
+    let* s := get' MEM in
+    ret (s a H).
+
+  Definition load (a: Addr): M Cell := load0 a >>= extr.
+
+  Definition store0 (a: Addr) (o: option Cell) : M unit :=
     assert* available a in
     let* s := get' MEM in
-    let s' a' H := if eq_dec a a' then o else s a' H in
+    let s' a' H := if decide (a = a') then o else s a' H in
     put' MEM s'.
 
+  Definition store (a: Addr) (o: Cell) : M unit := store0 a (Some o).
 
   Open Scope vector.
 
@@ -221,6 +229,87 @@ Module Core (MP: MachineParameters).
       let* x := load a in
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
+
+  Definition next (n: nat) : M (Cells n) :=
+    let* pc := get' PC in
+    put' PC (offset n pc);;
+    loadMany n pc.
+
+  Section loadMany_transparent_section.
+
+    Transparent loadMany.
+
+    Proposition next_equation_1 : next 0 = ret [].
+    Proof.
+      unfold next.
+      simpl (offset _ _).
+      setoid_rewrite Z_action_zero.
+      rewrite get_put_prime.
+      simpl (loadMany _ _).
+      rewrite (to_lens_bind PC). (* TODO *)
+      apply get_ret'.
+    Qed.
+
+    Proposition next_equation_2 n :
+      next (S n) = let* pc := get' PC in
+                   let* x := load pc in
+                   put' PC (offset 1 pc);;
+                   let* r := next n in
+                   ret (x :: r).
+    Proof.
+      unfold next.
+      setoid_rewrite loadMany_equation_2.
+      repeat setoid_rewrite bind_assoc.
+      apply bind_extensional.
+      intros pc.
+      unfold load0.
+      destruct (decide (available pc)) as [Ha|Ha]; smon_rewrite.
+      rewrite flip_put_get;
+        [ | apply independent_symm, independent_MEM_PC ].
+      apply bind_extensional. intros mem.
+      destruct (mem pc Ha) as [x|]; smon_rewrite.
+
+      repeat setoid_rewrite <- bind_assoc.
+      f_equal.
+      repeat setoid_rewrite bind_assoc.
+
+      rewrite (to_lens_bind PC). (* TODO *)
+      setoid_rewrite put_get'.
+      setoid_rewrite put_put'.
+      apply bind_extensional'; [ | reflexivity ].
+      Transparent put'.
+      unfold put'.
+      Opaque put'.
+      f_equal.
+      rewrite <- Z_action_add.
+      f_equal.
+      lia.
+    Qed.
+
+  End loadMany_transparent_section.
+
+
+    transitivity (get' PC;;
+                  ret ([]: Cells 0)).
+    - f_equal.
+    -
+
+    setoid_rewrite loadMany_equation_1.
+
+    rewrite <- bind_assoc.
+    setoid_rewrite get_put_prime.
+    smon_rewrite.
+
+    - rewrite get_get_prime. reflexivity.
+    -
+
+
+
+    transitivity (let* pc := get' PC in
+                  let* pc' := get' PC in
+                  put' PC pc';;
+                  loadMany 0 pc).
+
 
   Equations(noind) next (n: nat) : M (Cells n) :=
     next 0 := ret [];

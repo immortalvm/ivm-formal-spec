@@ -209,37 +209,6 @@ Qed.
 *)
 
 (* TODO: Move *)
-Proposition to_lensmonad_bind
-      {MP1 : MachineParams1}
-      {MP2 : MachineParams2}
-      {X : Type}
-      {LX: Lens State X} : @bind _ _ H_mon = @bind _ _ (smonad_lens M LX).
-Proof. reflexivity. Qed.
-
-(* TODO: Move *)
-Lemma get_put_prime
-      {MP1 : MachineParams1}
-      {MP2 : MachineParams2}
-      {X : Type}
-      {LX: Lens State X} : get' LX >>= put' LX = ret tt.
-Proof.
-  unfold get', put'.
-  rewrite to_lensmonad_bind, get_put.
-  reflexivity.
-Qed.
-
-(* TODO: Move. Is this the most natural lemma? *)
-Proposition update_state
-            (MP1 : MachineParams1)
-            (MP2 : MachineParams2)
-            (X : Type)
-            (LX: Lens State X)
-            (f: X -> X) : let* x := get' LX in
-                         put' LX (f x) = let* s := get in
-                                         put (update s (f (proj s))).
-Proof. unfold get'. cbn. smon_rewrite. Qed.
-
-
 Opaque get'.
 Opaque put'.
 
@@ -362,8 +331,6 @@ Hint Rewrite @ofN_bitsToN @fromBits_toBits_mod : cong.
 Hint Opaque cong : rewrite.
 
 (* TODO: move *)
-Proposition eq_cong n z z' : z = z' -> cong n z z'.
-Proof. intros H. subst z. reflexivity. Qed.
 
 Existing Instance cong_equivalence.
 
