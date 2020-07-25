@@ -80,9 +80,9 @@ Open Scope monad_scope.
 
 (** ** Basics *)
 
-Section Basics.
+Section basics_section.
 
-  Context S M {SM: SMonad S M}.
+  Context {S M} {SM: SMonad S M}.
 
   Global Instance bind_proper {X Y}:
     Proper ( eq ==> pointwise_relation X eq ==> eq ) (@bind S M SM X Y).
@@ -179,7 +179,7 @@ Section Basics.
     destruct (decide P); [ | rewrite err_bind ]; reflexivity.
   Qed.
 
-End Basics.
+End basics_section.
 
 Ltac smon_rewrite :=
   try (rewrite_strat (outermost <- bind_ret));
@@ -191,6 +191,10 @@ Ltac smon_rewrite :=
   repeat (setoid_rewrite err_bind);
   repeat (setoid_rewrite bind_err);
   repeat (setoid_rewrite bind_unit);
+  (** For some reason, [setoid_rewrite bind_unit] does not always work. *)
+  repeat match goal with
+           |- context [ ?m >>= fun (x:unit) => _ ] => setoid_rewrite (bind_unit m)
+         end;
   repeat (setoid_rewrite put_put'
           || setoid_rewrite put_get'
           || setoid_rewrite get_put'
@@ -207,30 +211,110 @@ Goal forall {S M X Y} {SM: SMonad S M} (g: S -> X) (f: X -> M Y),
 Qed.
 
 
-(** ** Lenses *)
+(** ** "Stateless" effects *)
 
-Section lens_section.
+Section stateless_section.
+
+  Context {S M} {SM: SMonad S M}.
+
+  Class Stateless {X} (mx: M X) : Prop :=
+    stateless : forall f, mx = let* s := get in
+                          put (f s);;
+                          let* x := mx in
+                          put s;;
+                          ret x.
+
+  Global Instance stateless_ret {X} (x: X) : Stateless (ret x).
+  Proof.
+    unfold Stateless. intros f. smon_rewrite.
+  Qed.
+
+  Global Instance stateless_bind
+         {X Y} (mx: M X) (f: X -> M Y)
+         {Hmx: Stateless mx}
+         {Hf: forall x, Stateless (f x)} : Stateless (mx >>= f).
+  Proof.
+    unfold Stateless in *. intros g.
+    rewrite (Hmx g) at 1.
+    setoid_rewrite (Hmx id) at 2. unfold id. smon_rewrite.
+    setoid_rewrite (Hf _ g) at 1. smon_rewrite.
+  Qed.
+
+  Global Instance stateless_err {X} : Stateless (err : M X).
+  Proof.
+    unfold Stateless. intros f. smon_rewrite.
+  Qed.
+
+  Lemma get_stateless {X} (mx: M X) {Hmx: Stateless mx} {Y} (f: S -> X -> M Y) :
+    let* s := get in
+    let* x := mx in
+    f s x = let* x := mx in
+            let* s := get in
+            f s x.
+  Proof.
+    setoid_rewrite (Hmx id). smon_rewrite.
+  Qed.
+
+  Lemma put_stateless (s: S) {X} (mx: M X) {Hmx: Stateless mx} {Y} (f: unit -> X -> M Y) :
+    let* u := put s in
+    let* x := mx in
+    f u x = let* x := mx in
+            let* u := put s in
+            f u x.
+  Proof.
+    setoid_rewrite (Hmx (fun _ => s)). smon_rewrite.
+  Qed.
+
+  Instance stateless_unit
+           (mu: M unit)
+           (H: forall f, mu = let* s := get in
+                         put (f s);;
+                         mu;;
+                         put s) : Stateless mu.
+  Proof.
+    unfold Stateless. intros f.
+    smon_rewrite. apply H.
+  Qed.
+
+End stateless_section.
+
+
+(** ** Lens monads *)
+
+Section lensmonad_section.
 
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}
-          {X: Type} (LX: Lens S X).
+          {A: Type} (LA: Lens S A).
 
   #[refine]
-  Global Instance smonad_lens: SMonad X M | 10 :=
+  Global Instance lensmonad: SMonad A M | 10 :=
   {
     ret := @ret S M SM;
     bind := @bind S M SM;
     err := @err S M SM;
     get := let* s := get in ret (proj s);
-    put x := let* s := get in put (update s x);
+    put a := let* s := get in put (update s a);
   }.
   Proof.
     all: intros; repeat (lens_rewrite1 || smon_rewrite).
     - apply bind_extensional. assumption.
   Defined.
 
-  Definition get' := get (SMonad := smonad_lens).
-  Definition put' := put (SMonad := smonad_lens).
+  Definition get' : M A := get.
+  Proposition get_spec : get' = get.
+  Proof. reflexivity. Qed.
+  Global Opaque get'.
+
+  Definition put' : A -> M unit := put.
+  Proposition put_spec : put' = put.
+  Proof. reflexivity. Qed.
+  Global Opaque put'.
+
+  (** For some reason, we sometimes have to use this variant with
+  [setoid_rewrite]. *)
+  Proposition put_spec' (a: A) : put' a = put a.
+  Proof. rewrite put_spec. reflexivity. Qed.
 
   (** The definitions above are arguably too strict since they mean that
   the machine cannot have additional state such as logging. One might
@@ -238,80 +322,166 @@ Section lens_section.
   work up to the equivalence relation [s⊑s' /\ s'⊑s], see Mono.v. The
   current approach essentially corresponds to using the quotient type. *)
 
-  Proposition to_lens_bind: @bind _ _ SM = @bind _ _ smonad_lens.
+  Proposition bind_spec: @bind _ _ SM = @bind _ _ lensmonad.
   Proof. reflexivity. Qed.
 
-  Proposition get_get_prime Y (f: X -> X -> M Y) : let* x := get' in
-                                                 let* x' := get' in
-                                                 f x x' = let* x := get' in
-                                                          f x x.
+  (* TODO: Reformulate? *)
+  Proposition update_state (f: A -> A) :
+    let* a := get' in
+    put' (f a) = let* s := get in
+                 put (update s (f (proj s))).
   Proof.
-    unfold get'.
-    rewrite to_lens_bind.
-    apply get_get.
+    rewrite get_spec, put_spec.
+    smon_rewrite.
   Qed.
 
-  Lemma get_put_prime Y (f: X -> unit -> M Y) :
-    let* x := get' in
-    let* u := put' x in
-    f x u = let* x := get' in
-            f x tt.
+  Class Stateless' {X} (mx : M X) :=
+  {
+    stateless' :> Stateless (S:=A) mx;
+  }.
+
+  Global Instance stateless_ret' {X} (x: X) : Stateless' (ret x).
   Proof.
-    unfold get', put'.
-    rewrite to_lens_bind, get_put'.
-    reflexivity.
+    split.
+    apply (stateless_ret (SM:=lensmonad)).
   Qed.
 
-  (* TODO: Is this the most natural lemma? *)
-  Proposition update_state
-              (f: X -> X) : let* x := get' in
-                           put' (f x) = let* s := get in
-                                        put (update s (f (proj s))).
-  Proof. unfold get'. cbn. smon_rewrite. Qed.
+  Global Instance stateless_bind'
+         {X Y} (mx: M X) (f: X -> M Y)
+         {Hmx: Stateless' mx}
+         {Hf: forall x, Stateless' (f x)} : Stateless' (mx >>= f).
+  Proof.
+    split.
+    apply (stateless_bind (SM:=lensmonad)).
+    - apply Hmx.
+    - apply Hf.
+  Qed.
 
-End lens_section.
+  Global Instance stateless_err' {X} : Stateless' (err : M X).
+  Proof.
+    split.
+    apply (stateless_err (SM:=lensmonad)).
+  Qed.
 
-Section lenses_section.
+
+  Proposition get_stateless'
+              {X} (mx: M X) {Hmx: Stateless' mx}
+              {Y} (f: A -> X -> M Y) :
+    let* a := get' in
+    let* x := mx in
+    f a x = let* x := mx in
+            let* a := get' in
+            f a x.
+  Proof.
+    rewrite get_spec, bind_spec.
+    apply get_stateless, Hmx.
+  Qed.
+
+  Proposition put_stateless'
+              {a: A} {X} (mx: M X) {Hmx: Stateless' mx}
+              {Y} (f: unit -> X -> M Y) :
+    let* u := put' a in
+    let* x := mx in
+    f u x = let* x := mx in
+            let* u := put' a in
+            f u x.
+  Proof.
+    rewrite put_spec, bind_spec.
+    apply put_stateless, Hmx.
+  Qed.
+
+
+  Class Confined {X} (mx: M X) : Prop :=
+    convined : forall (f: S -> S), mx = let* s := get in
+                                  put (update (f s) (proj s));;
+                                  let* x := mx in
+                                  let* s' := get in
+                                  put (update s (proj s'));;
+                                  ret x.
+
+
+
+
+
+
+End lensmonad_section.
+
+
+(** ** Independence *)
+
+Section independence_section.
 
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}
-          {X: Type} (LX: Lens S X)
-          {Y: Type} (LY: Lens S Y).
+          {A: Type} (LA: Lens S A)
+          {B: Type} (LB: Lens S B).
 
-  Proposition flip_get_get {A} (f: X -> Y -> M A) :
-    let* x := get' LX in
-    let* y := get' LY in
-    f x y = let* y := get' LY in
-            let* x := get' LX in
-            f x y.
-  Proof. smon_rewrite. Qed.
-
-  Context {HI: Independent LX LY}.
-
-  Proposition flip_put_get {A} (x: X) (f: unit -> Y -> M A) :
-    let* u := put' LX x in
-    let* y := get' LY in
-    f u y = let* y := get' LY in
-            let* u := put' LX x in
-            f u y.
+  Proposition flip_get_get {X} (f: A -> B -> M X) :
+    let* a := get' LA in
+    let* b := get' LB in
+    f a b = let* b := get' LB in
+            let* a := get' LA in
+            f a b.
   Proof.
+    setoid_rewrite get_spec.
+    smon_rewrite.
+  Qed.
+
+  Context {HI: Independent LA LB}.
+
+  Proposition flip_put_get (a: A) {X} (f: unit -> B -> M X) :
+    let* u := put' LA a in
+    let* b := get' LB in
+    f u b = let* b := get' LB in
+            let* u := put' LA a in
+            f u b.
+  Proof.
+    rewrite get_spec, put_spec.
     smon_rewrite.
     independent_rewrite.
     reflexivity.
   Qed.
 
-  Proposition flip_put_put {A} (x: X) (y: Y) (f: unit -> unit -> M A) :
-    let* u := put' LX x in
-    let* v := put' LY y in
-    f u v = let* v := put' LY y in
-            let* u := put' LX x in
+  Proposition flip_put_put (a: A) (b: B) {X} (f: unit -> unit -> M X) :
+    let* u := put' LA a in
+    let* v := put' LB b in
+    f u v = let* v := put' LB b in
+            let* u := put' LA a in
             f u v.
   Proof.
+    setoid_rewrite put_spec'.
     smon_rewrite.
     independent_rewrite.
     reflexivity.
   Qed.
 
-End lenses_section.
+  Global Instance stateless_get : Stateless' LB (get' LA).
+  Proof.
+    split.
+    rewrite get_spec.
+    unfold Stateless.
+    intros f.
+    cbn.
+    smon_rewrite.
+    independent_rewrite.
+    lens_rewrite.
+    smon_rewrite.
+  Qed.
 
-Global Opaque get' put'.
+  Global Instance stateless_put a : Stateless' LB (put' LA a).
+  Proof.
+    split.
+    rewrite put_spec.
+    unfold Stateless.
+    intros f.
+    cbn.
+    smon_rewrite.
+    independent_rewrite.
+    lens_rewrite.
+    reflexivity.
+  Qed.
+
+
+
+
+End independence_section.
