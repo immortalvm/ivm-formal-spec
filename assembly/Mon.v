@@ -249,12 +249,12 @@ Section lensmonad_section.
   Arguments update {_ _ _}.
 
   Class Confined {X} (mx: M X) : Prop :=
-    confined : forall (t: S -> S), mx = let* s := get in
-                                  put (update (t s) (proj s));;
-                                  let* x := mx in
-                                  let* s' := get in
-                                  put (update s (proj s'));;
-                                  ret x.
+    confined : forall (ss: S), mx = let* s := get in
+                               put (update ss (proj s));;
+                               let* x := mx in
+                               let* s' := get in
+                               put (update s (proj s'));;
+                               ret x.
 
   #[refine]
   Global Instance lensmonad: SMonad A M | 10 :=
@@ -308,7 +308,7 @@ Section lensmonad_section.
   Global Instance confined_ret {X} (x: X) : Confined (ret x).
   Proof.
     unfold Confined.
-    intros t.
+    intros ss.
     smon_rewrite'.
   Qed.
 
@@ -317,31 +317,29 @@ Section lensmonad_section.
          {Hmx: Confined mx}
          {Hf: forall x, Confined (f x)} : Confined (mx >>= f).
   Proof.
-    unfold Confined in *. intros t.
-    rewrite (Hmx t) at 1.
-    setoid_rewrite (Hmx id) at 2. unfold id.
+    unfold Confined in *. intros ss.
+    rewrite (Hmx ss).
     smon_rewrite'.
-    apply bind_extensional. intros s.
-    setoid_rewrite (Hf _ (fun _ => t s)) at 1.
+    setoid_rewrite (Hf _ ss) at 1.
     smon_rewrite'.
   Qed.
 
   Global Instance confined_err {X} : Confined (err : M X).
   Proof.
-    intros t.
+    intros ss.
     smon_rewrite.
   Qed.
 
   Global Instance confined_get : Confined get'.
   Proof.
-    intros t.
+    intros ss.
     rewrite get_spec.
     smon_rewrite'.
   Qed.
 
   Global Instance confined_put a : Confined (put' a).
   Proof.
-    intros t.
+    intros ss.
     rewrite put_spec.
     smon_rewrite'.
   Qed.
@@ -407,7 +405,7 @@ Section independence_section.
     Proof.
       apply smonad_extensional. intros s.
       rewrite get_spec.
-      setoid_rewrite (Hmx id). unfold id.
+      setoid_rewrite (Hmx s). unfold id.
       smon_rewrite'.
     Qed.
 
@@ -420,15 +418,8 @@ Section independence_section.
     Proof.
       apply smonad_extensional. intros s.
       rewrite put_spec.
-      setoid_rewrite (Hmx id) at 1. unfold id.
-      setoid_rewrite (Hmx (fun _ => update LB s b)) at 2.
+      setoid_rewrite (Hmx s).
       smon_rewrite'.
-      apply bind_extensional'; [ | reflexivity ].
-      (* TODO: automate *)
-      f_equal.
-      rewrite <- independent_commute.
-      lens_rewrite.
-      reflexivity.
     Qed.
 
   End confined_section.
