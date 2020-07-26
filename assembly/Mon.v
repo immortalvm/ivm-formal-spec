@@ -394,26 +394,25 @@ Section independence_section.
   Section confined_section.
 
     Context {X} (mx: M X) {Hmx: Confined LA mx}.
-    Context {Y: Type}.
 
-    Proposition get_confined (f: B -> X -> M Y) :
-      let* b := get' LB in
+    Proposition confined_after_get {Y} (f: B -> X -> M Y) :
       let* x := mx in
-      f b x = let* x := mx in
-              let* b := get' LB in
+      let* b := get' LB in
+      f b x = let* b := get' LB in
+              let* x := mx in
               f b x.
     Proof.
       apply smonad_extensional. intros s.
       rewrite get_spec.
-      setoid_rewrite (Hmx s). unfold id.
+      setoid_rewrite (Hmx s).
       smon_rewrite'.
     Qed.
 
-    Proposition put_confined b (f: unit -> X -> M Y) :
-      let* u := put' LB b in
+    Proposition confined_after_put b {Y} (f: unit -> X -> M Y) :
       let* x := mx in
-      f u x = let* x := mx in
-              let* u := put' LB b in
+      let* u := put' LB b in
+      f u x = let* u := put' LB b in
+              let* x := mx in
               f u x.
     Proof.
       apply smonad_extensional. intros s.
