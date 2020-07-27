@@ -240,6 +240,18 @@ Section lensmonad_section.
 
   Context {A: Type} (LA: Lens S A).
 
+  (** We put these definitions here so that
+      (i) it is clear that they refer to the monad [SM]
+ and (ii) for easy comparison with [get'] and [put']. *)
+
+  Class Neutral {X} (mx: M X) : Prop :=
+    neutral : forall aa, mx = let* s := get in
+                         put (update s aa);;
+                         let* x := mx in
+                         let* s' := get in
+                         put (update s' (proj s));;
+                         ret x.
+
   Class Confined {X} (mx: M X) : Prop :=
     confined : forall (ss: S), mx = let* s := get in
                                put (update ss (proj s));;
@@ -248,40 +260,8 @@ Section lensmonad_section.
                                put (update s (proj s'));;
                                ret x.
 
-  Global Instance confined_if (b: bool) {X} (mx mx': M X)
-         {Hmx: Confined mx}
-         {Hmx': Confined mx'} : Confined (if b then mx else mx').
-  Proof.
-    destruct b; assumption.
-  Qed.
 
-  Global Instance confined_sumbool
-         {P Q} (pq: {P} + {Q}) {X}
-         (f: P -> M X) {Hf: forall p, Confined (f p)}
-         (g: Q -> M X) {Hg: forall q, Confined (g q)} :
-    Confined (match pq with
-              | left p => f p
-              | right q => g q
-              end).
-  Proof.
-    destruct pq.
-    - apply Hf.
-    - apply Hg.
-  Qed.
-
-  Global Instance confined_option
-         {X} (ox: option X) {Y}
-         (f: X -> M Y) {Hf: forall x, Confined (f x)}
-         (my: M Y) {Hmy: Confined my} :
-    Confined (match ox with
-              | Some x => f x
-              | None => my
-              end).
-  Proof.
-    destruct ox.
-    - apply Hf.
-    - apply Hmy.
-  Qed.
+  (** *** Definition *)
 
   #[refine]
   Global Instance lensmonad: SMonad A M | 10 :=
@@ -331,7 +311,120 @@ Section lensmonad_section.
     smon_rewrite.
   Qed.
 
-  (* TODO: Prove statless -> confined instead? *)
+
+  (** *** Neutral computations *)
+
+  Global Instance neutral_if (b: bool) {X} (mx mx': M X)
+         {Hmx: Neutral mx}
+         {Hmx': Neutral mx'} : Neutral (if b then mx else mx').
+  Proof.
+    destruct b; assumption.
+  Qed.
+
+  Global Instance neutral_option
+         {X} (ox: option X) {Y}
+         (f: X -> M Y) {Hf: forall x, Neutral (f x)}
+         (my: M Y) {Hmy: Neutral my} :
+    Neutral (match ox with
+              | Some x => f x
+              | None => my
+              end).
+  Proof.
+    destruct ox; [apply Hf | apply Hmy].
+  Qed.
+
+  Global Instance neutral_sumbool
+         {P Q} (pq: {P} + {Q}) {X}
+         (f: P -> M X) {Hf: forall p, Neutral (f p)}
+         (g: Q -> M X) {Hg: forall q, Neutral (g q)} :
+    Neutral (match pq with
+              | left p => f p
+              | right q => g q
+              end).
+  Proof.
+    destruct pq; [apply Hf | apply Hg].
+  Qed.
+
+  Global Instance neutral_ret {X} (x: X) : Neutral (ret x).
+  Proof.
+    unfold Neutral. intros aa. smon_rewrite'.
+  Qed.
+
+  Global Instance neutral_bind
+         {X Y} (mx: M X) (f: X -> M Y)
+         {Hmx: Neutral mx}
+         {Hf: forall x, Neutral (f x)} : Neutral (mx >>= f).
+  Proof.
+    unfold Neutral in *. intros aa.
+    setoid_rewrite (Hmx aa). smon_rewrite.
+    setoid_rewrite (Hf _ aa). smon_rewrite'.
+  Qed.
+
+  Global Instance neutral_err {X} : Neutral (err : M X).
+  Proof.
+    unfold Neutral. intros aa. smon_rewrite.
+  Qed.
+
+  Lemma neutral_after_get {X} (mx: M X) {Hmx: Neutral mx} {Y} (f: X -> A -> M Y) :
+    let* x := mx in
+    let* a := get' in
+    f x a = let* a := get' in
+            let* x := mx in
+            f x a.
+  Proof.
+    smon_ext s.
+    rewrite get_spec.
+    setoid_rewrite (Hmx (proj s)).
+    smon_rewrite'.
+  Qed.
+
+  Lemma neutral_after_put {X} (mx: M X) {Hmx: Neutral mx} (a: A) {Y} (f: X -> unit -> M Y) :
+    let* x := mx in
+    let* u := put' a in
+    f x u = let* u := put' a in
+            let* x := mx in
+            f x u.
+  Proof.
+    smon_ext s.
+    rewrite put_spec.
+    setoid_rewrite (Hmx (proj s)).
+    smon_rewrite'.
+  Qed.
+
+
+  (** *** Confined (dual of neutral) **)
+
+  Global Instance confined_if (b: bool) {X} (mx mx': M X)
+         {Hmx: Confined mx}
+         {Hmx': Confined mx'} : Confined (if b then mx else mx').
+  Proof.
+    destruct b; assumption.
+  Qed.
+
+  Global Instance confined_option
+         {X} (ox: option X) {Y}
+         (f: X -> M Y) {Hf: forall x, Confined (f x)}
+         (my: M Y) {Hmy: Confined my} :
+    Confined (match ox with
+              | Some x => f x
+              | None => my
+              end).
+  Proof.
+    destruct ox; [apply Hf | apply Hmy].
+  Qed.
+
+  Global Instance confined_sumbool
+         {P Q} (pq: {P} + {Q}) {X}
+         (f: P -> M X) {Hf: forall p, Confined (f p)}
+         (g: Q -> M X) {Hg: forall q, Confined (g q)} :
+    Confined (match pq with
+              | left p => f p
+              | right q => g q
+              end).
+  Proof.
+    destruct pq; [apply Hf | apply Hg].
+  Qed.
+
   Global Instance confined_ret {X} (x: X) : Confined (ret x).
   Proof.
     unfold Confined.
@@ -396,6 +489,14 @@ Section independence_section.
 
   Context {HI: Independent LA LB}.
 
+  Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
+  Proof.
+    intros bb.
+    smon_ext s.
+    setoid_rewrite (Hmx (update s bb)).
+    smon_rewrite'.
+  Qed.
+
   Proposition flip_put_get (a: A) {X} (f: unit -> B -> M X) :
     let* u := put' LA a in
     let* b := get' LB in
@@ -422,12 +523,12 @@ Section independence_section.
 
     Context {X} (mx: M X) {Hmx: Confined LA mx}.
 
-    Proposition confined_after_get {Y} (f: B -> X -> M Y) :
+    Proposition confined_after_get {Y} (f: X -> B -> M Y) :
       let* x := mx in
       let* b := get' LB in
-      f b x = let* b := get' LB in
+      f x b = let* b := get' LB in
               let* x := mx in
-              f b x.
+              f x b.
     Proof.
       smon_ext s.
       rewrite get_spec.
@@ -435,12 +536,12 @@ Section independence_section.
       smon_rewrite'.
     Qed.
 
-    Proposition confined_after_put b {Y} (f: unit -> X -> M Y) :
+    Proposition confined_after_put b {Y} (f: X -> unit -> M Y) :
       let* x := mx in
       let* u := put' LB b in
-      f u x = let* u := put' LB b in
+      f x u = let* u := put' LB b in
               let* x := mx in
-              f u x.
+              f x u.
     Proof.
       smon_ext s.
       rewrite put_spec.
