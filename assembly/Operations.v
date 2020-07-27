@@ -181,9 +181,118 @@ Module Core (MP: MachineParameters).
 
  Section core_section.
 
+  Existing Instance offset_action.
+
   Context {MP1: MachineParams1}.
 
-  Existing Instance offset_action.
+  Existing Instance independent_MEM_IMAGE.
+  Definition independent_IMAGE_MEM := independent_symm independent_MEM_IMAGE.
+  Existing Instance independent_IMAGE_MEM.
+  Existing Instance independent_MEM_BYTES.
+  Definition independent_BYTES_MEM := independent_symm independent_MEM_BYTES.
+  Existing Instance independent_BYTES_MEM.
+  Existing Instance independent_MEM_CHARS.
+  Definition independent_CHARS_MEM := independent_symm independent_MEM_CHARS.
+  Existing Instance independent_CHARS_MEM.
+  Existing Instance independent_MEM_SOUND.
+  Definition independent_SOUND_MEM := independent_symm independent_MEM_SOUND.
+  Existing Instance independent_SOUND_MEM.
+  Existing Instance independent_MEM_LOG.
+  Definition independent_LOG_MEM := independent_symm independent_MEM_LOG.
+  Existing Instance independent_LOG_MEM.
+  Existing Instance independent_MEM_INP.
+  Definition independent_INP_MEM := independent_symm independent_MEM_INP.
+  Existing Instance independent_INP_MEM.
+  Existing Instance independent_MEM_PC.
+  Definition independent_PC_MEM := independent_symm independent_MEM_PC.
+  Existing Instance independent_PC_MEM.
+  Existing Instance independent_MEM_SP.
+  Definition independent_SP_MEM := independent_symm independent_MEM_SP.
+  Existing Instance independent_SP_MEM.
+  Existing Instance independent_IMAGE_BYTES.
+  Definition independent_BYTES_IMAGE := independent_symm independent_IMAGE_BYTES.
+  Existing Instance independent_BYTES_IMAGE.
+  Existing Instance independent_IMAGE_CHARS.
+  Definition independent_CHARS_IMAGE := independent_symm independent_IMAGE_CHARS.
+  Existing Instance independent_CHARS_IMAGE.
+  Existing Instance independent_IMAGE_SOUND.
+  Definition independent_SOUND_IMAGE := independent_symm independent_IMAGE_SOUND.
+  Existing Instance independent_SOUND_IMAGE.
+  Existing Instance independent_IMAGE_LOG.
+  Definition independent_LOG_IMAGE := independent_symm independent_IMAGE_LOG.
+  Existing Instance independent_LOG_IMAGE.
+  Existing Instance independent_IMAGE_INP.
+  Definition independent_INP_IMAGE := independent_symm independent_IMAGE_INP.
+  Existing Instance independent_INP_IMAGE.
+  Existing Instance independent_IMAGE_PC.
+  Definition independent_PC_IMAGE := independent_symm independent_IMAGE_PC.
+  Existing Instance independent_PC_IMAGE.
+  Existing Instance independent_IMAGE_SP.
+  Definition independent_SP_IMAGE := independent_symm independent_IMAGE_SP.
+  Existing Instance independent_SP_IMAGE.
+  Existing Instance independent_BYTES_CHARS.
+  Definition independent_CHARS_BYTES := independent_symm independent_BYTES_CHARS.
+  Existing Instance independent_CHARS_BYTES.
+  Existing Instance independent_BYTES_SOUND.
+  Definition independent_SOUND_BYTES := independent_symm independent_BYTES_SOUND.
+  Existing Instance independent_SOUND_BYTES.
+  Existing Instance independent_BYTES_LOG.
+  Definition independent_LOG_BYTES := independent_symm independent_BYTES_LOG.
+  Existing Instance independent_LOG_BYTES.
+  Existing Instance independent_BYTES_INP.
+  Definition independent_INP_BYTES := independent_symm independent_BYTES_INP.
+  Existing Instance independent_INP_BYTES.
+  Existing Instance independent_BYTES_PC.
+  Definition independent_PC_BYTES := independent_symm independent_BYTES_PC.
+  Existing Instance independent_PC_BYTES.
+  Existing Instance independent_BYTES_SP.
+  Definition independent_SP_BYTES := independent_symm independent_BYTES_SP.
+  Existing Instance independent_SP_BYTES.
+  Existing Instance independent_CHARS_SOUND.
+  Definition independent_SOUND_CHARS := independent_symm independent_CHARS_SOUND.
+  Existing Instance independent_SOUND_CHARS.
+  Existing Instance independent_CHARS_LOG.
+  Definition independent_LOG_CHARS := independent_symm independent_CHARS_LOG.
+  Existing Instance independent_LOG_CHARS.
+  Existing Instance independent_CHARS_INP.
+  Definition independent_INP_CHARS := independent_symm independent_CHARS_INP.
+  Existing Instance independent_INP_CHARS.
+  Existing Instance independent_CHARS_PC.
+  Definition independent_PC_CHARS := independent_symm independent_CHARS_PC.
+  Existing Instance independent_PC_CHARS.
+  Existing Instance independent_CHARS_SP.
+  Definition independent_SP_CHARS := independent_symm independent_CHARS_SP.
+  Existing Instance independent_SP_CHARS.
+  Existing Instance independent_SOUND_LOG.
+  Definition independent_LOG_SOUND := independent_symm independent_SOUND_LOG.
+  Existing Instance independent_LOG_SOUND.
+  Existing Instance independent_SOUND_INP.
+  Definition independent_INP_SOUND := independent_symm independent_SOUND_INP.
+  Existing Instance independent_INP_SOUND.
+  Existing Instance independent_SOUND_PC.
+  Definition independent_PC_SOUND := independent_symm independent_SOUND_PC.
+  Existing Instance independent_PC_SOUND.
+  Existing Instance independent_SOUND_SP.
+  Definition independent_SP_SOUND := independent_symm independent_SOUND_SP.
+  Existing Instance independent_SP_SOUND.
+  Existing Instance independent_LOG_INP.
+  Definition independent_INP_LOG := independent_symm independent_LOG_INP.
+  Existing Instance independent_INP_LOG.
+  Existing Instance independent_LOG_PC.
+  Definition independent_PC_LOG := independent_symm independent_LOG_PC.
+  Existing Instance independent_PC_LOG.
+  Existing Instance independent_LOG_SP.
+  Definition independent_SP_LOG := independent_symm independent_LOG_SP.
+  Existing Instance independent_SP_LOG.
+  Existing Instance independent_INP_PC.
+  Definition independent_PC_INP := independent_symm independent_INP_PC.
+  Existing Instance independent_PC_INP.
+  Existing Instance independent_INP_SP.
+  Definition independent_SP_INP := independent_symm independent_INP_SP.
+  Existing Instance independent_SP_INP.
+  Existing Instance independent_PC_SP.
+  Definition independent_SP_PC := independent_symm independent_PC_SP.
+  Existing Instance independent_SP_PC.
 
   Class MachineParams2 :=
   {
@@ -211,6 +320,15 @@ Module Core (MP: MachineParameters).
     ret (s a H).
 
   Definition load (a: Addr): M Cell := load0 a >>= extr.
+  Proposition load_spec a : load a = load0 a >>= extr.
+  Proof. reflexivity. Qed.
+  Opaque load.
+
+  Global Instance load_confined a : Confined MEM (load a).
+  Proof.
+    rewrite load_spec.
+    typeclasses eauto.
+  Qed.
 
   Definition store0 (a: Addr) (o: option Cell) : M unit :=
     assert* available a in
@@ -218,7 +336,16 @@ Module Core (MP: MachineParameters).
     let s' a' H := if decide (a = a') then o else s a' H in
     put' MEM s'.
 
-  Definition store (a: Addr) (o: Cell) : M unit := store0 a (Some o).
+  Definition store (a: Addr) (x: Cell) : M unit := store0 a (Some x).
+  Proposition store_spec a x : store a x = store0 a (Some x).
+  Proof. reflexivity. Qed.
+  Opaque store.
+
+  Global Instance store_confined a x : Confined MEM (store a x).
+  Proof.
+    rewrite store_spec.
+    typeclasses eauto.
+  Qed.
 
   Open Scope vector.
 
@@ -230,86 +357,8 @@ Module Core (MP: MachineParameters).
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
 
-  Definition next (n: nat) : M (Cells n) :=
-    let* pc := get' PC in
-    put' PC (offset n pc);;
-    loadMany n pc.
-
-  Section loadMany_transparent_section.
-
-    Transparent loadMany.
-
-    Proposition next_equation_1 : next 0 = ret [].
-    Proof.
-      unfold next.
-      simpl (offset _ _).
-      setoid_rewrite Z_action_zero.
-      rewrite get_put_prime.
-      simpl (loadMany _ _).
-      rewrite (to_lens_bind PC). (* TODO *)
-      apply get_ret'.
-    Qed.
-
-    Proposition next_equation_2 n :
-      next (S n) = let* pc := get' PC in
-                   let* x := load pc in
-                   put' PC (offset 1 pc);;
-                   let* r := next n in
-                   ret (x :: r).
-    Proof.
-      unfold next.
-      setoid_rewrite loadMany_equation_2.
-      repeat setoid_rewrite bind_assoc.
-      apply bind_extensional.
-      intros pc.
-      unfold load0.
-      destruct (decide (available pc)) as [Ha|Ha]; smon_rewrite.
-      rewrite flip_put_get;
-        [ | apply independent_symm, independent_MEM_PC ].
-      apply bind_extensional. intros mem.
-      destruct (mem pc Ha) as [x|]; smon_rewrite.
-
-      repeat setoid_rewrite <- bind_assoc.
-      f_equal.
-      repeat setoid_rewrite bind_assoc.
-
-      rewrite (to_lens_bind PC). (* TODO *)
-      setoid_rewrite put_get'.
-      setoid_rewrite put_put'.
-      apply bind_extensional'; [ | reflexivity ].
-      Transparent put'.
-      unfold put'.
-      Opaque put'.
-      f_equal.
-      rewrite <- Z_action_add.
-      f_equal.
-      lia.
-    Qed.
-
-  End loadMany_transparent_section.
-
-
-    transitivity (get' PC;;
-                  ret ([]: Cells 0)).
-    - f_equal.
-    -
-
-    setoid_rewrite loadMany_equation_1.
-
-    rewrite <- bind_assoc.
-    setoid_rewrite get_put_prime.
-    smon_rewrite.
-
-    - rewrite get_get_prime. reflexivity.
-    -
-
-
-
-    transitivity (let* pc := get' PC in
-                  let* pc' := get' PC in
-                  put' PC pc';;
-                  loadMany 0 pc).
-
+  (* [simp] does not, and [setoid_rewrite] requires unneccessary Addr argument. *)
+  Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
 
   Equations(noind) next (n: nat) : M (Cells n) :=
     next 0 := ret [];
@@ -320,13 +369,30 @@ Module Core (MP: MachineParameters).
       let* r := next n in
       ret (x :: r).
 
-  Close Scope vector.
+  Lemma next_spec n : next n = let* pc := get' PC in
+                               put' PC (offset n pc);;
+                               loadMany n pc.
+  Proof.
+    (* TODO: automate more? *)
+    induction n; simp next.
+    - simpl (offset _ _).
+      setoid_rewrite Z_action_zero.
+      simp_loadMany.
+      rewrite get_spec, put_spec, (bind_spec PC).
+      smon_rewrite.
+    - rewrite IHn. clear IHn.
+      simp_loadMany.
 
-  Equations storeMany (_: Addr) (_: list (option Cell)) : M unit :=
-    storeMany _ [] := ret tt;
-    storeMany a (x :: u) :=
-      store a x;;
-      storeMany (offset 1 a) u.
+      (* rewrite (get_spec PC), (put_spec PC), (bind_spec PC). *)
+      rewrite get_spec, put_spec, (bind_spec PC).
+      smon_rewrite'.
+      setoid_rewrite (confined_after_put MEM PC _).
+
+      assert (forall pc, offset n (offset 1 pc) = offset (S n) pc).
+      + intros pc. setoid_rewrite <- Z_action_add. f_equal. lia.
+      + setoid_rewrite H.
+        reflexivity.
+  Qed.
 
   (* Instead of marking the freed stack as undefined here,
      we will express this in the corresponding [Cert]s. *)
@@ -336,12 +402,69 @@ Module Core (MP: MachineParameters).
     put' SP (offset n sp);;
     ret res.
 
+  Lemma popMany_equation_0 : popMany 0 = ret [].
+  Proof.
+    unfold popMany.
+    simp_loadMany.
+    simpl (offset _ _).
+    rewrite_strat (outermost Z_action_zero).
+    smon_rewrite.
+    rewrite get_spec, put_spec.
+    repeat rewrite (bind_spec SP).
+    smon_rewrite.
+  Qed.
+
+  Lemma popMany_equation_1 n :
+    popMany (S n) = let* sp := get' SP in
+                    let* x := load sp in
+                    let* r := popMany n in
+                    ret (x :: r).
+  Proof.
+    unfold popMany.
+    simp_loadMany.
+    Opaque load. (* TODO *)
+    smon_rewrite.
+
+
+let* u := popMany m in
+                    let* v := popMany n in
+                    ret (u ++ v).
+
+
+  Lemma popMany_equation_2 m n :
+    popMany (m + n) = let* u := popMany m in
+                      let* v := popMany n in
+                      ret (u ++ v).
+  Proof.
+    induction m.
+    - rewrite popMany_equation_1. smon_rewrite.
+    - cbn.
+
+
+
+
+
+let* sp := get' SP in
+                      let* x := load sp in
+                      put' SP (offset n sp);;
+                      ret res.
+
+
+
+  Close Scope vector.
+
+  Equations storeMany (_: Addr) (_: list Cell) : M unit :=
+    storeMany _ [] := ret tt;
+    storeMany a (x :: u) :=
+      store a x;;
+      storeMany (offset 1 a) u.
+
   Definition pushMany (u: list Cell): M unit :=
     let* sp := get' SP in
     (* The stack grows downwards. *)
     let a := offset (- List.length u) sp in
     put' SP a;;
-    storeMany a (map Some u).
+    storeMany a u.
 
 
   (** ** Input *)
