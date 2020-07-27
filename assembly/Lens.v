@@ -91,9 +91,9 @@ Class Lens (A: Type) (X: Type) :=
 }.
 
 Create HintDb proj discriminated.
-Hint Rewrite @proj_update using (typeclasses eauto) : proj.
-Hint Rewrite @update_proj using (typeclasses eauto) : proj.
-Hint Rewrite @update_update using (typeclasses eauto) : proj.
+Hint Rewrite @proj_update : proj.
+Hint Rewrite @update_proj : proj.
+Hint Rewrite @update_update : proj.
 Ltac lens_rewrite1 := rewrite_strat (outermost (hints proj)).
 Ltac lens_rewrite := repeat lens_rewrite1.
 
@@ -149,32 +149,6 @@ Section lens_bijection_section.
   Defined.
 
 End lens_bijection_section.
-
-
-(** ** Lens monoid
-
-This is not something we actually use.
-TODO: Remove? *)
-
-Section lens_monoid_section.
-
-  (** [id] is a bijection and therefore a lens. *)
-
-  Context {A X} (PX: Lens A X).
-  Context {Y} (PY: Lens X Y).
-
-  #[refine] Instance lens_composite : Lens A Y :=
-  {
-    proj a := proj (proj a);
-    update a y := update a (update (proj a) y);
-  }.
-  Proof.
-    all: intros; lens_rewrite; reflexivity.
-  Defined.
-
-  (** This is clearly a monoid up to funcitonal extensionality. *)
-
-End lens_monoid_section.
 
 
 (** ** Independent lenses *)
@@ -344,365 +318,101 @@ End projection_section.
 (** The projections from a record type have the same property, cf. Concrete.v. *)
 
 
-(** ** Sum lenses *)
+(** ** Lens monoid
 
-Section sum_section.
+This is not something we actually use.
+TODO: Remove? *)
 
-  Context {A B X : Type} {LX : Lens A X} {LY : Lens B X}.
+Section lens_monoid_section.
 
-  #[refine] Instance lens_sum : Lens (A + B) X :=
+  (** [id] is a bijection and therefore a lens. *)
+
+  Context {A X Y} (LY: Lens X Y) (LX: Lens A X).
+
+  #[refine] Instance compose : Lens A Y :=
   {
-    proj ab := match ab with inl a => proj a | inr b => proj b end;
-    update ab x := match ab with inl a => inl (update a x) | inr b => inr (update b x) end;
+    proj a := proj (proj a);
+    update a y := update a (update (proj a) y);
   }.
   Proof.
-    - intros [a|b] x; now lens_rewrite.
-    - intros [a|b]; f_equal; now lens_rewrite.
-    - intros [a|b] x x'; f_equal; now lens_rewrite.
+    all: abstract (intros; lens_rewrite; reflexivity).
   Defined.
 
-End sum_section.
+  (** This is clearly a monoid up to funcitonal extensionality. *)
+
+End lens_monoid_section.
+
+Declare Scope lens_scope.
+Delimit Scope lens_scope with lens.
+Infix "∘" := compose (at level 40, left associativity) : lens_scope.
 
 
-(** ** Prisms
+(** **   *)
 
-This is essentially a formalization of "prisms" in funcitonal programming.
-I am not sure if our axiomatization is optimal. *)
+Local Arguments proj {_ _} _%lens _.
+Local Arguments update {_ _} _%lens _ _.
 
-Class Prism (X: Type) (A: Type) :=
-{
-  inj : X -> A;
-  injected : A -> option X;
-  injected_inj x : injected (inj x) = Some x;
-  injected_some a x : injected a = Some x -> inj x = a;
-}.
+Section characterization_section.
 
-Arguments injected_some {_ _ _ _ _}.
+  Context {A X} (LX: Lens A X) (LX': Lens A X).
 
-Notation Bijection_prism P := (Bijection (inj (Prism:=P))).
-
-Section bijection_prism_section.
-
-  Context {X A} {f: X -> A} (Bf: Bijection f).
-
-  #[refine] Instance prism_bijection : Prism X A :=
-  {
-    inj := f;
-    injected a := Some (inverse a);
-  }.
+  Proposition update_characterizes_proj
+              (H: forall a x, update LX a x = update LX' a x) a :
+    proj LX a = proj LX' a.
   Proof.
-    - intros x. f_equal. apply inverse_f.
-    - intros a x H. injection H. intro. subst x. apply f_inverse.
+    setoid_rewrite <- (update_proj (Lens:=LX')) at 1.
+    rewrite <- H.
+    apply proj_update.
   Qed.
 
-End bijection_prism_section.
+  (** This can be simplified if we assume functional extensionality. *)
 
-Section prism_basics_section.
-
-  Context A {X} (PX: Prism X A).
-
-  Lemma inj_extract a (H: injected a) : inj (extract H) = a.
+  Proposition update_characterizes_proj'
+              (H: update LX = update LX') : proj LX = proj LX'.
   Proof.
-    destruct (injected a) as [x|] eqn:Ha.
-    - apply injected_some. exact Ha.
-    - exact (none_rect H).
-  Qed.
-
-  Proposition inj_is_injected (x: X) : injected (inj x).
-  Proof. apply (is_some_eq (injected_inj x)). Defined.
-
-  Proposition extract_inj (x: X) : extract (inj_is_injected x) = x.
-  Proof.
-    unfold inj_is_injected.
-    rewrite extract_is_some_eq.
+    extensionality a.
+    apply update_characterizes_proj.
+    rewrite H.
     reflexivity.
   Qed.
 
-  Opaque inj_is_injected.
+End characterization_section.
 
-  Lemma inj_injective (x x': X) : inj x = inj x' -> x = x'.
-  Proof. (* Not sure if this is the best proof of this fact. *)
-    intros H.
-    derive H (f_equal injected H).
-    do 2 rewrite injected_inj in H.
-    exact (noConfusion_inv H).
+Section cover_section.
+
+  Context {A X Y} (LX: Lens A X) (LY: Lens A Y).
+
+  Class Cover :=
+  {
+    cover: Lens X Y;
+    cover_update a y: update LY a y = update LX a (update cover (proj LX a) y);
+  }.
+
+  Proposition cover_proj {HC: Cover} a : proj LY a = proj cover (proj LX a).
+  Proof.
+    transitivity (proj (cover ∘ LX) a).
+    - apply update_characterizes_proj, HC.
+    - reflexivity.
   Qed.
 
-  Context {Y} (PY: Prism Y X).
+  Open Scope lens.
 
-  #[refine] Instance inj_composition : Prism Y A :=
-  {
-    inj y := inj (inj y);
-    injected a := match injected a with
-                  | Some x => injected x
-                  | None => None
-                  end;
-  }.
+  Proposition lens_eta :
+    LY =
+    {|
+      proj := proj LY;
+      update := update LY;
+      proj_update := proj_update;
+      update_proj := update_proj;
+      update_update := update_update;
+    |}.
+  Proof. destruct LY. reflexivity. Qed.
+
+(*
+  Proposition cover_composite {HC: Cover} : LY = cover ∘ LX.
   Proof.
-    - intros y. do 2 rewrite injected_inj. reflexivity.
-    - intros a y H.
-      destruct (injected a) as [x|] eqn:Ha.
-      + rewrite (injected_some H).
-        rewrite (injected_some Ha).
-        reflexivity.
-      + destruct (noConfusion_inv H).
-  Defined.
+    unfold compose.
+    rewrite lens_eta.
+*)
 
-  (** [id] is a bijection and therefore a prism. Hence, we clearly have a
-      monoid up to functional extensionality here as well. *)
-
-End prism_basics_section.
-
-Arguments inj_extract {_ _ _ _} _.
-Arguments inj_is_injected {_ _ _} _.
-Arguments extract_inj {_ _ _} _.
-Arguments inj_injective {_ _ _ _ _} _.
-Arguments inj_composition {_ _} _ {_} _.
-
-(** From now on, make [X] explicit for clarity. *)
-Arguments injected : clear implicits.
-Arguments injected _ {_ _} _.
-
-
-(** ** Disjoint prisms *)
-
-Class Disjoint {X Y A} (PX: Prism X A) (PY: Prism Y A) : Prop :=
-{
-  injectedY_injX (x: X) : injected Y (inj x) = None;
-  injectedX_injY (y: Y) : injected X (inj y) = None;
-}.
-
-Arguments injectedY_injX {_ _ _ _ _ _} _.
-Arguments injectedX_injY {_ _ _ _ _ _} _.
-
-Section disjoint_basics_section.
-
-  Context {X Y A} {PX: Prism X A} {PY: Prism Y A}.
-
-  (** Not global to avoid infinite loops. *)
-  Instance disjoint_symm (D: Disjoint PX PY) :
-    Disjoint PY PX.
-  Proof.
-    split.
-    - apply injectedX_injY.
-    - apply injectedY_injX.
-  Qed.
-
-  Lemma disjoint_spec : Disjoint PX PY <-> forall a, (injected X a) -> (injected Y a) -> False.
-  Proof.
-    split.
-    - intros [Hyx Hxy].
-      intros a Hx Hy.
-      specialize (Hyx (extract Hx)).
-      rewrite inj_extract in Hyx.
-      rewrite Hyx in Hy.
-      exact (none_is_false Hy).
-    - intros H.
-      split.
-      + intros x.
-        specialize (H (inj x)).
-        destruct (injected Y (inj x)).
-        exfalso.
-        apply H.
-        * apply inj_is_injected.
-        * apply some_is_some.
-        * reflexivity.
-      + intros y.
-        specialize (H (inj y)).
-        destruct (injected X (inj y)).
-        exfalso.
-        apply H.
-        * apply some_is_some.
-        * apply inj_is_injected.
-        * reflexivity.
-  Qed.
-
-End disjoint_basics_section.
-
-
-(** ** Injection prisms *)
-
-Section injection_section.
-
-  Context {X Y : Type}.
-
-  #[refine] Instance inj_inl: Prism X (X + Y) :=
-  {
-    inj := inl;
-    injected a := match a with inl x => Some x | _ => None end;
-  }.
-  Proof.
-    - intro x. reflexivity.
-    - intros [x|y] x' H; destruct (noConfusion_inv H).
-      reflexivity.
-  Defined.
-
-  #[refine] Instance inj_inr: Prism Y (X + Y) :=
-  {
-    inj := inr;
-    injected a := match a with inr y => Some y | _ => None end;
-  }.
-  Proof.
-    - intro y. reflexivity.
-    - intros [x|y] y' H; destruct (noConfusion_inv H).
-      reflexivity.
-  Defined.
-
-  Program Instance disjoint_ins : Disjoint inj_inl inj_inr.
-
-  Context (A: Type).
-
-  Context (PX: Prism X A) (PY: Prism Y A).
-
-  #[refine] Instance inj_false : Prism False A :=
-  {
-    inj H := False_rect A H;
-    injected _ := None;
-  }.
-  Proof.
-    - intros [].
-    - intros a x. destruct x.
-  Defined.
-
-  Instance inj_false_disjoint: Disjoint inj_false PX.
-  Proof.
-    split.
-    - intros [].
-    - intros y. reflexivity.
-  Defined.
-
-End injection_section.
-
-
-(** ** Sum prisms *)
-
-Section sum_section.
-
-  Derive NoConfusion for sum.
-
-  Context {A X Y} {PX: Prism X A} {PY: Prism Y A} (DXY: Disjoint PX PY).
-
-  #[refine] Instance inj_sum : Prism (X + Y) A :=
-  {
-    inj xy := match xy with
-              | inl x => inj x
-              | inr y => inj y
-              end;
-    injected a := match injected X a, injected Y a with
-                  | Some x, _ => Some (inl x)
-                  | _, Some y => Some (inr y)
-                  | _, _ => None
-                  end;
-  }.
-  Proof.
-    - intros [x|y]; rewrite injected_inj.
-      + reflexivity.
-      + rewrite injectedX_injY. reflexivity.
-    - intros a [x|y] H; destruct (injected X a) as [x'|] eqn:Ha.
-      + repeat derive H (noConfusion_inv H).
-        simpl in H. subst x'.
-        exact (injected_some Ha).
-      + destruct (injected Y a) as [y|];
-          exfalso; repeat derive H (noConfusion_inv H); exact H.
-      + exfalso; repeat derive H (noConfusion_inv H); exact H.
-      + destruct (injected Y a) as [y'|] eqn:Ha'.
-        * repeat derive H (noConfusion_inv H).
-          simpl in H. subst y'.
-          exact (injected_some Ha').
-        * exfalso; repeat derive H (noConfusion_inv H); exact H.
-  Defined.
-
-  Context Z {PZ: Prism Z A} (DXZ: Disjoint PX PZ) (DYZ: Disjoint PY PZ).
-
-  Instance sum_disjoint : Disjoint inj_sum PZ.
-  Proof. (* TODO: shorten? *)
-    split.
-    - intros [x|y].
-      + apply (injectedY_injX (Disjoint:=DXZ)).
-      + apply (injectedY_injX (Disjoint:=DYZ)).
-    - intros z.
-      simpl.
-      destruct (injected X (inj z)) as [x|] eqn:Hi.
-      + rewrite injectedX_injY in Hi.
-        exfalso; exact (noConfusion_inv Hi).
-      + destruct (injected Z (inj z)) as [y|] eqn:Hi';
-          rewrite injectedX_injY;
-          reflexivity.
-  Qed.
-
-End sum_section.
-
-
-(** ** [N -> Z] prism *)
-
-Tactic Notation "decide" "as" ident(H) :=
-  match goal with
-    [|- context [decide ?P]] =>
-    let H := fresh H in (* Not sure why this is needed *)
-    let HH := fresh in
-    assert P as HH;
-    [ | destruct (decide P) as [H|H];
-        [ clear HH | exfalso; exact (H HH) ]]
-end.
-
-#[refine] Instance prism_N : Prism N Z :=
-{
-  inj x := Z.of_N x;
-  injected z := if decide (0 <= z)%Z
-                then Some (Z.to_N z)
-                else None;
-}.
-Proof.
-  - intros x.
-    decide as H; [apply N2Z.is_nonneg|].
-    f_equal.
-    apply N2Z.id.
-  - intros z x.
-    destruct (decide _) as [H|H];
-      [|intros HH; exfalso; exact (noConfusion_inv HH)].
-    injection 1. intro. subst x.
-    apply Z2N.id.
-    exact H.
-Defined.
-
-Proposition injected_N {z: Z} : injected N z <-> (0 <= z)%Z.
-Proof.
-  simpl.
-  destruct (decide _) as [H|H]; unfold is_some; simpl; tauto.
-Qed.
-
-
-(** ** Sublenses *)
-
-Section sublens_section.
-
-  Context {X A Y} {PX: Prism X A} {LY: Lens A Y}.
-
-  Context (H: forall x y, injected X (update (inj x) y)).
-
-  #[refine] Instance sublens : Lens X Y :=
-  {
-    proj x := proj (inj x);
-    update x y := extract (H x y);
-  }.
-  Proof.
-    - intros x y. rewrite inj_extract, proj_update. reflexivity.
-    - intros x. apply inj_injective.
-      rewrite inj_extract, update_proj. reflexivity.
-    - intros x y y'.
-      apply inj_injective.
-      repeat rewrite inj_extract.
-      rewrite update_update.
-      reflexivity.
-  Defined.
-
-  Proposition prism_proj_spec x : proj x = proj (inj x).
-  Proof. reflexivity. Qed.
-
-  Proposition prism_update_spec x y : update x y = extract (H x y).
-  Proof. reflexivity. Qed.
-
-  Proposition inj_prism_update x y : inj (update x y) = update (inj x) y.
-  Proof. simpl. rewrite inj_extract. reflexivity. Qed.
-
-End sublens_section.
+End cover_section.
