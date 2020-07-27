@@ -137,7 +137,7 @@ Section basics_section.
     reflexivity.
   Qed.
 
-  Proposition get_put' Y (f: S -> unit -> M Y) :
+  Proposition get_put' {Y} (f: S -> unit -> M Y) :
     let* s := get in
     let* u := put s in
     f s u = let* s := get in
@@ -159,12 +159,21 @@ Section basics_section.
   Proposition ret_tt_bind {X} (mx: M X) : ret tt;; mx = mx.
   Proof. apply ret_bind. Qed.
 
-  Proposition get_ret' Y (my: M Y) : get;; my = my.
+  Proposition get_ret' {X} (mx: M X) : get;; mx = mx.
   Proof.
     setoid_rewrite <- ret_tt_bind at 3.
     setoid_rewrite <- bind_assoc.
     setoid_rewrite get_ret.
     apply ret_bind.
+  Qed.
+
+  Corollary smonad_ext {X} (mx mx': M X)
+        (H: forall s, put s;; mx = put s;; mx') : mx = mx'.
+  Proof.
+    setoid_rewrite <- get_ret'.
+    setoid_rewrite <- (get_put' (fun _ _ => _)).
+    apply bind_extensional.
+    exact H.
   Qed.
 
   Proposition assert_bind {P} {DP: Decidable P} {X} {mx: M X} {Y} {f: X -> M Y} :
@@ -219,6 +228,8 @@ Goal forall {S M X Y} {SM: SMonad S M} (g: S -> X) (f: X -> M Y),
   smon_rewrite.
 Qed.
 
+Ltac smon_ext s := apply smonad_ext; intros s.
+
 
 (** ** Lens monads *)
 
@@ -227,26 +238,7 @@ Section lensmonad_section.
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}.
 
-  (* TODO: Move? *)
-  Lemma smonad_extensional {X} (mx mx': M X)
-        (H: forall s, put s;; mx = put s;; mx') : mx = mx'.
-  Proof.
-    transitivity (let* s := get in
-                  put s;;
-                  mx);
-      [ smon_rewrite | ].
-    transitivity (let* s := get in
-                  put s;;
-                  mx');
-      [ | smon_rewrite ].
-    apply bind_extensional.
-    exact H.
-  Qed.
-
   Context {A: Type} (LA: Lens S A).
-
-  Arguments proj {_ _ _}.
-  Arguments update {_ _ _}.
 
   Class Confined {X} (mx: M X) : Prop :=
     confined : forall (ss: S), mx = let* s := get in
@@ -255,6 +247,41 @@ Section lensmonad_section.
                                let* s' := get in
                                put (update s (proj s'));;
                                ret x.
+
+  Global Instance confined_if (b: bool) {X} (mx mx': M X)
+         {Hmx: Confined mx}
+         {Hmx': Confined mx'} : Confined (if b then mx else mx').
+  Proof.
+    destruct b; assumption.
+  Qed.
+
+  Global Instance confined_sumbool
+         {P Q} (pq: {P} + {Q}) {X}
+         (f: P -> M X) {Hf: forall p, Confined (f p)}
+         (g: Q -> M X) {Hg: forall q, Confined (g q)} :
+    Confined (match pq with
+              | left p => f p
+              | right q => g q
+              end).
+  Proof.
+    destruct pq.
+    - apply Hf.
+    - apply Hg.
+  Qed.
+
+  Global Instance confined_option
+         {X} (ox: option X) {Y}
+         (f: X -> M Y) {Hf: forall x, Confined (f x)}
+         (my: M Y) {Hmy: Confined my} :
+    Confined (match ox with
+              | Some x => f x
+              | None => my
+              end).
+  Proof.
+    destruct ox.
+    - apply Hf.
+    - apply Hmy.
+  Qed.
 
   #[refine]
   Global Instance lensmonad: SMonad A M | 10 :=
@@ -402,7 +429,7 @@ Section independence_section.
               let* x := mx in
               f b x.
     Proof.
-      apply smonad_extensional. intros s.
+      smon_ext s.
       rewrite get_spec.
       setoid_rewrite (Hmx s).
       smon_rewrite'.
@@ -415,7 +442,7 @@ Section independence_section.
               let* x := mx in
               f u x.
     Proof.
-      apply smonad_extensional. intros s.
+      smon_ext s.
       rewrite put_spec.
       setoid_rewrite (Hmx s).
       smon_rewrite'.
@@ -424,3 +451,6 @@ Section independence_section.
   End confined_section.
 
 End independence_section.
+
+Arguments confined_after_get {_ _ _ _} LA {_} LB {_ _} mx {_ _ _}.
+Arguments confined_after_put {_ _ _ _} LA {_} LB {_ _} mx {_ _ _ _}.

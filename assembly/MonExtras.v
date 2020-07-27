@@ -124,49 +124,6 @@ Section Trivial.
 End Trivial.
 
 
-(** ** No side-effects *)
-
-Section No_side_effects.
-
-  Open Scope monad_scope.
-
-  Context (S: Type)
-          (m: Type -> Type)
-          {M: SMonad S m}.
-
-  Class NoSideEffects {A} (ma: m A) : Prop :=
-    noSideEffects: forall B (mb: m B), ma;; mb = mb.
-
-  Global Instance noEff_unit {A} (ma: m A) (H: ma;; ret tt = ret tt): NoSideEffects ma.
-  Proof.
-    intros B mb.
-    transitivity (ma;; ret tt;; mb).
-    - setoid_rewrite ret_bind. reflexivity.
-    - rewrite <- bind_assoc, H, ret_bind. reflexivity.
-  Qed.
-
-  Global Instance noEff_ret {A} (x: A) : NoSideEffects (ret x).
-  Proof.
-    apply noEff_unit. rewrite ret_bind. reflexivity.
-  Qed.
-
-  Global Instance noEff_bind
-           {A B} (ma: m A) (f: A -> m B)
-           {Ha: NoSideEffects ma}
-           {Hb: forall x, NoSideEffects (f x)} : NoSideEffects (bind ma f).
-  Proof.
-    intros C mc.
-    rewrite bind_assoc.
-    setoid_rewrite Hb.
-    rewrite Ha.
-    reflexivity.
-  Qed.
-
-End No_side_effects.
-
-Existing Instance est_smonad.
-
-
 (** ** Every (very well-behaved) lens is a product lens
 
 Assuming functional extensionality and proof irrelevance, we have a
