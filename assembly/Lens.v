@@ -90,6 +90,10 @@ Class Lens (A: Type) (X: Type) :=
   update_update (a: A) (x: X) (x': X) : update (update a x) x' = update a x';
 }.
 
+Declare Scope lens_scope.
+Bind Scope lens_scope with Lens.
+Delimit Scope lens_scope with lens.
+
 Create HintDb proj discriminated.
 Hint Rewrite @proj_update : proj.
 Hint Rewrite @update_proj : proj.
@@ -221,7 +225,7 @@ Section unit_and_false_section.
 End unit_and_false_section.
 
 
-(** ** Projection lenses *)
+(** ** Products and projections *)
 
 Section projection_section.
 
@@ -241,10 +245,10 @@ Section projection_section.
 
   Program Instance independent_projs : Independent lens_fst lens_snd.
 
-  Context {A} {LX: Lens A X} {LY: Lens A Y} (IXY: Independent LX LY).
+  Context {A} (LX: Lens A X) (LY: Lens A Y) {IXY: Independent LX LY}.
 
   #[refine]
-  Instance lens_prod : Lens A (X * Y) :=
+  Instance prodlens : Lens A (X * Y) :=
   {
     proj a := (proj a, proj a);
     update a xy := update (update a (fst xy)) (snd xy);
@@ -260,7 +264,7 @@ Section projection_section.
   Proof. reflexivity. Qed.
 
 
-  Context {Bp: Bijection_lens lens_prod}.
+  Context {Bp: Bijection_lens prodlens}.
 
   Local Ltac update_prod_tac a :=
     apply (B_injective (Bf:=Bp));
@@ -304,7 +308,7 @@ Section projection_section.
 
   Context Z (LZ: Lens A Z) (IXZ: Independent LX LZ) (IYZ: Independent LY LZ).
 
-  Global Instance independent_prod : Independent lens_prod LZ.
+  Global Instance independent_prod : Independent prodlens LZ.
   Proof.
     split.
     - intros s [x y]. simpl.
@@ -315,7 +319,9 @@ Section projection_section.
 
 End projection_section.
 
-(** The projections from a record type have the same property, cf. Concrete.v. *)
+(** The projections from a record type have the same property, cf. MachineExtras.v. *)
+
+Infix "*" := prodlens : lens_scope.
 
 
 (** ** Lens monoid
@@ -342,15 +348,13 @@ Section lens_monoid_section.
 
 End lens_monoid_section.
 
-Declare Scope lens_scope.
-Delimit Scope lens_scope with lens.
 Infix "∘" := compose (at level 40, left associativity) : lens_scope.
 
 
-(** **   *)
+(** ** Various *)
 
-Local Arguments proj {_ _} _%lens _.
-Local Arguments update {_ _} _%lens _ _.
+Local Arguments proj {_ _} _ _.
+Local Arguments update {_ _} _ _ _.
 
 Section characterization_section.
 
@@ -395,24 +399,28 @@ Section cover_section.
     - reflexivity.
   Qed.
 
-  Open Scope lens.
-
-  Proposition lens_eta :
-    LY =
-    {|
-      proj := proj LY;
-      update := update LY;
-      proj_update := proj_update;
-      update_proj := update_proj;
-      update_update := update_update;
-    |}.
-  Proof. destruct LY. reflexivity. Qed.
-
-(*
-  Proposition cover_composite {HC: Cover} : LY = cover ∘ LX.
-  Proof.
-    unfold compose.
-    rewrite lens_eta.
-*)
-
 End cover_section.
+
+Arguments cover {_ _ _ _ _} _.
+Arguments cover_update {_ _ _ _ _} _.
+Arguments cover_proj {_ _ _ _ _} _.
+
+Section prod_cover_section.
+
+  Context {A X Y} (LX: Lens A X) (LY: Lens A Y) (HI: Independent LX LY).
+
+  #[refine] Global Instance prod_cover1 : Cover (LX * LY) LX := { cover := lens_fst; }.
+  Proof.
+    intros a x. cbn.
+    repeat (lens_rewrite1 || independent_rewrite1).
+    reflexivity.
+  Defined.
+
+  #[refine] Global Instance prod_cover2 : Cover (LX * LY) LY := { cover := lens_snd; }.
+  Proof.
+    intros a y. cbn.
+    repeat (lens_rewrite1 || independent_rewrite1).
+    reflexivity.
+  Defined.
+
+End prod_cover_section.

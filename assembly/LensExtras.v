@@ -472,14 +472,14 @@ Section lens_vector_section.
       reflexivity.
   Qed.
 
-  Context (Bp: Bijection_lens (lens_prod IXA)).
-  Existing Instance lens_prod.
+  Existing Instance prodlens.
+  Context (Bp: Bijection_lens (LX * LA)).
 
   Equations inverseN {n} `(vector X n) `(A) : A :=
     inverseN (n:=S n) (x :: r) a := inverse (x, inverseN r a);
     inverseN _ a := a.
 
-  #[refine] Instance bijection_vector n : Bijection_lens (lens_prod (independent_vector n)) :=
+  #[refine] Instance bijection_vector n : Bijection_lens ((lens_vector n) * (lens_vector' n)) :=
     bijection_lens (fun va => inverseN (fst va) (snd va)) _.
   Proof.
     intros a [v a']. simpl. revert a v a'.

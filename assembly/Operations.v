@@ -11,10 +11,12 @@ Set Implicit Arguments.
 
 (** ** [Z]-actions *)
 
+Local Open Scope Z.
+
 Class Z_action {X} (f: Z -> X -> X) : Prop :=
 {
   Z_action_zero x : f 0 x = x;
-  Z_action_add z z' x : f (z + z')%Z x = f z (f z' x);
+  Z_action_add z z' x : f (z + z') x = f z' (f z x);
 }.
 
 
@@ -65,6 +67,9 @@ Definition updatePixel {C} (x y: N) (c: C) (im: Image C) : Image C :=
     then c
     else pixel im Hx Hy
 |}.
+
+Close Scope N.
+Local Notation "0" := 0%nat.
 
 
 (** ** Machine parameters
@@ -186,113 +191,41 @@ Module Core (MP: MachineParameters).
   Context {MP1: MachineParams1}.
 
   Existing Instance independent_MEM_IMAGE.
-  Definition independent_IMAGE_MEM := independent_symm independent_MEM_IMAGE.
-  Existing Instance independent_IMAGE_MEM.
   Existing Instance independent_MEM_BYTES.
-  Definition independent_BYTES_MEM := independent_symm independent_MEM_BYTES.
-  Existing Instance independent_BYTES_MEM.
   Existing Instance independent_MEM_CHARS.
-  Definition independent_CHARS_MEM := independent_symm independent_MEM_CHARS.
-  Existing Instance independent_CHARS_MEM.
   Existing Instance independent_MEM_SOUND.
-  Definition independent_SOUND_MEM := independent_symm independent_MEM_SOUND.
-  Existing Instance independent_SOUND_MEM.
   Existing Instance independent_MEM_LOG.
-  Definition independent_LOG_MEM := independent_symm independent_MEM_LOG.
-  Existing Instance independent_LOG_MEM.
   Existing Instance independent_MEM_INP.
-  Definition independent_INP_MEM := independent_symm independent_MEM_INP.
-  Existing Instance independent_INP_MEM.
   Existing Instance independent_MEM_PC.
-  Definition independent_PC_MEM := independent_symm independent_MEM_PC.
-  Existing Instance independent_PC_MEM.
   Existing Instance independent_MEM_SP.
-  Definition independent_SP_MEM := independent_symm independent_MEM_SP.
-  Existing Instance independent_SP_MEM.
   Existing Instance independent_IMAGE_BYTES.
-  Definition independent_BYTES_IMAGE := independent_symm independent_IMAGE_BYTES.
-  Existing Instance independent_BYTES_IMAGE.
   Existing Instance independent_IMAGE_CHARS.
-  Definition independent_CHARS_IMAGE := independent_symm independent_IMAGE_CHARS.
-  Existing Instance independent_CHARS_IMAGE.
   Existing Instance independent_IMAGE_SOUND.
-  Definition independent_SOUND_IMAGE := independent_symm independent_IMAGE_SOUND.
-  Existing Instance independent_SOUND_IMAGE.
   Existing Instance independent_IMAGE_LOG.
-  Definition independent_LOG_IMAGE := independent_symm independent_IMAGE_LOG.
-  Existing Instance independent_LOG_IMAGE.
   Existing Instance independent_IMAGE_INP.
-  Definition independent_INP_IMAGE := independent_symm independent_IMAGE_INP.
-  Existing Instance independent_INP_IMAGE.
   Existing Instance independent_IMAGE_PC.
-  Definition independent_PC_IMAGE := independent_symm independent_IMAGE_PC.
-  Existing Instance independent_PC_IMAGE.
   Existing Instance independent_IMAGE_SP.
-  Definition independent_SP_IMAGE := independent_symm independent_IMAGE_SP.
-  Existing Instance independent_SP_IMAGE.
   Existing Instance independent_BYTES_CHARS.
-  Definition independent_CHARS_BYTES := independent_symm independent_BYTES_CHARS.
-  Existing Instance independent_CHARS_BYTES.
   Existing Instance independent_BYTES_SOUND.
-  Definition independent_SOUND_BYTES := independent_symm independent_BYTES_SOUND.
-  Existing Instance independent_SOUND_BYTES.
   Existing Instance independent_BYTES_LOG.
-  Definition independent_LOG_BYTES := independent_symm independent_BYTES_LOG.
-  Existing Instance independent_LOG_BYTES.
   Existing Instance independent_BYTES_INP.
-  Definition independent_INP_BYTES := independent_symm independent_BYTES_INP.
-  Existing Instance independent_INP_BYTES.
   Existing Instance independent_BYTES_PC.
-  Definition independent_PC_BYTES := independent_symm independent_BYTES_PC.
-  Existing Instance independent_PC_BYTES.
   Existing Instance independent_BYTES_SP.
-  Definition independent_SP_BYTES := independent_symm independent_BYTES_SP.
-  Existing Instance independent_SP_BYTES.
   Existing Instance independent_CHARS_SOUND.
-  Definition independent_SOUND_CHARS := independent_symm independent_CHARS_SOUND.
-  Existing Instance independent_SOUND_CHARS.
   Existing Instance independent_CHARS_LOG.
-  Definition independent_LOG_CHARS := independent_symm independent_CHARS_LOG.
-  Existing Instance independent_LOG_CHARS.
   Existing Instance independent_CHARS_INP.
-  Definition independent_INP_CHARS := independent_symm independent_CHARS_INP.
-  Existing Instance independent_INP_CHARS.
   Existing Instance independent_CHARS_PC.
-  Definition independent_PC_CHARS := independent_symm independent_CHARS_PC.
-  Existing Instance independent_PC_CHARS.
   Existing Instance independent_CHARS_SP.
-  Definition independent_SP_CHARS := independent_symm independent_CHARS_SP.
-  Existing Instance independent_SP_CHARS.
   Existing Instance independent_SOUND_LOG.
-  Definition independent_LOG_SOUND := independent_symm independent_SOUND_LOG.
-  Existing Instance independent_LOG_SOUND.
   Existing Instance independent_SOUND_INP.
-  Definition independent_INP_SOUND := independent_symm independent_SOUND_INP.
-  Existing Instance independent_INP_SOUND.
   Existing Instance independent_SOUND_PC.
-  Definition independent_PC_SOUND := independent_symm independent_SOUND_PC.
-  Existing Instance independent_PC_SOUND.
   Existing Instance independent_SOUND_SP.
-  Definition independent_SP_SOUND := independent_symm independent_SOUND_SP.
-  Existing Instance independent_SP_SOUND.
   Existing Instance independent_LOG_INP.
-  Definition independent_INP_LOG := independent_symm independent_LOG_INP.
-  Existing Instance independent_INP_LOG.
   Existing Instance independent_LOG_PC.
-  Definition independent_PC_LOG := independent_symm independent_LOG_PC.
-  Existing Instance independent_PC_LOG.
   Existing Instance independent_LOG_SP.
-  Definition independent_SP_LOG := independent_symm independent_LOG_SP.
-  Existing Instance independent_SP_LOG.
   Existing Instance independent_INP_PC.
-  Definition independent_PC_INP := independent_symm independent_INP_PC.
-  Existing Instance independent_PC_INP.
   Existing Instance independent_INP_SP.
-  Definition independent_SP_INP := independent_symm independent_INP_SP.
-  Existing Instance independent_SP_INP.
   Existing Instance independent_PC_SP.
-  Definition independent_SP_PC := independent_symm independent_PC_SP.
-  Existing Instance independent_SP_PC.
 
   Class MachineParams2 :=
   {
@@ -312,7 +245,7 @@ Module Core (MP: MachineParameters).
     end.
 
 
-  (** ** Memory and stack *)
+  (** ** [load] and [store] *)
 
   Definition load0 (a: Addr): M (option Cell) :=
     assert* available a as H in
@@ -320,11 +253,10 @@ Module Core (MP: MachineParameters).
     ret (s a H).
 
   Definition load (a: Addr): M Cell := load0 a >>= extr.
-  Proposition load_spec a : load a = load0 a >>= extr.
-  Proof. reflexivity. Qed.
-  Opaque load.
+  Definition load_spec := ltac:(spec_tac load).
+  Global Opaque load.
 
-  Global Instance load_confined a : Confined MEM (load a).
+  Global Instance confined_load {a} : Confined MEM (load a).
   Proof.
     rewrite load_spec.
     typeclasses eauto.
@@ -337,15 +269,52 @@ Module Core (MP: MachineParameters).
     put' MEM s'.
 
   Definition store (a: Addr) (x: Cell) : M unit := store0 a (Some x).
-  Proposition store_spec a x : store a x = store0 a (Some x).
-  Proof. reflexivity. Qed.
-  Opaque store.
+  Definition store_spec := ltac:(spec_tac store).
+  Global Opaque store.
 
-  Global Instance store_confined a x : Confined MEM (store a x).
+  Global Instance confined_store a x : Confined MEM (store a x).
   Proof.
     rewrite store_spec.
     typeclasses eauto.
   Qed.
+
+  Lemma store_load a x {Y} (f: unit -> Cell -> M Y) : let* u := store a x in
+                                                 let* x' := load a in
+                                                 f u x' = store a x;;
+                                                          f tt x.
+  Proof.
+    rewrite store_spec, load_spec.
+    smon_rewrite.
+    destruct (decide (available a)) as [Ha|Ha]; smon_rewrite.
+    decided Ha. smon_rewrite.
+    decided (@eq_refl _ a). smon_rewrite.
+  Qed.
+
+  Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
+    let* u := store a x in
+    let* v := store a' x' in
+    f u v = let* v := store a' x' in
+            let* u := store a x in
+            f u v.
+  Proof.
+    rewrite store_spec.
+    unfold store0.
+    smon_rewrite.
+    destruct (decide (available a)) as [Ha|Ha];
+      destruct (decide (available a')) as [Ha'|Ha'];
+      smon_rewrite.
+    apply bind_extensional. intros mem.
+    f_equal.
+    f_equal.
+    extensionality a''.
+    extensionality Ha''.
+    destruct (decide (a=a'')) as [HH|HH];
+      destruct (decide (a'=a'')) as [HH'|HH'];
+      congruence.
+  Qed.
+
+
+  (** ** [loadMany] and [next] *)
 
   Open Scope vector.
 
@@ -357,7 +326,17 @@ Module Core (MP: MachineParameters).
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
 
-  (* [simp] does not, and [setoid_rewrite] requires unneccessary Addr argument. *)
+  Global Instance confined_loadMany n a : Confined MEM (loadMany n a).
+  Proof.
+    revert a.
+    induction n;
+      intros a;
+      simp loadMany;
+      typeclasses eauto.
+  Qed.
+
+  (** [simp] does not work,
+      and [setoid_rewrite] requires unneccessary Addr argument. *)
   Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
 
   Equations(noind) next (n: nat) : M (Cells n) :=
@@ -369,89 +348,104 @@ Module Core (MP: MachineParameters).
       let* r := next n in
       ret (x :: r).
 
-  Lemma next_spec n : next n = let* pc := get' PC in
-                               put' PC (offset n pc);;
-                               loadMany n pc.
+  Proposition offset_inc (n: nat) a : offset n (offset 1 a) = offset (S n) a.
   Proof.
-    (* TODO: automate more? *)
+    setoid_rewrite <- Z_action_add.
+    f_equal.
+    lia.
+  Qed.
+
+  Lemma next_alt n : next n = let* pc := get' PC in
+                              put' PC (offset n pc);;
+                              loadMany n pc.
+  Proof.
     induction n; simp next.
     - simpl (offset _ _).
       setoid_rewrite Z_action_zero.
       simp_loadMany.
-      rewrite get_spec, put_spec, (bind_spec PC).
       smon_rewrite.
     - rewrite IHn. clear IHn.
       simp_loadMany.
-
-      (* rewrite (get_spec PC), (put_spec PC), (bind_spec PC). *)
-      rewrite get_spec, put_spec, (bind_spec PC).
-      smon_rewrite'.
-      setoid_rewrite (confined_after_put MEM PC _).
-
-      assert (forall pc, offset n (offset 1 pc) = offset (S n) pc).
-      + intros pc. setoid_rewrite <- Z_action_add. f_equal. lia.
-      + setoid_rewrite H.
+      smon_rewrite.
+      assert (forall x, Neutral MEM (put' PC (offset 1 x))) as H.
+      + typeclasses eauto.
+      + setoid_rewrite offset_inc.
+        setoid_rewrite (confined_load (neutral_put _ _ _)).
         reflexivity.
   Qed.
 
-  (* Instead of marking the freed stack as undefined here,
-     we will express this in the corresponding [Cert]s. *)
-  Definition popMany (n: nat): M (Cells n) :=
-    let* sp := get' SP in
-    let* res := loadMany n sp in
-    put' SP (offset n sp);;
-    ret res.
-
-  Lemma popMany_equation_0 : popMany 0 = ret [].
+  Global Instance confined_next n : Confined (MEM * PC) (next n).
   Proof.
-    unfold popMany.
-    simp_loadMany.
-    simpl (offset _ _).
-    rewrite_strat (outermost Z_action_zero).
-    smon_rewrite.
-    rewrite get_spec, put_spec.
-    repeat rewrite (bind_spec SP).
-    smon_rewrite.
+    rewrite next_alt.
+    typeclasses eauto.
   Qed.
 
-  Lemma popMany_equation_1 n :
-    popMany (S n) = let* sp := get' SP in
-                    let* x := load sp in
-                    let* r := popMany n in
-                    ret (x :: r).
-  Proof.
-    unfold popMany.
-    simp_loadMany.
-    Opaque load. (* TODO *)
-    smon_rewrite.
 
+  (** *** POP *)
 
-let* u := popMany m in
-                    let* v := popMany n in
-                    ret (u ++ v).
+  (** Pop a single cell. Later we will always pop multiple cells at once. *)
+  Definition pop : M Cell :=
+    let* sp := get' SP in
+    put' SP (offset 1 sp);;
+    load sp.
 
+  Proposition pop_alt : pop = let* sp := get' SP in
+                              put' SP (offset 1 sp);;
+                              load sp.
+  Proof. reflexivity. Qed.
 
-  Lemma popMany_equation_2 m n :
+  Opaque pop.
+
+  (** Instead of marking the freed stack as undefined here,
+      we will express this later in the corresponding [Cert]s. *)
+  Equations(noind) popMany (n: nat): M (Cells n) :=
+    popMany 0 := ret [];
+    popMany (S n) := let* x := pop in
+                     let* r := popMany n in
+                     ret (x :: r).
+
+  (* TODO: Useful? *)
+  Proposition popMany_action m n :
     popMany (m + n) = let* u := popMany m in
                       let* v := popMany n in
                       ret (u ++ v).
   Proof.
     induction m.
-    - rewrite popMany_equation_1. smon_rewrite.
-    - cbn.
+    - simp popMany. smon_rewrite.
+    - cbn. simp popMany.
+      rewrite IHm. clear IHm.
+      smon_rewrite.
+  Qed.
 
+  Lemma popMany_alt n : popMany n = let* sp := get' SP in
+                                     let* res := loadMany n sp in
+                                     put' SP (offset n sp);;
+                                     ret res.
+  Proof.
+    induction n; simp popMany; simp_loadMany.
+    - smon_rewrite.
+      setoid_rewrite Z_action_zero.
+      smon_rewrite.
+    - rewrite IHn. clear IHn.
+      rewrite pop_alt.
+      smon_rewrite.
+      setoid_rewrite (confined_load (neutral_put _ _ _)).
+      smon_rewrite.
+      setoid_rewrite offset_inc.
+      setoid_rewrite <- (confined_loadMany _ (neutral_put _ _ _)).
+      smon_rewrite.
+  Qed.
 
-
-
-
-let* sp := get' SP in
-                      let* x := load sp in
-                      put' SP (offset n sp);;
-                      ret res.
-
-
+  Global Instance confined_popMany n : Confined (MEM * SP) (popMany n).
+  Proof.
+    rewrite popMany_alt.
+    typeclasses eauto.
+  Qed.
 
   Close Scope vector.
+
+
+  (** ** [storeMany] *)
 
   Equations storeMany (_: Addr) (_: list Cell) : M unit :=
     storeMany _ [] := ret tt;
@@ -459,15 +453,253 @@ let* sp := get' SP in
       store a x;;
       storeMany (offset 1 a) u.
 
-  Definition pushMany (u: list Cell): M unit :=
+  (** Cf. [simp_loadMany] *)
+  Ltac simp_storeMany := rewrite_strat (outermost (hints storeMany)).
+
+  Proposition storeMany_one a x : storeMany a [x] = store a x.
+  Proof.
+    simp storeMany. smon_rewrite.
+  Qed.
+
+  Lemma storeMany_action a u v : storeMany a (u ++ v) =
+                                 storeMany a u;; storeMany (offset (length u) a) v.
+  Proof.
+    revert a.
+    induction u as [|x u IH]; intros a.
+    - cbn. simp storeMany. rewrite Z_action_zero. smon_rewrite.
+    - simpl length.
+      simpl app.
+      simp storeMany.
+      rewrite IH. clear IH.
+      smon_rewrite.
+      setoid_rewrite <- Z_action_add.
+      lia_rewrite (1 + length u = S (length u))%Z.
+      reflexivity.
+  Qed.
+
+  Global Instance confined_storeMany a u : Confined MEM (storeMany a u).
+  Proof.
+    revert a.
+    induction u as [|x u IH];
+      intros a;
+      simp storeMany;
+      typeclasses eauto.
+  Qed.
+
+  Definition addressable (n: nat) :=
+    forall a i, 0 < i < n -> offset i a <> a.
+
+  Proposition addressable_mono {n} (Hn: addressable n) {m: nat} (Hmn: m <= n):
+    addressable m.
+  Proof.
+    unfold addressable in *.
+    intros. apply Hn. lia.
+  Qed.
+
+  Lemma storeMany_rev a x u :
+    storeMany a (rev (x :: u)) = storeMany a (rev u);;
+                                store (offset (length u) a) x.
+  Proof.
+    induction u as [|y u IH];
+      simpl rev;
+      simpl length;
+      simp storeMany;
+      smon_rewrite.
+    - rewrite Z_action_zero. reflexivity.
+    - repeat setoid_rewrite storeMany_action.
+      smon_rewrite.
+      setoid_rewrite storeMany_one.
+      setoid_rewrite app_length.
+      simpl length.
+      setoid_rewrite rev_length.
+      lia_rewrite (length u + 1 = S (length u))%nat.
+      reflexivity.
+  Qed.
+
+  Lemma storeMany_equation_2' a x u (H: addressable (S (length u))) :
+    storeMany a (x :: u) = storeMany (offset 1 a) u;;
+                          store a x.
+  Proof.
+    rewrite <- (rev_involutive u).
+    rewrite <- (rev_length u) in H.
+    revert H.
+    generalize (rev u). clear u. intros u H.
+    simp storeMany.
+
+    revert a x.
+    induction u as [|y u IH]; intros a x; simp storeMany; smon_rewrite.
+    simpl length in H.
+    assert (addressable (S (length u))) as HH.
+    - eapply (addressable_mono H). lia.
+    - specialize (IH HH). clear HH.
+      rewrite storeMany_rev.
+      setoid_rewrite <- bind_assoc.
+      setoid_rewrite IH.
+      smon_rewrite.
+      apply bind_extensional. intros [].
+      setoid_rewrite <- bind_ret_tt.
+      setoid_rewrite bind_assoc.
+      rewrite store_store.
+      + reflexivity.
+      + apply not_eq_sym.
+        rewrite <- Z_action_add.
+        unfold addressable in H.
+        apply (H a (1 + length u)).
+        lia.
+  Qed.
+
+  Lemma storeMany_action' a u v (H: addressable (length u + length v)) :
+    storeMany a (u ++ v) =
+    storeMany (offset (length u) a) v;; storeMany a u.
+  Proof.
+    revert a.
+    induction u as [|x u IH]; intros a.
+    - cbn. rewrite Z_action_zero. simp storeMany. smon_rewrite.
+    - simpl (_ ++ _).
+      setoid_rewrite storeMany_equation_2'.
+      rewrite IH.
+      rewrite offset_inc.
+      simpl length.
+      smon_rewrite.
+      all: eapply (addressable_mono H); try rewrite app_length; try simpl length; lia.
+  Qed.
+
+  Lemma storeMany_loadMany a n (u: Cells n) :
+    addressable n -> storeMany a (to_list u);;
+                    loadMany n a = storeMany a (to_list u);;
+                                   ret u.
+  Proof.
+    revert a; induction n; intros a.
+    - intros _. dependent elimination u. cbn.
+      simp storeMany loadMany. smon_rewrite.
+    - intros H. dependent elimination u as [Vector.cons (n:=n) x u]. simp to_list.
+      rewrite storeMany_equation_2' at 1.
+      + simp loadMany.
+        smon_rewrite.
+        rewrite store_load.
+        rewrite <- bind_assoc.
+        setoid_rewrite <- storeMany_equation_2'.
+        * simp storeMany.
+          smon_rewrite.
+          apply bind_extensional. intros [].
+          rewrite <- bind_assoc.
+          rewrite IHn.
+          -- smon_rewrite.
+          -- apply (addressable_mono H). lia.
+        * apply (addressable_mono H). rewrite length_to_list. lia.
+      + apply (addressable_mono H). rewrite length_to_list. lia.
+  Qed.
+
+  Corollary storeMany_loadMany' a n (u: Cells n) {Y} (f: unit -> Cells n -> M Y) :
+    addressable n -> let* x := storeMany a (to_list u) in
+                    let* v := loadMany n a in
+                    f x v = storeMany a (to_list u);;
+                            f tt u.
+  Proof.
+    intros H.
+    smon_rewrite.
+    rewrite <- bind_assoc.
+    rewrite storeMany_loadMany.
+    - smon_rewrite.
+    - exact H.
+  Qed.
+
+
+  (** ** [push] and [pushMany] *)
+
+  (** Push a single cell *)
+  Definition push (x: Cell) : M unit :=
     let* sp := get' SP in
-    (* The stack grows downwards. *)
-    let a := offset (- List.length u) sp in
+    let a := offset (- 1) sp in
     put' SP a;;
-    storeMany a u.
+    store a x.
+  Definition push_spec := ltac:(spec_tac push).
+  Global Opaque push.
+
+  (** NB: Stores the elements in reversed order. *)
+  Equations(noind) pushManyR (u: list Cell): M unit :=
+    pushManyR [] := ret tt;
+    pushManyR (x :: u) := push x;;
+                         pushManyR u.
+
+ Lemma pushManyR_action u v : pushManyR (u ++ v) = pushManyR u;; pushManyR v.
+  Proof.
+    revert v.
+    induction u as [|x u IH];
+      intros v;
+      cbn;
+      simp pushManyR;
+      smon_rewrite.
+    rewrite IH.
+    reflexivity.
+  Qed.
+
+  (** Stores the elements correct order. *)
+  Definition pushMany u := pushManyR (rev u).
+
+  Corollary pushMany_action u v : pushMany (u ++ v) = pushMany v;; pushMany u.
+  Proof.
+    unfold pushMany.
+    rewrite rev_app_distr.
+    apply pushManyR_action.
+  Qed.
+
+  Lemma pushMany_alt u (H: addressable (length u)) :
+    pushMany u = let* sp := get' SP in
+                 let a := offset (- List.length u) sp in
+                 put' SP a;;
+                 storeMany a u.
+  Proof.
+    (* TODO: AUTOMATE! *)
+    induction u as [|x u IH].
+    - unfold pushMany. cbn.
+      setoid_rewrite Z_action_zero.
+      simp pushManyR.
+      simp_storeMany.
+      smon_rewrite.
+
+    - change (x :: u) with ([x] ++ u).
+      rewrite pushMany_action.
+      smon_rewrite.
+      set (f := offset (- length ([x] ++ u))).
+      rewrite IH.
+      + unfold pushMany.
+        simpl rev.
+        simp pushManyR.
+        rewrite push_spec.
+        smon_rewrite.
+        apply bind_extensional. intros sp.
+
+        setoid_rewrite <- (confined_storeMany _ _ (neutral_get _ _)).
+        setoid_rewrite <- (confined_storeMany _ _ (neutral_put _ _ _)).
+        smon_rewrite.
+        setoid_rewrite <- Z_action_add.
+
+        subst f.
+        apply bind_extensional'.
+        * f_equal. f_equal. cbn. lia.
+        * intros [].
+          setoid_rewrite (storeMany_action' _ [x] u).
+          -- simp storeMany.
+             smon_rewrite.
+             apply bind_extensional'.
+             ++ f_equal. rewrite <- Z_action_add.
+                f_equal. rewrite app_length.
+                simpl length. lia.
+             ++ intros [].
+                f_equal.
+                f_equal.
+                rewrite app_length.
+                simpl length.
+                lia.
+          -- apply (addressable_mono H). simpl length. lia.
+      + apply (addressable_mono H). simpl length. lia.
+  Qed.
 
 
   (** ** Input *)
+
+  Local Open Scope N.
 
   Local Definition Input := Image InputColor.
 

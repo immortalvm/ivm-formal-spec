@@ -176,7 +176,7 @@ Section Inv_lens.
   Qed.
 
   Lemma inv_lens_inv (s: S) :
-    let (fH, x) := proj (Lens:=lens_prod _) s in
+    let (fH, x) := proj (Lens:=_*_) s in
     proj1_sig fH x = s.
   Proof.
     simpl. rewrite update_proj. reflexivity.

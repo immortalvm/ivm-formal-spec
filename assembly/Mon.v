@@ -30,13 +30,16 @@ Class SMonad (S: Type) (M: Type -> Type): Type :=
   put_get s : put s >>= (fun _ => get) = put s >>= (fun _ => ret s);
   get_put : get >>= put = ret tt;
   get_ret : get >>= (fun _ => ret tt) = ret tt;
-  get_get Y (f: S -> S -> M Y) : get >>= (fun s => get >>= (fun s' => f s s')) =
-                               get >>= (fun s => f s s);
+  get_get {Y} (f: S -> S -> M Y) : get >>= (fun s => get >>= (fun s' => f s s')) =
+                                 get >>= (fun s => f s s);
 }.
 
 Notation "mx >>= f" := (bind mx f) : monad_scope.
 
-(** [get_get] expresses that the current state is deterministic.
+(** [bind_extensional] is derivable if we assume functional
+extensionality.
+
+[get_get] expresses that the current state is deterministic.
     Presumably, it is derivable from the other axioms if we assume:
 [[
     forall {X Y} {mxy mxy': M (X * Y)}
@@ -190,37 +193,58 @@ Section basics_section.
 
 End basics_section.
 
+
+(** *** Automation
+
+This is a mess. We often need [setoid_rewrite] and/or [rewrite_strat], but
+they are clearly buggy. Hence, we also use [rewrite] many places to
+increase the success rate. *)
+
 Ltac smon_rewrite0 :=
   try (rewrite_strat (outermost <- bind_ret));
   try rewrite <- bind_ret;
-  repeat (setoid_rewrite bind_assoc
+  repeat (rewrite bind_assoc
+          || setoid_rewrite bind_assoc
           || setoid_rewrite assert_bind
           || setoid_rewrite assert_bind');
   repeat (setoid_rewrite ret_bind);
   repeat (setoid_rewrite err_bind);
   repeat (setoid_rewrite bind_err);
   repeat (setoid_rewrite bind_unit);
-  (** For some reason, [setoid_rewrite bind_unit] does not always work. *)
   repeat match goal with
            |- context [ ?m >>= fun (x:unit) => _ ] => setoid_rewrite (bind_unit m)
-         end;
+         end.
+
+Ltac smon_rewrite1_basics :=
   repeat (setoid_rewrite put_put'
           || setoid_rewrite put_get'
           || setoid_rewrite get_put'
           || setoid_rewrite get_ret'
-          || setoid_rewrite get_get);
-  repeat (setoid_rewrite bind_ret
+          || setoid_rewrite get_get).
+
+From Ltac2 Require Import Ltac2.
+Set Default Proof Mode "Classic".
+
+Ltac2 mutable smon_rewrite1 () :=
+  ltac1:(smon_rewrite1_basics).
+
+Ltac smon_rewrite2 :=
+  repeat (rewrite bind_ret (* [setoid_rewrite] is not always sufficient! *)
+          || setoid_rewrite bind_ret
           || setoid_rewrite bind_ret_tt).
 
 Ltac smon_rewrite :=
   smon_rewrite0;
+  ltac2:(smon_rewrite1 ());
+  smon_rewrite2;
   try reflexivity.
 
 Ltac smon_rewrite' :=
   repeat (independent_rewrite1
           || lens_rewrite1
           || reflexivity
-          || smon_rewrite0 ).
+          || smon_rewrite0; ltac2:(smon_rewrite1()));
+  smon_rewrite2.
 
 Goal forall {S M X Y} {SM: SMonad S M} (g: S -> X) (f: X -> M Y),
     let* s := get in put s;; f (g s) = let* s := get in f (g s).
@@ -236,29 +260,8 @@ Ltac smon_ext s := apply smonad_ext; intros s.
 Section lensmonad_section.
 
   Context {S: Type}
-          {M: Type -> Type} `{SM: SMonad S M}.
-
-  Context {A: Type} (LA: Lens S A).
-
-  (** We put these definitions here so that
-      (i) it is clear that they refer to the monad [SM]
- and (ii) for easy comparison with [get'] and [put']. *)
-
-  Class Neutral {X} (mx: M X) : Prop :=
-    neutral : forall aa, mx = let* s := get in
-                         put (update s aa);;
-                         let* x := mx in
-                         let* s' := get in
-                         put (update s' (proj s));;
-                         ret x.
-
-  Class Confined {X} (mx: M X) : Prop :=
-    confined : forall (ss: S), mx = let* s := get in
-                               put (update ss (proj s));;
-                               let* x := mx in
-                               let* s' := get in
-                               put (update s (proj s'));;
-                               ret x.
+          {M: Type -> Type} `{SM: SMonad S M}
+          {A: Type} (LA: Lens S A).
 
 
   (** *** Definition *)
@@ -301,18 +304,77 @@ Section lensmonad_section.
   Proposition bind_spec: @bind _ _ SM = @bind _ _ lensmonad.
   Proof. reflexivity. Qed.
 
-  (* TODO: Remove or reformulate? *)
-  Proposition update_state (f: A -> A) :
-    let* a := get' in
-    put' (f a) = let* s := get in
-                 put (update s (f (proj s))).
-  Proof.
-    rewrite get_spec, put_spec.
+
+  (** *** Rewrite rules for [get'] and [put']. *)
+
+  Ltac lens_transfer :=
+    try setoid_rewrite get_spec;
+    try setoid_rewrite put_spec';
+    repeat rewrite bind_spec;
     smon_rewrite.
-  Qed.
+
+  Proposition lens_put_put a a' Y (f: unit -> unit -> M Y) :
+    let* x := put' a in
+    let* y := put' a' in
+    f x y = put' a';;
+            f tt tt.
+  Proof. lens_transfer. Qed.
+
+  Proposition lens_put_get a Y (f: unit -> A -> M Y) :
+    let* x := put' a in
+    let* a' := get' in
+    f x a' = put' a;;
+             f tt a.
+  Proof. lens_transfer. Qed.
+
+  Proposition lens_get_put {Y} (f: A -> unit -> M Y) :
+    let* a := get' in
+    let* u := put' a in
+    f a u = let* a := get' in
+            f a tt.
+  Proof. lens_transfer. Qed.
+
+  Proposition lens_get_ret {X} (mx: M X) : get';; mx = mx.
+  Proof. lens_transfer. Qed.
+
+  Proposition lens_get_get Y (f: A -> A -> M Y) :
+    let* a := get' in
+    let* a' := get' in
+    f a a' = let* a := get' in
+             f a a.
+  Proof. lens_transfer. Qed.
+
+End lensmonad_section.
+
+Ltac smon_rewrite1_lens :=
+  setoid_rewrite lens_put_put
+  || setoid_rewrite lens_put_get
+  || setoid_rewrite lens_get_put
+  || setoid_rewrite lens_get_ret
+  || setoid_rewrite lens_get_get.
+
+Ltac2 Set smon_rewrite1 := fun _ =>
+  ltac1:(smon_rewrite1_basics);
+  ltac1:(repeat smon_rewrite1_lens).
 
 
-  (** *** Neutral computations *)
+(** ** Neutral and confined computations *)
+
+Section neutral_section.
+
+  Context {S: Type}
+          {M: Type -> Type} `{SM: SMonad S M}
+          {A: Type} (LA: Lens S A).
+
+  Arguments get' {_ _ _ _ _}.
+  Arguments put' {_ _ _ _ _}.
+
+  Class Neutral {X} (mx: M X) : Prop :=
+    neutral : forall aa, mx = let* a := get' in
+                         put' aa;;
+                         let* x := mx in
+                         put' a;;
+                         ret x.
 
   Global Instance neutral_if (b: bool) {X} (mx mx': M X)
          {Hmx: Neutral mx}
@@ -347,7 +409,8 @@ Section lensmonad_section.
 
   Global Instance neutral_ret {X} (x: X) : Neutral (ret x).
   Proof.
-    unfold Neutral. intros aa. smon_rewrite'.
+    intros aa.
+    smon_rewrite.
   Qed.
 
   Global Instance neutral_bind
@@ -357,42 +420,24 @@ Section lensmonad_section.
   Proof.
     unfold Neutral in *. intros aa.
     setoid_rewrite (Hmx aa). smon_rewrite.
-    setoid_rewrite (Hf _ aa). smon_rewrite'.
+    setoid_rewrite (Hf _ aa). smon_rewrite.
   Qed.
 
   Global Instance neutral_err {X} : Neutral (err : M X).
   Proof.
-    unfold Neutral. intros aa. smon_rewrite.
-  Qed.
-
-  Lemma neutral_after_get {X} (mx: M X) {Hmx: Neutral mx} {Y} (f: X -> A -> M Y) :
-    let* x := mx in
-    let* a := get' in
-    f x a = let* a := get' in
-            let* x := mx in
-            f x a.
-  Proof.
-    smon_ext s.
-    rewrite get_spec.
-    setoid_rewrite (Hmx (proj s)).
-    smon_rewrite'.
-  Qed.
-
-  Lemma neutral_after_put {X} (mx: M X) {Hmx: Neutral mx} (a: A) {Y} (f: X -> unit -> M Y) :
-    let* x := mx in
-    let* u := put' a in
-    f x u = let* u := put' a in
-            let* x := mx in
-            f x u.
-  Proof.
-    smon_ext s.
-    rewrite put_spec.
-    setoid_rewrite (Hmx (proj s)).
-    smon_rewrite'.
+    intros aa. smon_rewrite.
   Qed.
 
 
-  (** *** Confined (dual of neutral) **)
+  (** *** Confined **)
+
+  Class Confined {X} (mx: M X) : Prop :=
+    confined : forall {Y} (my: M Y) (Hmy: Neutral my)
+                 {Z} (f: X -> Y -> M Z), let* y := my in
+                                       let* x := mx in
+                                       f x y = let* x := mx in
+                                               let* y := my in
+                                               f x y.
 
   Global Instance confined_if (b: bool) {X} (mx mx': M X)
          {Hmx: Confined mx}
@@ -427,9 +472,7 @@ Section lensmonad_section.
 
   Global Instance confined_ret {X} (x: X) : Confined (ret x).
   Proof.
-    unfold Confined.
-    intros ss.
-    smon_rewrite'.
+    unfold Confined. intros. smon_rewrite.
   Qed.
 
   Global Instance confined_bind
@@ -437,65 +480,112 @@ Section lensmonad_section.
          {Hmx: Confined mx}
          {Hf: forall x, Confined (f x)} : Confined (mx >>= f).
   Proof.
-    unfold Confined in *. intros ss.
-    rewrite (Hmx ss).
-    smon_rewrite'.
-    setoid_rewrite (Hf _ ss) at 1.
-    smon_rewrite'.
+    unfold Confined in *.
+    intros C mc Hmc D g.
+    smon_rewrite.
+    rewrite (Hmx  C mc Hmc D). clear Hmx.
+    apply bind_extensional. intros x.
+    rewrite Hf.
+    - reflexivity.
+    - exact Hmc.
   Qed.
 
   Global Instance confined_err {X} : Confined (err : M X).
   Proof.
-    intros ss.
-    smon_rewrite.
+    unfold Confined. intros. smon_rewrite.
   Qed.
 
   Global Instance confined_get : Confined get'.
   Proof.
-    intros ss.
-    rewrite get_spec.
-    smon_rewrite'.
+    unfold Confined. intros. smon_ext s.
+    setoid_rewrite (Hmy (proj s)).
+    smon_rewrite.
   Qed.
 
   Global Instance confined_put a : Confined (put' a).
   Proof.
-    intros ss.
-    rewrite put_spec.
-    smon_rewrite'.
+    unfold Confined. intros. smon_ext s.
+    setoid_rewrite (Hmy (proj s)).
+    smon_rewrite.
   Qed.
 
-End lensmonad_section.
+End neutral_section.
+
+
+(** ** Covers *)
+
+Section cover_section.
+
+  Arguments proj {_ _} _ _.
+  Arguments update {_ _} _ _ _.
+
+  Context {S: Type}
+          {M: Type -> Type} `{SM: SMonad S M}
+          {A: Type} (LA: Lens S A)
+          {B: Type} (LB: Lens S B)
+          {HAB: Cover LA LB}.
+
+  (* TODO: Move? *)
+  Existing Instance cover.
+
+  Global Instance cover_neutral
+           {X} (mx: M X)
+           {Hmx: Neutral LA mx} : Neutral LB mx.
+  Proof.
+    unfold Neutral in *.
+    intro bb.
+    smon_ext s.
+    specialize (Hmx (update (cover HAB) (proj LA s) bb)).
+    rewrite Hmx.
+    setoid_rewrite get_spec.
+    setoid_rewrite put_spec'.
+    smon_rewrite.
+    repeat (
+        setoid_rewrite (cover_update HAB)
+        || setoid_rewrite (cover_proj HAB)
+        || lens_rewrite).
+    reflexivity.
+  Qed.
+
+  Global Instance cover_confined
+           {X} (mx: M X)
+           {Hmx: Confined LB mx} : Confined LA mx.
+  Proof.
+    unfold Confined in *. intros.
+    apply Hmx, cover_neutral.
+    exact Hmy.
+  Qed.
+
+End cover_section.
 
 
 (** ** Independence *)
 
-Section independence_section.
+Section independence_section1.
 
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}
           {A: Type} (LA: Lens S A)
           {B: Type} (LB: Lens S B).
 
+  (** This holds even if LA and LB are dependent. *)
   Proposition flip_get_get {X} (f: A -> B -> M X) :
-    let* a := get' LA in
     let* b := get' LB in
-    f a b = let* b := get' LB in
-            let* a := get' LA in
+    let* a := get' LA in
+    f a b = let* a := get' LA in
+            let* b := get' LB in
             f a b.
   Proof.
     setoid_rewrite get_spec.
     smon_rewrite.
   Qed.
 
-  Context {HI: Independent LA LB}.
+  (** Extra assumption used for lens ordering in order to avoid loops. *)
+  Definition flip_get_get' {HI: Independent LA LB} {X} (f: A -> B -> M X) :=
+    flip_get_get f.
+  Opaque flip_get_get'.
 
-  Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
-  Proof.
-    intros bb.
-    smon_ext s.
-    setoid_rewrite (Hmx (update s bb)).
-    smon_rewrite'.
-  Qed.
+  Context {HI: Independent LA LB}.
 
   Proposition flip_put_get (a: A) {X} (f: unit -> B -> M X) :
     let* u := put' LA a in
@@ -509,49 +599,82 @@ Section independence_section.
   Qed.
 
   Proposition flip_put_put (a: A) (b: B) {X} (f: unit -> unit -> M X) :
-    let* u := put' LA a in
     let* v := put' LB b in
-    f u v = let* v := put' LB b in
-            let* u := put' LA a in
+    let* u := put' LA a in
+    f u v = let* u := put' LA a in
+            let* v := put' LB b in
             f u v.
   Proof.
     setoid_rewrite put_spec'.
     smon_rewrite'.
   Qed.
 
-  Section confined_section.
+End independence_section1.
 
-    Context {X} (mx: M X) {Hmx: Confined LA mx}.
+Ltac smon_rewrite1_independent :=
+  match goal with
+  | HI: Independent ?LA ?LB |- _ =>
+    setoid_rewrite (flip_get_get' LA LB (HI:=HI))
+    || setoid_rewrite (flip_put_get LA LB (HI:=HI))
+    || setoid_rewrite <- (flip_put_get LA LB (HI:=HI))
+    || setoid_rewrite (flip_put_put LA LB (HI:=HI))
+  end.
 
-    Proposition confined_after_get {Y} (f: X -> B -> M Y) :
-      let* x := mx in
-      let* b := get' LB in
-      f x b = let* b := get' LB in
-              let* x := mx in
-              f x b.
+Ltac2 Set smon_rewrite1 := fun _ =>
+  ltac1:(smon_rewrite1_basics);
+  ltac1:(repeat (smon_rewrite1_lens || smon_rewrite1_independent)).
+
+Section independence_section2.
+
+  Context {S: Type}
+          {M: Type -> Type} `{SM: SMonad S M}
+          {A: Type} (LA: Lens S A)
+          {B: Type} (LB: Lens S B).
+
+  Section one_way.
+
+    Context {HI: Independent LA LB}.
+
+    Global Instance neutral_get : Neutral LA (get' LB).
     Proof.
-      smon_ext s.
-      rewrite get_spec.
-      setoid_rewrite (Hmx s).
-      smon_rewrite'.
+      intros aa. smon_rewrite.
     Qed.
 
-    Proposition confined_after_put b {Y} (f: X -> unit -> M Y) :
-      let* x := mx in
-      let* u := put' LB b in
-      f x u = let* u := put' LB b in
-              let* x := mx in
-              f x u.
+    Global Instance neutral_put b : Neutral LA (put' LB b).
     Proof.
-      smon_ext s.
-      rewrite put_spec.
-      setoid_rewrite (Hmx s).
-      smon_rewrite'.
+      intros aa. smon_rewrite.
     Qed.
 
-  End confined_section.
+    Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
+    Proof.
+      intros bb.
+      setoid_rewrite Hmx; [ | typeclasses eauto ].
+      setoid_rewrite Hmx; [ | typeclasses eauto ].
+      smon_rewrite.
+    Qed.
 
-End independence_section.
+  End one_way.
 
-Arguments confined_after_get {_ _ _ _} LA {_} LB {_ _} mx {_ _ _}.
-Arguments confined_after_put {_ _ _ _} LA {_} LB {_ _} mx {_ _ _ _}.
+  Section other_way.
+
+    Context {HI: Independent LB LA}.
+
+    Global Instance neutral_get' : Neutral LA (get' LB).
+    Proof.
+      apply (neutral_get (HI := independent_symm HI)).
+    Qed.
+
+    Global Instance neutral_put' b : Neutral LA (put' LB b).
+    Proof.
+      apply (neutral_put (HI := independent_symm HI)).
+    Qed.
+
+    Global Instance confined_neutral' {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
+    Proof.
+      apply (confined_neutral (HI := independent_symm HI)).
+      exact Hmx.
+    Qed.
+
+  End other_way.
+
+End independence_section2.

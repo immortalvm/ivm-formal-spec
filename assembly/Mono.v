@@ -72,6 +72,7 @@ Qed.
 
 (** *** State *)
 
+(*
 Existing Instance independent_MEM_IMAGE.
 Existing Instance independent_MEM_BYTES.
 Existing Instance independent_MEM_CHARS.
@@ -108,6 +109,7 @@ Existing Instance independent_LOG_SP.
 Existing Instance independent_INP_PC.
 Existing Instance independent_INP_SP.
 Existing Instance independent_PC_SP.
+*)
 
 Infix "∩" := and_relation (at level 60, right associativity).
 

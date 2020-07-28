@@ -26,6 +26,12 @@ Notation uncurry := prod_curry.
 
 Tactic Notation "by_lia" constr(P) "as" ident(H) := assert P as H; [lia|].
 
+Ltac lia_rewrite P :=
+  let H := fresh in
+  by_lia P as H;
+  setoid_rewrite H;
+  clear H.
+
 Ltac derive name term :=
   let H := fresh in
   let A := type of term in
@@ -46,6 +52,15 @@ Ltac idestructs := repeat (let X := fresh in intro X; destructs X).
 Tactic Notation "given" constr(P) "as" ident(H) :=
   let T := type of P in
   cut T; [intro H|exact P].
+
+(** Given a transparent symbol, construct a proof of <symbol>=<definition>.
+    Using this, we don't have to repeat the definition in specification lemmas. *)
+Ltac spec_tac symbol :=
+  (* TODO: Presumably, there are more elegant ways to do this. *)
+  let H := fresh in
+  set (H := @eq_refl _ symbol);
+  unfold symbol in H at 1;
+  exact (eq_sym H).
 
 
 (** ** Booleans *)
@@ -73,6 +88,13 @@ Proof.
   - intros _. reflexivity.
 Qed.
 
+Proposition is_true_unique {b: bool} (H H': b) : H = H'.
+Proof.
+  destruct b.
+  - destruct H, H'. reflexivity.
+  - contradict H.
+Qed.
+
 (** See also [Is_true_eq_left], [Is_true_eq_right] and [Is_true_eq_true]. *)
 
 Notation as_bool x := (if x then true else false).
@@ -98,6 +120,17 @@ Instance is_true_decidable (x: bool) : Decidable (x) :=
   if x return (Decidable x)
   then left true_is_true
   else right false_is_false.
+
+(** Eliminate [decide P] when we already know [P]. *)
+Ltac decided H :=
+  let P := type of H in
+  let HH := fresh in
+  destruct (decide P) as [HH|HH];
+  [ try (clear HH
+         || let HHH := fresh in
+           set (HHH := is_true_unique HH H);
+           subst HH)
+  | exfalso; exact (HH H) ].
 
 Section decidable_connectives.
 
