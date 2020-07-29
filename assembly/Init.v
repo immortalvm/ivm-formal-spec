@@ -399,3 +399,9 @@ Section irel_section.
   Proof. split; typeclasses eauto. Qed.
 
 End irel_section.
+
+
+(** ** Coercions *)
+
+Coercion N.of_nat : nat >-> N.
+Coercion Z.of_N : N >-> Z.

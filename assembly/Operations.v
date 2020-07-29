@@ -1,4 +1,4 @@
-From Assembly Require Import Basics.
+From Assembly Require Import Init Lens Mon.
 
 Unset Suggest Proof Using.
 
@@ -80,7 +80,7 @@ Module Type MachineParameters.
   Parameter Inline H_eqdec: EqDec Addr.
   Parameter Inline available: Addr -> bool.
   Parameter Inline offset: Z -> Addr -> Addr.
-  Parameter offset_action: Z_action offset.
+  Declare Instance offset_action: Z_action offset.
   Parameter Inline Cell: Type.
 
   Parameter Inline InputColor: Type.
@@ -184,8 +184,6 @@ Module Core (MP: MachineParameters).
   }.
 
  Section core_section.
-
-  Existing Instance offset_action.
 
   Context {MP1: MachineParams1}.
 
@@ -401,7 +399,7 @@ Module Core (MP: MachineParameters).
       assert (forall x, Neutral MEM (put' PC (offset 1 x))) as H.
       + typeclasses eauto.
       + setoid_rewrite offset_inc.
-        setoid_rewrite (confined_load (neutral_put _ _ _)).
+        setoid_rewrite (confined_load _).
         reflexivity.
   Qed.
 
@@ -460,10 +458,10 @@ Module Core (MP: MachineParameters).
     - rewrite IHn. clear IHn.
       rewrite pop_alt.
       smon_rewrite.
-      setoid_rewrite (confined_load (neutral_put _ _ _)).
+      setoid_rewrite (confined_load _).
       smon_rewrite.
       setoid_rewrite offset_inc.
-      setoid_rewrite <- (confined_loadMany _ (neutral_put _ _ _)).
+      setoid_rewrite <- (confined_loadMany _ _).
       smon_rewrite.
   Qed.
 
@@ -688,8 +686,8 @@ Module Core (MP: MachineParameters).
       smon_rewrite.
       apply bind_extensional. intros sp.
 
-      setoid_rewrite <- (confined_storeMany _ _ (neutral_get _ _)).
-      setoid_rewrite <- (confined_storeMany _ _ (neutral_put _ _ _)).
+      setoid_rewrite <- (confined_storeMany _ _ _).
+      setoid_rewrite <- (confined_storeMany _ _ _).
       smon_rewrite.
       setoid_rewrite <- Z_action_add.
 
@@ -724,12 +722,32 @@ Module Core (MP: MachineParameters).
     let img := nth (N.to_nat i) allInputImages noImage in
     ret (width img, height img).
 
+  Definition readFrame_spec := ltac:(spec_tac readFrame).
+
+  Global Opaque readFrame.
+
+  Global Instance confined_readFrame i : Confined INP (readFrame i).
+  Proof.
+    rewrite readFrame_spec.
+    typeclasses eauto.
+  Qed.
+
   Definition readPixel (x y : N) : M InputColor :=
     let* i := get' INP in
     let img := nth (N.to_nat i) allInputImages noImage in
     assert* x < width img as Hx in
     assert* y < height img as Hy in
     ret (pixel img Hx Hy).
+
+  Definition readPixel_spec := ltac:(spec_tac readPixel).
+
+  Global Opaque readPixel.
+
+  Global Instance confined_readPixel x y : Confined INP (readPixel x y).
+  Proof.
+    rewrite readPixel_spec.
+    typeclasses eauto.
+  Qed.
 
 
   (** ** Current output *)

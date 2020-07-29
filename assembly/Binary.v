@@ -8,8 +8,6 @@ Local Open Scope vector.
 Notation Bits := Bvector.
 
 Arguments Bsign {_} _.
-Coercion N.of_nat : nat >-> N.
-Coercion Z.of_N : N >-> Z.
 
 
 (** ** Helpers *)
@@ -133,9 +131,6 @@ Section cong_section.
   Qed.
 
 End cong_section.
-
-(* TODO: Is this ever used? *)
-Hint Rewrite cong_mod : cong.
 
 
 (** *** Double and div2
@@ -408,11 +403,18 @@ Qed.
 
 Definition bitsToN {n} (u: Bits n) : N := Z.to_N (fromBits u).
 
-Lemma ofN_bitsToN {n} (u: Bits n) : Z.of_N (bitsToN u) = fromBits u.
+Proposition ofN_bitsToN {n} (u: Bits n) : Z.of_N (bitsToN u) = fromBits u.
 Proof.
   unfold bitsToN. rewrite Z2N.id.
   - reflexivity.
   - unfold fromBits. apply join_zero.
+Qed.
+
+Corollary toBits_ofN_bitsToN {n} (u: Bits n) : toBits n (Z.of_N (bitsToN u)) = u.
+Proof.
+  rewrite <- (toBits_fromBits u) at 2.
+  f_equal.
+  apply ofN_bitsToN.
 Qed.
 
 
@@ -518,7 +520,7 @@ Hint Rewrite
   : ZZ.
 
 
-(** **)
+(** More congruence **)
 
 Proposition toBits_cong n z z' : cong n z z' <-> toBits n z = toBits n z'.
 Proof.
@@ -527,15 +529,28 @@ Proof.
   reflexivity.
 Qed.
 
-(* TODO: Ever used? *)
-Hint Rewrite <- toBits_cong : cong.
-
 Instance toBits_proper n : Proper (cong n ==> eq) (toBits n).
 Proof.
   intros z z' Hz.
   apply toBits_cong.
   exact Hz.
 Qed.
+
+Proposition fromBits_toBits_cong n z : cong n (fromBits (toBits n z)) z.
+Proof.
+  rewrite fromBits_toBits_mod.
+  setoid_rewrite cong_mod.
+  - reflexivity.
+  - lia.
+Qed.
+
+Corollary ofN_bitsToN_toBits_cong n z : cong n (Z.of_N (bitsToN (toBits n z))) z.
+Proof.
+  rewrite ofN_bitsToN.
+  apply fromBits_toBits_cong.
+Qed.
+
+
 
 
 (** ** Bytes *)

@@ -1,6 +1,8 @@
 From Assembly Require Export Basics Operations.
 Require Assembly.OpCodes.
 
+Unset Suggest Proof Using.
+
 Set Implicit Arguments.
 
 Notation toB8 := (toBits 8).
@@ -27,6 +29,17 @@ Module concreteParameters <: MachineParameters.
   Definition H_eqdec := (ltac:(typeclasses eauto) : EqDec B64).
   Definition available := available'.
   Definition offset := fun (z: Z) (a: B64) => toB64 (z + a).
+  Instance offset_action : Z_action offset.
+  Proof.
+    unfold offset.
+    split; intros.
+    - cbn. apply toBits_ofN_bitsToN.
+    - apply toBits_cong.
+      repeat rewrite ofN_bitsToN.
+      rewrite fromBits_toBits_cong.
+      apply eq_cong.
+      lia.
+  Qed.
   Definition Cell := B8.
 
   Definition InputColor := B8.
@@ -67,7 +80,7 @@ Section machine_section.
     ret (bytes : B64).
 
   Definition storeZ (n: nat) (a: Z) (x: Z) : M unit :=
-    storeMany (toB64 a) (map Some (toBytes n x)).
+    storeMany (toB64 a) (toBytes n x).
 
   Import OpCodes.
 

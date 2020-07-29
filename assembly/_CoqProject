@@ -3,10 +3,10 @@
 Init.v
 Lens.v
 LensExtras.v
-Binary.v
-BinaryExtras.v
 Mon.v
 MonExtras.v
+Binary.v
+BinaryExtras.v
 Basics.v
 Operations.v
 OpCodes.v
