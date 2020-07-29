@@ -9,17 +9,6 @@ Global Unset Printing Primitive Projection Parameters.
 Set Implicit Arguments.
 
 
-(** ** [Z]-actions *)
-
-Local Open Scope Z.
-
-Class Z_action {X} (f: Z -> X -> X) : Prop :=
-{
-  Z_action_zero x : f 0 x = x;
-  Z_action_add z z' x : f (z + z') x = f z' (f z x);
-}.
-
-
 (** ** Images *)
 
 Local Open Scope N.
@@ -68,7 +57,17 @@ Definition updatePixel {C} (x y: N) (c: C) (im: Image C) : Image C :=
     else pixel im Hx Hy
 |}.
 
-Close Scope N.
+
+(** ** [Z]-actions *)
+
+Local Open Scope Z.
+
+Class Z_action {X} (f: Z -> X -> X) : Prop :=
+{
+  Z_action_zero x : f 0 x = x;
+  Z_action_add z z' x : f (z + z') x = f z' (f z x);
+}.
+
 Local Notation "0" := 0%nat.
 
 
@@ -243,6 +242,38 @@ Module Core (MP: MachineParameters).
     | Some x => ret x
     | None => err
     end.
+
+  Definition addressable (n: nat) :=
+    forall a i, 0 < i < n -> offset i a <> a.
+
+  Proposition addressable_neg {n} (Hn: addressable n) :
+    forall a i, 0 < i < n -> offset (-i) a <> a.
+  Proof.
+    intros a i Hi H.
+    apply (Hn a i Hi).
+    rewrite <- H at 1.
+    rewrite <- Z_action_add.
+    lia_rewrite (-i + i = 0%Z).
+    apply Z_action_zero.
+  Qed.
+
+  Proposition addressable_le {n} (Hn: addressable n) {m: nat} (Hm: m <= n):
+    addressable m.
+  Proof.
+    unfold addressable in *.
+    intros. apply Hn. lia.
+  Qed.
+
+  Ltac addressable_tac :=
+    try match goal with
+        | H : addressable ?n |- addressable ?m =>
+          apply (addressable_le H (m:=m));
+          repeat (simpl length
+                  || rewrite app_length
+                  || rewrite rev_length);
+          repeat rewrite length_to_list;
+          try lia
+        end.
 
 
   (** ** [load] and [store] *)
@@ -473,7 +504,7 @@ Module Core (MP: MachineParameters).
       rewrite IH. clear IH.
       smon_rewrite.
       setoid_rewrite <- Z_action_add.
-      lia_rewrite (1 + length u = S (length u))%Z.
+      lia_rewrite (1 + length u = S (length u)).
       reflexivity.
   Qed.
 
@@ -484,16 +515,6 @@ Module Core (MP: MachineParameters).
       intros a;
       simp storeMany;
       typeclasses eauto.
-  Qed.
-
-  Definition addressable (n: nat) :=
-    forall a i, 0 < i < n -> offset i a <> a.
-
-  Proposition addressable_mono {n} (Hn: addressable n) {m: nat} (Hmn: m <= n):
-    addressable m.
-  Proof.
-    unfold addressable in *.
-    intros. apply Hn. lia.
   Qed.
 
   Lemma storeMany_rev a x u :
@@ -525,27 +546,27 @@ Module Core (MP: MachineParameters).
     revert H.
     generalize (rev u). clear u. intros u H.
     simp storeMany.
-
     revert a x.
-    induction u as [|y u IH]; intros a x; simp storeMany; smon_rewrite.
-    simpl length in H.
-    assert (addressable (S (length u))) as HH.
-    - eapply (addressable_mono H). lia.
-    - specialize (IH HH). clear HH.
-      rewrite storeMany_rev.
-      setoid_rewrite <- bind_assoc.
-      setoid_rewrite IH.
+    induction u as [|y u IH];
+      intros a x;
+      simp storeMany;
       smon_rewrite.
-      apply bind_extensional. intros [].
-      setoid_rewrite <- bind_ret_tt.
-      setoid_rewrite bind_assoc.
-      rewrite store_store.
-      + reflexivity.
-      + apply not_eq_sym.
-        rewrite <- Z_action_add.
-        unfold addressable in H.
-        apply (H a (1 + length u)).
-        lia.
+
+    cbn in H.
+    rewrite storeMany_rev.
+    setoid_rewrite <- bind_assoc.
+    setoid_rewrite IH; [ | addressable_tac ].
+
+    smon_rewrite.
+    apply bind_extensional. intros [].
+    setoid_rewrite <- bind_ret_tt.
+    setoid_rewrite bind_assoc.
+    rewrite store_store.
+    - reflexivity.
+    - apply not_eq_sym.
+      rewrite <- Z_action_add.
+      apply H.
+      lia.
   Qed.
 
   Lemma storeMany_action' a u v (H: addressable (length u + length v)) :
@@ -561,7 +582,7 @@ Module Core (MP: MachineParameters).
       rewrite offset_inc.
       simpl length.
       smon_rewrite.
-      all: eapply (addressable_mono H); try rewrite app_length; try simpl length; lia.
+      all: addressable_tac.
   Qed.
 
   Lemma storeMany_loadMany a n (u: Cells n) :
@@ -573,21 +594,18 @@ Module Core (MP: MachineParameters).
     - intros _. dependent elimination u. cbn.
       simp storeMany loadMany. smon_rewrite.
     - intros H. dependent elimination u as [Vector.cons (n:=n) x u]. simp to_list.
-      rewrite storeMany_equation_2' at 1.
-      + simp loadMany.
-        smon_rewrite.
-        rewrite store_load.
-        rewrite <- bind_assoc.
-        setoid_rewrite <- storeMany_equation_2'.
-        * simp storeMany.
-          smon_rewrite.
-          apply bind_extensional. intros [].
-          rewrite <- bind_assoc.
-          rewrite IHn.
-          -- smon_rewrite.
-          -- apply (addressable_mono H). lia.
-        * apply (addressable_mono H). rewrite length_to_list. lia.
-      + apply (addressable_mono H). rewrite length_to_list. lia.
+      rewrite storeMany_equation_2' at 1; [|addressable_tac].
+      simp loadMany.
+      smon_rewrite.
+      rewrite store_load.
+      rewrite <- bind_assoc.
+      setoid_rewrite <- storeMany_equation_2'; [|addressable_tac].
+      simp storeMany.
+      smon_rewrite.
+      apply bind_extensional. intros [].
+      rewrite <- bind_assoc.
+      rewrite IHn; [|addressable_tac].
+      smon_rewrite.
   Qed.
 
   Corollary storeMany_loadMany' a n (u: Cells n) {Y} (f: unit -> Cells n -> M Y) :
@@ -662,44 +680,42 @@ Module Core (MP: MachineParameters).
       rewrite pushMany_action.
       smon_rewrite.
       set (f := offset (- length ([x] ++ u))).
-      rewrite IH.
-      + unfold pushMany.
-        simpl rev.
-        simp pushManyR.
-        rewrite push_spec.
-        smon_rewrite.
-        apply bind_extensional. intros sp.
+      rewrite IH; [|addressable_tac].
+      unfold pushMany.
+      simpl rev.
+      simp pushManyR.
+      rewrite push_spec.
+      smon_rewrite.
+      apply bind_extensional. intros sp.
 
-        setoid_rewrite <- (confined_storeMany _ _ (neutral_get _ _)).
-        setoid_rewrite <- (confined_storeMany _ _ (neutral_put _ _ _)).
-        smon_rewrite.
-        setoid_rewrite <- Z_action_add.
+      setoid_rewrite <- (confined_storeMany _ _ (neutral_get _ _)).
+      setoid_rewrite <- (confined_storeMany _ _ (neutral_put _ _ _)).
+      smon_rewrite.
+      setoid_rewrite <- Z_action_add.
 
-        subst f.
+      subst f.
+      apply bind_extensional'.
+      + f_equal. f_equal. cbn. lia.
+      + intros [].
+        setoid_rewrite (storeMany_action' _ [x] u); [|addressable_tac].
+        simp storeMany.
+        smon_rewrite.
         apply bind_extensional'.
-        * f_equal. f_equal. cbn. lia.
+        * f_equal. rewrite <- Z_action_add.
+          f_equal. rewrite app_length.
+          simpl length. lia.
         * intros [].
-          setoid_rewrite (storeMany_action' _ [x] u).
-          -- simp storeMany.
-             smon_rewrite.
-             apply bind_extensional'.
-             ++ f_equal. rewrite <- Z_action_add.
-                f_equal. rewrite app_length.
-                simpl length. lia.
-             ++ intros [].
-                f_equal.
-                f_equal.
-                rewrite app_length.
-                simpl length.
-                lia.
-          -- apply (addressable_mono H). simpl length. lia.
-      + apply (addressable_mono H). simpl length. lia.
+          f_equal.
+          f_equal.
+          rewrite app_length.
+          simpl length.
+          lia.
   Qed.
+
+  Close Scope Z. (* Back to N for the rest of this file. *)
 
 
   (** ** Input *)
-
-  Local Open Scope N.
 
   Local Definition Input := Image InputColor.
 
