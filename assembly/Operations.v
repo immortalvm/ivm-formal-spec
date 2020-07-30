@@ -235,12 +235,6 @@ Module Core (MP: MachineParameters).
   Existing Instance H_eqdec.
   Existing Instance H_mon.
 
-  Definition extr {X} (ox: option X) : M X :=
-    match ox with
-    | Some x => ret x
-    | None => err
-    end.
-
   Definition addressable (n: nat) :=
     forall a i, 0 < i < n -> offset i a <> a.
 
@@ -272,6 +266,18 @@ Module Core (MP: MachineParameters).
           repeat rewrite length_to_list;
           try lia
         end.
+
+  Definition extr {X} (ox: option X) : M X :=
+    match ox with
+    | Some x => ret x
+    | None => err
+    end.
+  Definition extr_spec := ltac:(spec_tac @extr).
+  Global Opaque extr.
+
+  Global Instance confined_extr
+         {X} (ox: option X) : Confined' (extr ox).
+  Proof. rewrite extr_spec. split. typeclasses eauto. Qed.
 
 
   (** ** [load] and [store] *)
@@ -312,7 +318,7 @@ Module Core (MP: MachineParameters).
                                                  f u x' = store a x;;
                                                           f tt x.
   Proof.
-    rewrite store_spec, load_spec.
+    rewrite store_spec, load_spec, extr_spec.
     smon_rewrite.
     destruct (decide (available a)) as [Ha|Ha]; smon_rewrite.
     decided Ha. smon_rewrite.
@@ -417,13 +423,14 @@ Module Core (MP: MachineParameters).
     let* sp := get' SP in
     put' SP (offset 1 sp);;
     load sp.
+  Definition pop_spec := ltac:(spec_tac pop).
+  Global Opaque pop.
 
-  Proposition pop_alt : pop = let* sp := get' SP in
-                              put' SP (offset 1 sp);;
-                              load sp.
-  Proof. reflexivity. Qed.
-
-  Opaque pop.
+  Global Instance confined_pop : Confined (MEM * SP) pop.
+  Proof.
+    rewrite pop_spec.
+    typeclasses eauto.
+  Qed.
 
   (** Instead of marking the freed stack as undefined here,
       we will express this later in the corresponding [Cert]s. *)
@@ -456,7 +463,7 @@ Module Core (MP: MachineParameters).
       setoid_rewrite Z_action_zero.
       smon_rewrite.
     - rewrite IHn. clear IHn.
-      rewrite pop_alt.
+      rewrite pop_spec.
       smon_rewrite.
       setoid_rewrite (confined_load _).
       smon_rewrite.
@@ -805,6 +812,11 @@ Module Core (MP: MachineParameters).
         height := height img;
         pixel x Hx y Hy := extract (H_complete x Hx y Hy);
       |}.
+  Definition extractImage_spec := ltac:(spec_tac extractImage).
+  Global Opaque extractImage.
+
+  Global Instance extractImage_confined img : Confined' (extractImage img).
+  Proof. rewrite extractImage_spec. split. typeclasses eauto. Qed.
 
   Definition newFrame (w r h: N) : M unit :=
     let* bytes := get' OUT_BYTES in
@@ -832,20 +844,17 @@ Module Core (MP: MachineParameters).
            height := h;
            pixel _ _ _ _ := None;
          |}.
-
   Definition newFrame_spec := ltac:(spec_tac newFrame).
   Global Opaque newFrame.
-(*
+
   Global Instance confined_newFrame w r h :
-    Confined (OUT_IMAGE * OUT_BYTES * OUT_CHARS * OUT_SOUND)
+    Confined (OUT_IMAGE * OUT_BYTES * OUT_CHARS * OUT_SOUND * LOG)
              (newFrame w r h).
   Proof.
     rewrite newFrame_spec.
-    set (LA := (_ * _)%lens).
-    set (LA1 := prod_cover1 (OUT_IMAGE * OUT_BYTES * OUT_CHARS) OUT_SOUND _).
-    assert (Cover LA OUT_IMAGE); [ typeclasses eauto | ].
-*)
-
+    typeclasses eauto.
+  Qed.
 
  End core_section.
+
 End Core.

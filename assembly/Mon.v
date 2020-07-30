@@ -52,11 +52,6 @@ extensionality.
 ]]
 *)
 
-(* Note to self:
-* Order of associativity switched since ivm.v.
-* I had to move the [B] argument to [bind] to make it an instance of [Proper] (see below).
-*)
-
 (* We prefer a notation which does not require do-end blocks. *)
 Notation "'let*' x := mx 'in' my" := (bind mx (fun x => my))
                                        (at level 60, right associativity,
@@ -240,8 +235,7 @@ Ltac smon_rewrite :=
   try reflexivity.
 
 Ltac smon_rewrite' :=
-  repeat (independent_rewrite1
-          || lens_rewrite1
+  repeat (lens_rewrite1
           || reflexivity
           || smon_rewrite0; ltac2:(smon_rewrite1()));
   smon_rewrite2.
@@ -356,6 +350,8 @@ Ltac smon_rewrite1_lens :=
 Ltac2 Set smon_rewrite1 := fun _ =>
   ltac1:(smon_rewrite1_basics);
   ltac1:(repeat smon_rewrite1_lens).
+
+Set Typeclasses Unique Instances.
 
 
 (** ** Neutral and confined computations *)
@@ -511,6 +507,16 @@ Section neutral_section.
 
 End neutral_section.
 
+(** This is equivalent to [Confined unitLens], which is more elegant,
+    but leads to loops, cf. MonExtras. *)
+Class Confined'
+      {S: Type}
+      {M: Type -> Type} `{SM: SMonad S M}
+      {X} (mx: M X) : Prop :=
+{
+  confined' {B} {LB: Lens S B} :> Confined LB mx;
+}.
+
 
 (** ** Covers *)
 
@@ -529,8 +535,8 @@ Section cover_section.
   Existing Instance cover.
 
   Global Instance cover_neutral
-           {X} (mx: M X)
-           {Hmx: Neutral LA mx} : Neutral LB mx.
+         {X} (mx: M X)
+         {Hmx: Neutral LA mx} : Neutral LB mx.
   Proof.
     unfold Neutral in *.
     intro bb.
@@ -544,7 +550,6 @@ Section cover_section.
         setoid_rewrite (cover_update HAB)
         || setoid_rewrite (cover_proj HAB)
         || lens_rewrite).
-    reflexivity.
   Qed.
 
   Global Instance cover_confined
@@ -631,50 +636,24 @@ Section independence_section2.
           {A: Type} (LA: Lens S A)
           {B: Type} (LB: Lens S B).
 
-  Section one_way.
+  Context {HI: Independent LA LB}.
 
-    Context {HI: Independent LA LB}.
+  Global Instance neutral_get : Neutral LA (get' LB).
+  Proof.
+    intros aa. smon_rewrite.
+  Qed.
 
-    Global Instance neutral_get : Neutral LA (get' LB).
-    Proof.
-      intros aa. smon_rewrite.
-    Qed.
+  Global Instance neutral_put b : Neutral LA (put' LB b).
+  Proof.
+    intros aa. smon_rewrite.
+  Qed.
 
-    Global Instance neutral_put b : Neutral LA (put' LB b).
-    Proof.
-      intros aa. smon_rewrite.
-    Qed.
-
-    Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
-    Proof.
-      intros bb.
-      setoid_rewrite Hmx; [ | typeclasses eauto ].
-      setoid_rewrite Hmx; [ | typeclasses eauto ].
-      smon_rewrite.
-    Qed.
-
-  End one_way.
-
-  Section other_way.
-
-    Context {HI: Independent LB LA}.
-
-    Global Instance neutral_get' : Neutral LA (get' LB).
-    Proof.
-      apply (neutral_get (HI := independent_symm HI)).
-    Qed.
-
-    Global Instance neutral_put' b : Neutral LA (put' LB b).
-    Proof.
-      apply (neutral_put (HI := independent_symm HI)).
-    Qed.
-
-    Global Instance confined_neutral' {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
-    Proof.
-      apply (confined_neutral (HI := independent_symm HI)).
-      exact Hmx.
-    Qed.
-
-  End other_way.
+  Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
+  Proof.
+    intros bb.
+    setoid_rewrite Hmx; [ | typeclasses eauto ].
+    setoid_rewrite Hmx; [ | typeclasses eauto ].
+    smon_rewrite.
+  Qed.
 
 End independence_section2.

@@ -401,7 +401,10 @@ Section irel_section.
 End irel_section.
 
 
-(** ** Coercions *)
+(** ** Various *)
 
 Coercion N.of_nat : nat >-> N.
 Coercion Z.of_N : N >-> Z.
+
+(** Defines [∘] *)
+Open Scope program_scope.

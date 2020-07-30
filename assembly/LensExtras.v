@@ -2,6 +2,47 @@ From Assembly Require Import Init Lens.
 
 Unset Suggest Proof Using.
 
+Section char_section.
+
+  Local Arguments proj {_ _} _ _.
+  Local Arguments update {_ _} _ _ _.
+
+  Context {A X} (LX: Lens A X) (LX': Lens A X).
+
+  Proposition update_characterizes_proj' :
+    update LX = update LX' -> proj LX = proj LX'.
+  Proof.
+    intros H. extensionality a.
+    apply update_characterizes_proj.
+    rewrite H.
+    reflexivity.
+  Qed.
+
+End char_section.
+
+Global Program Instance initialCover {A X} (LX: Lens A X) : Cover idLens LX := { cover := LX }.
+
+(** Since "unit" shorter than "terminal". *)
+#[refine] Instance unitLens {A} : Lens A unit :=
+{
+  proj _ := tt;
+  update a _ := a;
+}.
+Proof.
+  - intros _ []. reflexivity.
+  - reflexivity.
+  - reflexivity.
+Defined.
+
+(** Beware, this can cause loops! *)
+#[refine] Instance unitCover {A X} (LX: Lens A X) : Cover LX unitLens :=
+{
+ cover := unitLens;
+}.
+Proof.
+  intros a []. cbn. lens_rewrite.
+Qed.
+
 
 (** ** Bijections *)
 
@@ -16,8 +57,6 @@ Definition bijection {X Y: Type} (f: X -> Y) (g: Y -> X) : Prop :=
   forall x y, f x = y <-> g y = x.
 
 Section bijection_section.
-
-  Open Scope program_scope.
 
   Context {X: Type}.
 
@@ -145,9 +184,7 @@ Section projection_section.
     rewrite <- (update_as_inverse a);
     rewrite proj_update;
     simpl;
-    rewrite proj_update;
-    independent_rewrite1;
-    reflexivity.
+    lens_rewrite.
 
   Proposition update_prodX (a: A) (x: X) : update a x = inverse (x, proj a).
   Proof. update_prod_tac a. Qed.
@@ -194,9 +231,9 @@ Section sum_section.
     update ab x := match ab with inl a => inl (update a x) | inr b => inr (update b x) end;
   }.
   Proof.
-    - intros [a|b] x; now lens_rewrite.
-    - intros [a|b]; f_equal; now lens_rewrite.
-    - intros [a|b] x x'; f_equal; now lens_rewrite.
+    - intros [a|b] x; lens_rewrite.
+    - intros [a|b]; f_equal; lens_rewrite.
+    - intros [a|b] x x'; f_equal; lens_rewrite.
   Defined.
 
 End sum_section.
@@ -586,18 +623,16 @@ Section lens_vector_section.
       + simp projN updateN.
         rewrite proj_update. f_equal.
         rewrite <- (IHn (proj a)). f_equal.
-        rewrite proj2_update1, proj_update.
-        reflexivity.
+        lens_rewrite.
     - induction n; intros a.
       + reflexivity.
       + simp projN updateN.
-        rewrite IHn. lens_rewrite. reflexivity.
+        rewrite IHn. lens_rewrite.
     - induction n; intros a x x';
         dependent elimination x;
         dependent elimination x'.
       + reflexivity.
       + simp projN updateN.
-        independent_rewrite.
         lens_rewrite. rewrite IHn. reflexivity.
   Defined.
 
@@ -615,7 +650,7 @@ Section lens_vector_section.
     - induction n; intros a.
       + reflexivity.
       + simp projN' updateN'.
-        rewrite IHn. lens_rewrite. reflexivity.
+        rewrite IHn. lens_rewrite.
     - induction n; intros a x x'.
       + reflexivity.
       + simp updateN'.
@@ -631,7 +666,6 @@ Section lens_vector_section.
     simpl.
     dependent elimination x.
     simp updateN updateN'.
-    independent_rewrite.
     lens_rewrite.
     rewrite IHn.
     reflexivity.
@@ -651,13 +685,11 @@ Section lens_vector_section.
     induction n; intros a v a'; dependent elimination v; simp inverseN.
     - reflexivity.
     - simp updateN' updateN.
-      independent_rewrite.
       lens_rewrite.
       rewrite IHn.
       rewrite <- (update_as_inverse a).
       simpl.
-      independent_rewrite1.
-      reflexivity.
+      lens_rewrite.
   Defined.
 
 End lens_vector_section.

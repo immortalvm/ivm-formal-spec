@@ -1,4 +1,4 @@
-From Assembly Require Import Init Lens Mon.
+From Assembly Require Import Init Lens Mon LensExtras.
 
 Unset Suggest Proof Using.
 
@@ -122,3 +122,15 @@ Section Trivial.
       the initial [SMonad]. *)
 
 End Trivial.
+
+
+(** ** Confined' **)
+
+Instance unitCover_confined'
+         {S: Type}
+         {M: Type -> Type} `{SM: SMonad S M}
+         {X} (mx: M X)
+         {Hmx: Confined unitLens mx} : Confined' mx.
+Proof. split. typeclasses eauto. Qed.
+
+(** The converse is trivial. *)

@@ -72,7 +72,6 @@ Qed.
 
 (** *** State *)
 
-(*
 Existing Instance independent_MEM_IMAGE.
 Existing Instance independent_MEM_BYTES.
 Existing Instance independent_MEM_CHARS.
@@ -109,7 +108,6 @@ Existing Instance independent_LOG_SP.
 Existing Instance independent_INP_PC.
 Existing Instance independent_INP_SP.
 Existing Instance independent_PC_SP.
-*)
 
 Infix "∩" := and_relation (at level 60, right associativity).
 
@@ -251,7 +249,7 @@ Ltac crush0 :=
 (** *** Get *)
 
 Local Ltac get_tactic :=
-  unfold get'; simpl; repeat crush0;
+  rewrite get_spec; simpl; repeat crush0;
   match goal with [ H: _ ⊑ _ |- _ ] => srel_destruct H end;
   try assumption.
 
@@ -286,11 +284,11 @@ Proof. get_tactic. Qed.
 (** *** Put *)
 
 Local Ltac put_tactic :=
-  unfold put'; simpl; repeat crush0;
+  rewrite put_spec; simpl; repeat crush0;
   match goal with [ H: _ ⊑ _ |- _ ] => srel_destruct H end;
   repeat split;
   unfold lens_relation;
-  repeat (independent_rewrite1 || lens_rewrite1 || simpl);
+  repeat (lens_rewrite1 || simpl);
   reflexivity || assumption.
 
 Instance putMem_propr : PropR (put' MEM).
@@ -323,7 +321,7 @@ Proof. put_tactic. Qed.
 
 (** *** Crush *)
 
-Ltac crush :=
+Ltac crush1 :=
   match goal with
   | [|- put' MEM _ ⊑ put' MEM _] => unshelve eapply putMem_propr
   | [|- put' OUT_IMAGE _ ⊑ put' OUT_IMAGE _] => unshelve eapply putImg_propr
@@ -338,8 +336,10 @@ Ltac crush :=
   | _ => crush0
   end.
 
+Ltac crush := repeat crush1.
+
 Instance pointwise_propr {X Y} (f: X -> Y) {RY: Rel Y} (H: forall x, PropR (f x)) : PropR f.
-Proof. repeat crush. Qed.
+Proof. crush. Qed.
 
 (** In other words, there is no less of generality instatiating
 arguments for which the relation is simply [eq]. On the contrary, this
@@ -348,55 +348,82 @@ improves proof search. *)
 
 (** ** Monotone operations *)
 
+Instance extr_propr {X} {RX: Rel X} : PropR (extr (X:=X)).
+Proof.
+  rewrite extr_spec.
+  crush.
+  exact Hxy.
+Qed.
+
 Instance load_propr a : PropR (load a).
 Proof.
-  unfold load.
-  repeat crush;
-    specialize (Hfg a HL);
-    rewrite Hu, Hv in *.
-  - exact Hfg.
-  - destruct Hfg.
+  rewrite load_spec.
+  unfold load0.
+  crush.
+  apply Hfg.
 Qed.
 
 Instance loadMany_propr n a : PropR (loadMany n a).
 Proof.
-  revert a; induction n; intros a; simp loadMany; repeat crush.
+  revert a; induction n; intros a; simp loadMany; crush.
 Qed.
 
 Instance next_propr n : PropR (next n).
-Proof. induction n; simp next; repeat crush. Qed.
+Proof. induction n; simp next; crush. Qed.
 
 Instance store_propr a o : PropR (store a o).
-Proof. unfold store. repeat crush. apply Hfg. Qed.
+Proof.
+  rewrite store_spec. unfold store0.
+  crush.
+  apply Hfg.
+Qed.
 
 Instance storeMany_propr a lst : PropR (storeMany a lst).
 Proof.
   revert a.
   induction lst as [|x r IH]; intros a;
-    simp storeMany; repeat crush.
+    simp storeMany; crush.
+Qed.
+
+Instance push_propr u : PropR (push u).
+Proof.
+  rewrite push_spec.
+  crush.
+Qed.
+
+Instance pushManyR_propr u : PropR (pushManyR u).
+Proof.
+  induction u; simp pushManyR; crush.
 Qed.
 
 Instance pushMany_propr u : PropR (pushMany u).
-Proof. unfold pushMany. repeat crush. Qed.
+Proof. crush. Qed.
+
+Instance pop_propr : PropR pop.
+Proof.
+  rewrite pop_spec. crush.
+Qed.
 
 Instance popMany_propr n : PropR (popMany n).
-Proof. unfold popMany. repeat crush. Qed.
+Proof.
+  induction n; simp popMany; crush.
+Qed.
 
 Instance pop64_propr: PropR pop64.
-Proof. unfold pop64; repeat crush. Qed.
+Proof. unfold pop64. crush. Qed.
 
 Instance pushZ_propr z: PropR (pushZ z).
-Proof. unfold pushZ. repeat crush. Qed.
+Proof. unfold pushZ. crush. Qed.
 
 Instance storeZ_propr n a z : PropR (storeZ n a z).
-Proof. unfold storeZ. repeat crush. Qed.
+Proof. unfold storeZ. crush. Qed.
 
 Local Open Scope N.
 
 Instance setPixel_propr x y c : PropR (setPixel x y c).
 Proof.
-  unfold setPixel, updatePixel.
-  repeat crush;
+  rewrite setPixel_spec. unfold updatePixel.
+  crush;
     destruct Hij as [Hw [Hh Hi]];
     [ | congruence | congruence ].
   exists Hw. exists Hh. intros x' Hx' y' Hy'. simpl.
@@ -406,7 +433,7 @@ Proof.
 Qed.
 
 Instance readPixel_propr x y : PropR (readPixel x y).
-Proof. unfold readPixel. repeat crush. Qed.
+Proof. rewrite readPixel_spec. crush. Qed.
 
 Lemma image_complete_lemma
       {i i': Image (option OutputColor)}
@@ -428,14 +455,14 @@ Proof.
     destruct c' as [[r' g'] b'].
     cbn in Hp.
     destruct Hp as [[Hr Hg] Hb].
-    repeat crush.
+    crush.
   - crush.
 Qed.
 
 Instance newFrame_propr w h r: PropR (newFrame w h r).
 Proof.
-  unfold newFrame, extractImage.
-  repeat crush; destruct (image_complete_lemma Hij HL).
+  rewrite newFrame_spec, extractImage_spec.
+  crush; destruct (image_complete_lemma Hij HL).
   - destruct (proof_irrelevance _ HL HL0). reflexivity.
   - contradict HR. exact HL.
 Qed.
@@ -447,9 +474,9 @@ Close Scope N.
 
 Global Instance oneStep_propr : PropR oneStep.
 Proof.
-  unfold oneStep. repeat crush.
+  unfold oneStep. crush.
   destruct (y: Z) eqn:Hy;
-    [ crush; reflexivity | | simp oneStep'; repeat crush].
+    [ crush; reflexivity | | simp oneStep'; crush].
 
   (* Is there a more elegant way to do this. *)
   unfold oneStep'.
@@ -457,11 +484,15 @@ Proof.
             [|- context [match _ with xI _ => _ | xO _ => _ | xH => _ end]] =>
             destruct p end).
   all:
-    unfold putByte, putChar, addSample, readFrame; repeat crush.
+    try rewrite putByte_spec;
+    try rewrite putChar_spec;
+    try rewrite addSample_spec;
+    try rewrite readFrame_spec;
+    crush.
 Qed.
 
 Global Instance nSteps_propr n : PropR (nSteps n).
 Proof.
-  induction n; simp nSteps; unfold chain; repeat crush.
-  destruct y; repeat crush.
+  induction n; simp nSteps; unfold chain; crush.
+  destruct y; crush.
 Qed.

@@ -65,7 +65,7 @@ Proof.
     unfold swallow1.
     repeat setoid_rewrite bind_assoc.
     setoid_rewrite assert_bind.
-    repeat crush.
+    crush.
     + srel_destruct Hst. assumption.
     + setoid_rewrite ret_bind.
       apply IHn. subst y0. exact H.
@@ -115,7 +115,7 @@ Ltac cert_start :=
        rewrite next_helper; try lia);
   simpl;
   repeat rewrite ret_bind;
-  repeat crush.
+  crush.
 
 Lemma cert_exit : nCert 1 (swallow [EXIT];;
                            terminated).
@@ -144,9 +144,9 @@ Proof.
   rewrite match_helper; [ | lia ].
   rewrite bind_ret_helper.
   rewrite <- bind_assoc.
-  apply (bind_propr _ _); [ | repeat crush ].
+  apply (bind_propr _ _); [ | crush ].
   simp oneStep'.
-  apply (bind_propr _ _); repeat crush.
+  apply (bind_propr _ _); crush.
   rewrite ofN_bitsToN, toBits_fromBits.
   reflexivity.
 Qed.
@@ -155,7 +155,7 @@ Lemma cert_id : nCert 0 (not_terminated).
 Proof.
   unfold nCert.
   simp nSteps.
-  repeat crush.
+  crush.
 Qed.
 
 Instance chain_propr : PropR chain.
@@ -169,7 +169,7 @@ Proof.
     subst x.
     destruct x'.
     + exact Hv.
-    + repeat crush.
+    + crush.
 Qed.
 
 Lemma ncert_comp m n (u: M bool) {Cu: nCert m u} (v: M bool) {Cv: nCert n v} :
@@ -219,11 +219,11 @@ Proof.
   destruct (Machine.available' a).
   - cbn.
     rewrite update_state, <- get_put.
-    repeat crush.
+    crush.
     srel_destruct Hst.
     repeat split;
       unfold lens_relation;
-      [ rewrite proj_update; repeat crush; apply Hst_mem
+      [ rewrite proj_update; crush; apply Hst_mem
       | rewrite projY_updateX; assumption .. ].
   - apply (err_least _).
 Qed.
@@ -241,7 +241,7 @@ Lemma abandonedBefore_less a n : abandonedBefore a n ⊑ ret tt.
 Proof.
   revert a.
   induction n; intros a; simp abandonedBefore.
-  - repeat crush.
+  - crush.
   - enough (ret tt = ret tt;; ret tt) as H.
     + rewrite H.
       apply (bind_propr _ _).
@@ -263,7 +263,7 @@ Proof.
   cbn.
   rewrite bind_assoc.
   rewrite <- get_ret.
-  repeat crush.
+  crush.
   rewrite ret_bind.
   apply abandonedBefore_less.
 Qed.
@@ -276,7 +276,7 @@ Proof.
   intros Hu Hy.
   assert (my' = ret tt;; my') as H.
   - rewrite ret_bind. reflexivity.
-  - rewrite H. repeat crush; assumption.
+  - rewrite H. crush; assumption.
 Qed.
 
 Corollary abandoning_pop :
@@ -285,10 +285,10 @@ Corollary abandoning_pop :
   ret v ⊑ pop64.
 Proof.
   rewrite <- bind_ret.
-  repeat crush.
+  crush.
   apply rel_ret_tt.
   - apply abandoned_less.
-  - repeat crush.
+  - crush.
 Qed.
 
 
@@ -522,7 +522,7 @@ Proof.
   rewrite bind_assoc.
   apply (bind_propr _ _).
   - exact Hu.
-  - repeat crush.
+  - crush.
     destruct y; cbn; smon_rewrite.
     + exact Hv.
     + apply (err_least _).
