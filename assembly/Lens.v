@@ -168,9 +168,15 @@ TODO: Remove? *)
 
 Section lens_monoid_section.
 
-  (** [id] is a bijection and therefore a lens. *)
+  Context {A: Type}.
 
-  Context {A X Y} (LY: Lens X Y) (LX: Lens A X).
+  Program Instance idLens : Lens A A :=
+  {
+    proj a := a;
+    update a x := x;
+  }.
+
+  Context {X Y} (LY: Lens X Y) (LX: Lens A X).
 
   #[refine] Instance composeLenses : Lens A Y :=
   {
@@ -225,8 +231,8 @@ Section cover_section.
 
   Class Cover :=
   {
-    cover: Lens X Y;
-    cover_update a y: update LY a y = update LX a (update cover (proj LX a) y);
+    cover : Lens X Y;
+    cover_update a y : update LY a y = update LX a (update cover (proj LX a) y);
   }.
 
   Proposition cover_proj {HC: Cover} a : proj LY a = proj cover (proj LX a).
@@ -242,9 +248,33 @@ Arguments cover {_ _ _ _ _} _.
 Arguments cover_update {_ _ _ _ _} _.
 Arguments cover_proj {_ _ _ _ _} _.
 
+Section cover_monoid_section.
+
+  Context {A X} (LX: Lens A X).
+
+  Program Instance id_cover : Cover LX LX := { cover := idLens; }.
+
+  Context {Y} {LY: Lens A Y} (CXY: Cover LX LY)
+          {Z} {LZ: Lens A Z} (CYZ: Cover LY LZ).
+
+  #[refine] Instance composite_cover : Cover LX LZ := { cover := cover CYZ ∘ cover CXY }.
+  Proof.
+    intros a y.
+    cbn.
+    rewrite
+      (cover_update CYZ),
+      (cover_update CXY),
+      (cover_proj CXY).
+    reflexivity.
+  Qed.
+
+End cover_monoid_section.
+
+Arguments composite_cover {_ _ LX _ _} CXY {_ _} CYZ.
+
 Section prod_cover_section.
 
-  Context {A X Y} (LX: Lens A X) (LY: Lens A Y) (HI: Independent LX LY).
+  Context {A X Y} (LX: Lens A X) (LY: Lens A Y) {HI: Independent LX LY}.
 
   #[refine] Global Instance prod_cover1 : Cover (LX * LY) LX := { cover := lens_fst; }.
   Proof.
@@ -258,6 +288,14 @@ Section prod_cover_section.
     intros a y. cbn.
     repeat (lens_rewrite1 || independent_rewrite1).
     reflexivity.
+  Defined.
+
+  Context {X'} (LX': Lens A X') {HC: Cover LX LX'}.
+
+  (** A loop-safe corollary. *)
+  Global Instance prod_cover1' : Cover (LX * LY) LX'.
+  Proof.
+    apply (composite_cover prod_cover1 HC).
   Defined.
 
 End prod_cover_section.
