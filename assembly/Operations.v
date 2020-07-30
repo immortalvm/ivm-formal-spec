@@ -761,20 +761,36 @@ Module Core (MP: MachineParameters).
   Definition putChar (c: Char) : M unit :=
     let* chars := get' OUT_CHARS in
     put' OUT_CHARS (cons c chars).
+  Definition putChar_spec := ltac:(spec_tac putChar).
+  Global Opaque putChar.
+  Global Instance confined_putChar c : Confined OUT_CHARS (putChar c).
+  Proof. rewrite putChar_spec. typeclasses eauto. Qed.
 
   Definition putByte (b: Byte) : M unit :=
     let* bytes := get' OUT_BYTES in
     put' OUT_BYTES (cons b bytes).
+  Definition putByte_spec := ltac:(spec_tac putByte).
+  Global Opaque putByte.
+  Global Instance confined_putByte c : Confined OUT_BYTES (putByte c).
+  Proof. rewrite putByte_spec. typeclasses eauto. Qed.
 
   Definition addSample (l r: Sample) : M unit :=
     let* samples := get' OUT_SOUND in
     put' OUT_SOUND (extendSamples l r samples).
+  Definition addSample_spec := ltac:(spec_tac addSample).
+  Global Opaque addSample.
+  Global Instance confined_addSample l r : Confined OUT_SOUND (addSample l r).
+  Proof. rewrite addSample_spec. typeclasses eauto. Qed.
 
   Definition setPixel (x y: N) (c: OutputColor) : M unit :=
     let* img := get' OUT_IMAGE in
     assert* x < width img in
     assert* y < height img in
     put' OUT_IMAGE (updatePixel x y (Some c) img).
+  Definition setPixel_spec := ltac:(spec_tac setPixel).
+  Global Opaque setPixel.
+  Global Instance confined_setPixel x y c : Confined OUT_IMAGE (setPixel x y c).
+  Proof. rewrite setPixel_spec. typeclasses eauto. Qed.
 
 
   (** ** Output log *)
@@ -816,6 +832,20 @@ Module Core (MP: MachineParameters).
            height := h;
            pixel _ _ _ _ := None;
          |}.
+
+  Definition newFrame_spec := ltac:(spec_tac newFrame).
+  Global Opaque newFrame.
+(*
+  Global Instance confined_newFrame w r h :
+    Confined (OUT_IMAGE * OUT_BYTES * OUT_CHARS * OUT_SOUND)
+             (newFrame w r h).
+  Proof.
+    rewrite newFrame_spec.
+    set (LA := (_ * _)%lens).
+    set (LA1 := prod_cover1 (OUT_IMAGE * OUT_BYTES * OUT_CHARS) OUT_SOUND _).
+    assert (Cover LA OUT_IMAGE); [ typeclasses eauto | ].
+*)
+
 
  End core_section.
 End Core.
