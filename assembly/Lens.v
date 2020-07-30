@@ -157,37 +157,50 @@ End lens_bijection_section.
 
 (** ** Independent lenses *)
 
-Class Independent {S: Type}
-      {X: Type} (LX: Lens S X)
-      {Y: Type} (LY: Lens S Y) : Prop :=
-{
-  projY_updateX (s: S) (x: X) : proj (update s x) = proj s :> Y;
-  projX_updateY (s: S) (y: Y) : proj (update s y) = proj s :> X;
-  independent_commute (s: S) (x: X) (y: Y) :
-    update (update s x) y = update (update s y) x;
-}.
-
-(** To see that [independent_commute] does not follow from the other
-    properties, consider a square staircase. *)
-
-Create HintDb independent discriminated.
-Hint Rewrite @projY_updateX using (typeclasses eauto) : independent.
-Hint Rewrite @projX_updateY using (typeclasses eauto) : independent.
-Hint Rewrite @independent_commute using (typeclasses eauto) : independent.
-Ltac independent_rewrite1 := rewrite_strat (outermost (hints independent)).
-Ltac independent_rewrite := repeat independent_rewrite1.
+Class Independent {A: Type}
+      {X: Type} (LX: Lens A X)
+      {Y: Type} (LY: Lens A Y) : Prop :=
+  independent (a: A) (x: X) (y: Y) :
+    update (update a x) y = update (update a y) x.
 
 Section independence_section.
 
   Context {A X Y} {LX: Lens A X} {LY: Lens A Y} (HI: Independent LX LY).
 
-  (** Not gloal on purpose. *)
+  Proposition proj2_update1 (a: A) (x: X) : proj (update a x) = proj a :> Y.
+  Proof.
+    rewrite <- (@update_proj _ _ LY a) at 1.
+    rewrite <- independent.
+    apply proj_update.
+  Qed.
+
+  Proposition proj1_update2 (a: A) (y: Y) : proj (update a y) = proj a :> X.
+  Proof.
+    rewrite <- (@update_proj _ _ LX a) at 1.
+    rewrite independent.
+    apply proj_update.
+  Qed.
+
+  (** I have not found a way to make this global with causing loops. *)
   Instance independent_symm : Independent LY LX.
   Proof.
-    split; intros; now independent_rewrite.
+    intros a y x.
+    symmetry.
+    apply independent.
   Qed.
 
 End independence_section.
+
+Arguments proj2_update1 {_ _ _ _ _ HI}.
+Arguments proj1_update2 {_ _ _ _ _ HI}.
+
+Create HintDb independent discriminated.
+Hint Rewrite @proj2_update1 using (typeclasses eauto) : independent.
+Hint Rewrite @proj1_update2 using (typeclasses eauto) : independent.
+(** Beware: The rewrite order is somewhat arbitrary. *)
+Hint Rewrite @independent using (typeclasses eauto) : independent.
+Ltac independent_rewrite1 := rewrite_strat (outermost (hints independent)).
+Ltac independent_rewrite := repeat independent_rewrite1.
 
 
 (** ** Unit and false lenses
@@ -291,7 +304,7 @@ Section projection_section.
     rewrite
       <- (update_as_inverse (inverse xy)),
       prod_update_spec,
-      projX_updateY,
+      proj1_update2,
       proj_update.
     reflexivity.
   Qed.
@@ -310,11 +323,7 @@ Section projection_section.
 
   Global Instance independent_prod : Independent prodlens LZ.
   Proof.
-    split.
-    - intros s [x y]. simpl.
-      transitivity (proj (update s x)); now independent_rewrite.
-    - intros s z. simpl. f_equal; now independent_rewrite.
-    - intros s [x y] z. simpl. now independent_rewrite.
+    intros s [x y] z. simpl. now independent_rewrite.
   Qed.
 
 End projection_section.

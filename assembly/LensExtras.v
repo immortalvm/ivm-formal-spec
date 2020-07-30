@@ -407,7 +407,7 @@ Section lens_vector_section.
       + simp projN updateN.
         rewrite proj_update. f_equal.
         rewrite <- (IHn (proj a)). f_equal.
-        rewrite projY_updateX, proj_update.
+        rewrite proj2_update1, proj_update.
         reflexivity.
     - induction n; intros a.
       + reflexivity.
@@ -445,31 +445,17 @@ Section lens_vector_section.
 
   Instance independent_vector n : Independent (lens_vector n) (lens_vector' n).
   Proof.
-    induction n; [split; reflexivity|].
-    destruct IHn as [IH1 IH2 IH3].
-    simpl in IH1, IH2, IH3.
-    split.
-    - intros a x. dependent elimination x. simpl.
-      simp projN' updateN.
-      independent_rewrite.
-      lens_rewrite.
-      rewrite IH1.
-      reflexivity.
-    - intros a y. simpl.
-      simp projN updateN'.
-      lens_rewrite.
-      rewrite IH2.
-      f_equal.
-      independent_rewrite.
-      reflexivity.
-    - intros a x y.
-      simpl.
-      dependent elimination x.
-      simp updateN updateN'.
-      independent_rewrite.
-      lens_rewrite.
-      rewrite IH3.
-      reflexivity.
+    induction n; [intro; reflexivity|].
+    unfold Independent in IHn.
+    simpl in IHn.
+    intros a x y.
+    simpl.
+    dependent elimination x.
+    simp updateN updateN'.
+    independent_rewrite.
+    lens_rewrite.
+    rewrite IHn.
+    reflexivity.
   Qed.
 
   Existing Instance prodlens.
