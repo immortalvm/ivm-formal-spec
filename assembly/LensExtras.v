@@ -3,6 +3,185 @@ From Assembly Require Import Init Lens.
 Unset Suggest Proof Using.
 
 
+(** ** Bijections *)
+
+Class Bijection {X Y: Type} (f: X -> Y) :=
+{
+  inverse : Y -> X;
+  inverse_f x : inverse (f x) = x;
+  f_inverse y : f (inverse y) = y;
+}.
+
+Definition bijection {X Y: Type} (f: X -> Y) (g: Y -> X) : Prop :=
+  forall x y, f x = y <-> g y = x.
+
+Section bijection_section.
+
+  Open Scope program_scope.
+
+  Context {X: Type}.
+
+  Program Instance Bijection_id : Bijection (@id X).
+
+  Context {Y} {f: X -> Y}.
+
+  #[refine] Instance Bijection_b (g: Y -> X) (Hb: bijection f g) : Bijection f :=
+  {
+    inverse := g;
+    inverse_f x := _;
+    f_inverse y := _;
+  }.
+  Proof.
+    all: apply Hb; reflexivity.
+  Defined.
+
+  Context {Bf: Bijection f}.
+
+  Lemma B_bijection : bijection f inverse.
+  Proof.
+    intros x y. split; intro; subst.
+    - apply inverse_f.
+    - apply f_inverse.
+  Qed.
+
+  Lemma B_injective x x' : f x = f x' -> x = x'.
+    intros H.
+    rewrite <- (proj1 (B_bijection x (f x')) H).
+    apply inverse_f.
+  Qed.
+
+  (** Not global on purpose! *)
+  Instance Bijection_symmetry : Bijection inverse :=
+  {
+    inverse := f;
+    inverse_f := f_inverse;
+    f_inverse := inverse_f;
+  }.
+
+  Context {Z} {g: Y -> Z} {Bg: Bijection g}.
+
+  #[refine] Instance Bijection_composite : Bijection (g ∘ f) :=
+  {
+    inverse z := inverse (inverse z);
+  }.
+  Proof.
+    all: intro; unfold compose.
+    - do 2 rewrite inverse_f. reflexivity.
+    -  do 2 rewrite f_inverse. reflexivity.
+  Defined.
+
+End bijection_section.
+
+Arguments Bijection_b : clear implicits.
+Arguments Bijection_b {_ _ _} _ _.
+
+Arguments Bijection_composite : clear implicits.
+Arguments Bijection_composite {_ _ _} _ {_ _}.
+
+
+(** ** Bijection lenses *)
+
+Notation Bijection_lens L := (Bijection (proj (Lens:=L))).
+
+Section bijection_lens_section.
+
+  Context {A X} {f: A -> X} (Bf: Bijection f).
+
+  #[refine] Instance lens_bijection : Lens A X :=
+  {
+    proj x := f x;
+    update _ x := inverse x;
+  }.
+  Proof.
+    - intros _ x. apply f_inverse.
+    - intros a. apply inverse_f.
+    - reflexivity.
+  Defined.
+
+End bijection_lens_section.
+
+Section lens_bijection_section.
+
+  Context {A X} {LX: Lens A X}.
+
+  Proposition proj_characterized a x : proj a = x <-> update a x = a.
+  Proof.
+    split; intros H; rewrite <- H.
+    - apply update_proj.
+    - apply proj_update.
+  Qed.
+
+  Proposition update_as_inverse {Bp: Bijection proj} a x :
+    update a x = inverse x.
+  Proof.
+    symmetry. apply B_bijection, proj_update.
+  Qed.
+
+  (** Conversely: *)
+
+  #[refine] Instance bijection_lens (g: X -> A)
+            (Hup: forall a x, update a x = g x) : Bijection_lens LX :=
+  {
+    inverse := g;
+  }.
+  Proof.
+    - intro a. rewrite <- (Hup a). apply proj_characterized. reflexivity.
+    - intro x. rewrite <- (Hup (g x)). rewrite proj_update. reflexivity.
+  Defined.
+
+End lens_bijection_section.
+
+
+(** ** Products and projections *)
+
+Section projection_section.
+
+  Context {X Y: Type}
+          {A} (LX: Lens A X) (LY: Lens A Y) {IXY: Independent LX LY}
+          {Bp: Bijection_lens (LX * LY)}.
+
+  Local Ltac update_prod_tac a :=
+    apply (B_injective (Bf:=Bp));
+    rewrite <- (update_as_inverse a);
+    rewrite proj_update;
+    simpl;
+    rewrite proj_update;
+    independent_rewrite1;
+    reflexivity.
+
+  Proposition update_prodX (a: A) (x: X) : update a x = inverse (x, proj a).
+  Proof. update_prod_tac a. Qed.
+
+  Proposition update_prodY (a: A) (y: Y) : update a y = inverse (proj a, y).
+  Proof. update_prod_tac a. Qed.
+
+  (* TODO: Is this ever useful? *)
+  Lemma update_proj_swap (a a' : A) :
+    update a' (proj a : X) = update a (proj a' : Y).
+  Proof. rewrite update_prodX, update_prodY. reflexivity. Qed.
+
+  Proposition projX_inverse xy : proj (inverse xy) = fst xy.
+  Proof.
+    rewrite
+      <- (update_as_inverse (inverse xy)),
+      prod_update_spec,
+      proj1_update2,
+      proj_update.
+    reflexivity.
+  Qed.
+
+  Proposition projY_inverse xy : proj (inverse xy) = snd xy.
+  Proof.
+    rewrite
+      <- (update_as_inverse (inverse xy)),
+      prod_update_spec,
+      proj_update.
+    reflexivity.
+  Qed.
+
+End projection_section.
+
+
 (** ** Sum lenses *)
 
 Section sum_section.
