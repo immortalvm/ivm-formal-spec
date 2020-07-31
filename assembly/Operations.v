@@ -187,42 +187,42 @@ Module Core (MP: MachineParameters).
 
   Context {MP1: MachineParams1}.
 
-  Existing Instance independent_MEM_IMAGE.
-  Existing Instance independent_MEM_BYTES.
-  Existing Instance independent_MEM_CHARS.
-  Existing Instance independent_MEM_SOUND.
-  Existing Instance independent_MEM_LOG.
-  Existing Instance independent_MEM_INP.
-  Existing Instance independent_MEM_PC.
-  Existing Instance independent_MEM_SP.
-  Existing Instance independent_IMAGE_BYTES.
-  Existing Instance independent_IMAGE_CHARS.
-  Existing Instance independent_IMAGE_SOUND.
-  Existing Instance independent_IMAGE_LOG.
-  Existing Instance independent_IMAGE_INP.
-  Existing Instance independent_IMAGE_PC.
-  Existing Instance independent_IMAGE_SP.
-  Existing Instance independent_BYTES_CHARS.
-  Existing Instance independent_BYTES_SOUND.
-  Existing Instance independent_BYTES_LOG.
-  Existing Instance independent_BYTES_INP.
-  Existing Instance independent_BYTES_PC.
-  Existing Instance independent_BYTES_SP.
-  Existing Instance independent_CHARS_SOUND.
-  Existing Instance independent_CHARS_LOG.
-  Existing Instance independent_CHARS_INP.
-  Existing Instance independent_CHARS_PC.
-  Existing Instance independent_CHARS_SP.
-  Existing Instance independent_SOUND_LOG.
-  Existing Instance independent_SOUND_INP.
-  Existing Instance independent_SOUND_PC.
-  Existing Instance independent_SOUND_SP.
-  Existing Instance independent_LOG_INP.
-  Existing Instance independent_LOG_PC.
-  Existing Instance independent_LOG_SP.
-  Existing Instance independent_INP_PC.
-  Existing Instance independent_INP_SP.
-  Existing Instance independent_PC_SP.
+  Global Existing Instance independent_MEM_IMAGE.
+  Global Existing Instance independent_MEM_BYTES.
+  Global Existing Instance independent_MEM_CHARS.
+  Global Existing Instance independent_MEM_SOUND.
+  Global Existing Instance independent_MEM_LOG.
+  Global Existing Instance independent_MEM_INP.
+  Global Existing Instance independent_MEM_PC.
+  Global Existing Instance independent_MEM_SP.
+  Global Existing Instance independent_IMAGE_BYTES.
+  Global Existing Instance independent_IMAGE_CHARS.
+  Global Existing Instance independent_IMAGE_SOUND.
+  Global Existing Instance independent_IMAGE_LOG.
+  Global Existing Instance independent_IMAGE_INP.
+  Global Existing Instance independent_IMAGE_PC.
+  Global Existing Instance independent_IMAGE_SP.
+  Global Existing Instance independent_BYTES_CHARS.
+  Global Existing Instance independent_BYTES_SOUND.
+  Global Existing Instance independent_BYTES_LOG.
+  Global Existing Instance independent_BYTES_INP.
+  Global Existing Instance independent_BYTES_PC.
+  Global Existing Instance independent_BYTES_SP.
+  Global Existing Instance independent_CHARS_SOUND.
+  Global Existing Instance independent_CHARS_LOG.
+  Global Existing Instance independent_CHARS_INP.
+  Global Existing Instance independent_CHARS_PC.
+  Global Existing Instance independent_CHARS_SP.
+  Global Existing Instance independent_SOUND_LOG.
+  Global Existing Instance independent_SOUND_INP.
+  Global Existing Instance independent_SOUND_PC.
+  Global Existing Instance independent_SOUND_SP.
+  Global Existing Instance independent_LOG_INP.
+  Global Existing Instance independent_LOG_PC.
+  Global Existing Instance independent_LOG_SP.
+  Global Existing Instance independent_INP_PC.
+  Global Existing Instance independent_INP_SP.
+  Global Existing Instance independent_PC_SP.
 
   Class MachineParams2 :=
   {
@@ -233,7 +233,7 @@ Module Core (MP: MachineParameters).
   Context {MP2: MachineParams2}.
 
   Existing Instance H_eqdec.
-  Existing Instance H_mon.
+  Global Existing Instance H_mon.
 
   Definition addressable (n: nat) :=
     forall a i, 0 < i < n -> offset i a <> a.

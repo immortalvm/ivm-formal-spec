@@ -9,8 +9,6 @@ Unset Suggest Proof Using.
 Context {MP1: MachineParams1}
         {MP2: MachineParams2}.
 
-Existing Instance H_mon.
-
 
 (** ** State relation *)
 
@@ -72,43 +70,6 @@ Qed.
 
 (** *** State *)
 
-Existing Instance independent_MEM_IMAGE.
-Existing Instance independent_MEM_BYTES.
-Existing Instance independent_MEM_CHARS.
-Existing Instance independent_MEM_SOUND.
-Existing Instance independent_MEM_LOG.
-Existing Instance independent_MEM_INP.
-Existing Instance independent_MEM_PC.
-Existing Instance independent_MEM_SP.
-Existing Instance independent_IMAGE_BYTES.
-Existing Instance independent_IMAGE_CHARS.
-Existing Instance independent_IMAGE_SOUND.
-Existing Instance independent_IMAGE_LOG.
-Existing Instance independent_IMAGE_INP.
-Existing Instance independent_IMAGE_PC.
-Existing Instance independent_IMAGE_SP.
-Existing Instance independent_BYTES_CHARS.
-Existing Instance independent_BYTES_SOUND.
-Existing Instance independent_BYTES_LOG.
-Existing Instance independent_BYTES_INP.
-Existing Instance independent_BYTES_PC.
-Existing Instance independent_BYTES_SP.
-Existing Instance independent_CHARS_SOUND.
-Existing Instance independent_CHARS_LOG.
-Existing Instance independent_CHARS_INP.
-Existing Instance independent_CHARS_PC.
-Existing Instance independent_CHARS_SP.
-Existing Instance independent_SOUND_LOG.
-Existing Instance independent_SOUND_INP.
-Existing Instance independent_SOUND_PC.
-Existing Instance independent_SOUND_SP.
-Existing Instance independent_LOG_INP.
-Existing Instance independent_LOG_PC.
-Existing Instance independent_LOG_SP.
-Existing Instance independent_INP_PC.
-Existing Instance independent_INP_SP.
-Existing Instance independent_PC_SP.
-
 Infix "∩" := and_relation (at level 60, right associativity).
 
 Instance state_relation : Rel State :=
@@ -155,7 +116,7 @@ Qed.
 Context {RM: forall X (RX: Rel X), Rel (M X)}
         {PM: SMonadPropR State M (RM:=RM)}.
 
-Existing Instance PM.
+Global Existing Instance PM.
 
 Proposition bind_propr'
             {X Y} {RX: Rel X} {RY: Rel Y}

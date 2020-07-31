@@ -66,8 +66,6 @@ Section machine_section.
   Context {MP1: MachineParams1}.
   Context {MP2: MachineParams2}.
 
-  Existing Instance H_mon.
-
   Definition toBytes (n: nat) z := bitsToBytes (toBits (n * 8) z).
 
   Coercion to_list : vector >-> list.
