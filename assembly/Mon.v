@@ -338,7 +338,18 @@ Section lensmonad_section.
              f a a.
   Proof. lens_transfer. Qed.
 
+  Corollary smonad_ext' {X} (mx mx': M X)
+        (H: forall a, put' a;; mx = put' a;; mx') : mx = mx'.
+  Proof.
+    setoid_rewrite <- lens_get_ret.
+    setoid_rewrite <- (lens_get_put (fun _ _ => _)).
+    apply bind_extensional.
+    exact H.
+  Qed.
+
 End lensmonad_section.
+
+Ltac smon_ext' LA a := apply (smonad_ext' LA); intros a.
 
 Ltac smon_rewrite1_lens :=
   setoid_rewrite lens_put_put

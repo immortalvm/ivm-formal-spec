@@ -235,7 +235,13 @@ Module Core (MP: MachineParameters).
   Existing Instance H_eqdec.
   Global Existing Instance H_mon.
 
-  Definition addressable (n: nat) :=
+
+  (** *** Addressable  *)
+
+  (** The address space may consist of multiple disjoint pieces. The
+      following predicate states that each piece consists of at least [n]
+      distinct addresses. *)
+  Definition addressable (n: nat) : Prop :=
     forall a i, 0 < i < n -> offset i a <> a.
 
   Proposition addressable_neg {n} (Hn: addressable n) :
@@ -267,6 +273,86 @@ Module Core (MP: MachineParameters).
           try lia
         end.
 
+
+  (** *** Decidable subsets of the address space *)
+
+  Definition AddrSet := Addr -> bool.
+
+  Declare Scope AddrSet.
+  Open Scope AddrSet. (* TODO *)
+
+  Notation "a ∈ u" := ((u : AddrSet) a : Prop) (at level 40) : AddrSet.
+
+  Definition aSet (p: Addr -> Prop) {dec: forall a, Decidable (p a)} : AddrSet :=
+    fun a => as_bool (decide (p a)).
+
+  Definition emptyAddrSet : AddrSet := aSet (fun _ => False).
+  Notation "∅" := emptyAddrSet : AddrSet.
+
+  Definition singletonAddrSet a := aSet (eq a).
+  Notation " { a } " := (singletonAddrSet a) : AddrSet.
+
+  Definition unionAddrSet (u v : AddrSet) :=
+    aSet(fun x => x ∈ u \/ x ∈ v).
+
+
+  (** *** [AddrSet] lenses *)
+
+  Section aLens_section.
+
+    Context (u: AddrSet).
+
+    Definition aSetMem : Type :=
+      forall a, a ∈ u -> available a -> option Cell.
+
+    #[refine] Global Instance aLens : Lens Memory aSetMem :=
+    {
+      proj m a _ := m a;
+      update m m' a := match decide (a ∈ u) with
+                       | left H => m' a H
+                       | _ => m a
+                       end;
+    }.
+    Proof.
+      - unfold aSetMem.
+        intros mem umem.
+        extensionality a.
+        extensionality H.
+        decided H.
+        reflexivity.
+      - intros mem.
+        extensionality a.
+        destruct (decide (u a));
+          extensionality H;
+          reflexivity.
+      - intros mem umem umem'.
+        extensionality a.
+        destruct (decide (u a));
+          reflexivity.
+    Defined.
+
+    Global Instance MEM' : Lens State aSetMem := aLens ∘ MEM.
+
+    Proposition get_mem_spec : get' MEM' = let* mem := get' MEM in
+                                     ret (proj mem).
+    Proof.
+      setoid_rewrite get_spec.
+      smon_rewrite.
+    Qed.
+
+    Proposition put_mem_spec umem : put' MEM' umem = let* mem := get' MEM in
+                                                     put' MEM (update mem umem).
+    Proof.
+      rewrite get_spec, put_spec, put_spec.
+      smon_rewrite.
+    Qed.
+
+  End aLens_section.
+
+
+  (** *** Extract the boxed element from an [option] type or fail. *)
+
+  (* TODO: Move to Mon.v ? *)
   Definition extr {X} (ox: option X) : M X :=
     match ox with
     | Some x => ret x
@@ -291,11 +377,47 @@ Module Core (MP: MachineParameters).
   Definition load_spec := ltac:(spec_tac load).
   Global Opaque load.
 
-  Global Instance confined_load {a} : Confined MEM (load a).
+  Global Instance confined_load {a} : Confined (MEM' {a}) (load a).
   Proof.
+    (* TODO: Simplify *)
     rewrite load_spec.
-    typeclasses eauto.
+    unfold load0.
+    destruct (decide (available a)) as [Ha|Ha];
+      [ | typeclasses eauto ].
+    intros Y my Hmy.
+    intros A f.
+    smon_rewrite.
+    smon_ext' MEM mem.
+
+    unfold Neutral in Hmy.
+    setoid_rewrite put_mem_spec in Hmy.
+    setoid_rewrite get_mem_spec in Hmy.
+
+    unshelve setoid_rewrite Hmy at 1;
+      [ exact (proj mem) | ].
+    smon_rewrite'.
+
+    simpl (extr _).
+    unfold singletonAddrSet.
+    assert (aSet (eq a) a) as Haa.
+    - cbv.
+      destruct (H_eqdec a a) as [H|H].
+      exact I.
+      contradict H.
+      reflexivity.
+
+    - decided Haa.
+      destruct (mem a Ha) as [x|];
+        [ | smon_rewrite ].
+      rewrite extr_spec.
+      smon_rewrite.
+
+      unshelve setoid_rewrite Hmy at 2;
+        [ exact (proj mem) | ].
+      smon_rewrite'.
   Qed.
+
+  (* TODO: Continue strengthening from here. *)
 
   Definition store0 (a: Addr) (o: option Cell) : M unit :=
     assert* available a in
