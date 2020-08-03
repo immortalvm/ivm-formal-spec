@@ -6,8 +6,6 @@ Unset Suggest Proof Using.
 Set Primitive Projections.
 Global Unset Printing Primitive Projection Parameters.
 
-Set Implicit Arguments.
-
 
 (** ** Images *)
 
@@ -19,6 +17,10 @@ Record Image (C: Type) :=
       height: N;
       pixel (x: N) (Hx: x < width) (y: N) (Hy: y < height): C;
     }.
+
+Arguments width {_} _.
+Arguments height {_} _.
+Arguments pixel {_} _ {_} Hx {_} Hy.
 
 Definition noImage {C}: Image C.
   refine {|
@@ -277,23 +279,74 @@ Module Core (MP: MachineParameters).
   (** *** Decidable subsets of the address space *)
 
   Definition AddrSet := Addr -> bool.
+  Declare Scope AddrSet_scope.
+  Bind Scope AddrSet_scope with AddrSet.
+  Delimit Scope AddrSet_scope with AddrSet.
 
-  Declare Scope AddrSet.
-  Open Scope AddrSet. (* TODO *)
-
-  Notation "a ∈ u" := ((u : AddrSet) a : Prop) (at level 40) : AddrSet.
+  Definition AddrSet_member a (u: AddrSet) : Prop := u a.
+  Infix "∈" := AddrSet_member (at level 70) : type_scope. (* NB *)
 
   Definition aSet (p: Addr -> Prop) {dec: forall a, Decidable (p a)} : AddrSet :=
     fun a => as_bool (decide (p a)).
 
+  (* TODO: move *)
+  Proposition asBool_decide P {DP: Decidable P} : as_bool (decide P) <-> P.
+  Proof.
+    destruct (decide P) as [H|H].
+    - split; intros _; [ exact H | exact I ].
+    - cbv.
+      split;
+        intros HH;
+        [ exfalso | apply H ];
+        exact HH.
+  Qed.
+
+  Proposition aSet_spec a p {dec: forall a', Decidable (p a')} : a ∈ aSet p <-> p a.
+  Proof.
+    unfold aSet, AddrSet_member.
+    setoid_rewrite <- (asBool_decide (p a) (DP := dec a)) at 2.
+    destruct (decide (p a)) as [H|H]; tauto.
+  Qed.
+
   Definition emptyAddrSet : AddrSet := aSet (fun _ => False).
-  Notation "∅" := emptyAddrSet : AddrSet.
+  Notation "∅" := emptyAddrSet : AddrSet_scope.
+  Proposition emptyAddrSet_spec a : not ( a ∈ ∅ ).
+  Proof.
+    unfold emptyAddrSet.
+    rewrite aSet_spec.
+    exact id.
+  Qed.
 
   Definition singletonAddrSet a := aSet (eq a).
-  Notation " { a } " := (singletonAddrSet a) : AddrSet.
+  Notation " { a } " := (singletonAddrSet a) : AddrSet_scope.
+  (* TODO: Can this be avoided? *)
+  Notation " a ∈ { a' } " := (a ∈ singletonAddrSet a') (at level 70) : type_scope.
+  Proposition singletonAddrSet_spec a a' : a ∈ {a'} <-> a = a'.
+  Proof.
+    unfold singletonAddrSet.
+    rewrite aSet_spec.
+    split; intro H; symmetry; exact H.
+  Qed.
 
-  Definition unionAddrSet (u v : AddrSet) :=
-    aSet(fun x => x ∈ u \/ x ∈ v).
+  Definition unionAddrSet (u v : AddrSet) := aSet(fun a => a ∈ u \/ a ∈ v).
+  Notation "u ∪ v" := (unionAddrSet u v) (at level 40) : AddrSet_scope.
+  Proposition unionAddrSet_spec u v a : a ∈ u ∪ v <-> a ∈ u \/ a ∈ v.
+  Proof.
+    unfold unionAddrSet.
+    rewrite aSet_spec.
+    reflexivity.
+  Qed.
+
+  Definition separate (u v : AddrSet) := forall a, not (a ∈ u /\ a ∈ v).
+
+  Proposition separate_singeltons a a' : separate {a} {a'} <-> a <> a'.
+  Proof.
+    unfold separate.
+    setoid_rewrite singletonAddrSet_spec.
+    firstorder.
+    intros [? ?].
+    congruence.
+  Qed.
 
 
   (** *** [AddrSet] lenses *)
@@ -322,19 +375,19 @@ Module Core (MP: MachineParameters).
         reflexivity.
       - intros mem.
         extensionality a.
-        destruct (decide (u a));
+        destruct (decide (a ∈ u));
           extensionality H;
           reflexivity.
       - intros mem umem umem'.
         extensionality a.
-        destruct (decide (u a));
+        destruct (decide (a ∈ u));
           reflexivity.
     Defined.
 
     Global Instance MEM' : Lens State aSetMem := aLens ∘ MEM.
 
     Proposition get_mem_spec : get' MEM' = let* mem := get' MEM in
-                                     ret (proj mem).
+                                           ret (proj mem).
     Proof.
       setoid_rewrite get_spec.
       smon_rewrite.
@@ -349,6 +402,14 @@ Module Core (MP: MachineParameters).
 
   End aLens_section.
 
+  Instance separate_independent u u' (H: separate u u') : Independent (MEM' u) (MEM' u').
+  Proof.
+    intros s m m'.
+
+    (* TODO: Continue from here *)
+
+
+    Qed.
 
   (** *** Extract the boxed element from an [option] type or fail. *)
 
