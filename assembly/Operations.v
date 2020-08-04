@@ -339,13 +339,20 @@ Module Core (MP: MachineParameters).
 
   Definition separate (u v : AddrSet) := forall a, not (a ∈ u /\ a ∈ v).
 
-  Proposition separate_singeltons a a' : separate {a} {a'} <-> a <> a'.
+  Proposition separate_not_member a u : separate {a} u <-> not (a ∈ u).
   Proof.
     unfold separate.
     setoid_rewrite singletonAddrSet_spec.
-    firstorder.
-    intros [? ?].
+    intuition.
     congruence.
+  Qed.
+
+  Corollary separate_singeltons a a' : separate {a} {a'} <-> a <> a'.
+  Proof.
+    transitivity (not (a ∈ {a'}));
+      [ rewrite separate_not_member
+      | rewrite singletonAddrSet_spec ];
+      reflexivity.
   Qed.
 
 
@@ -402,14 +409,15 @@ Module Core (MP: MachineParameters).
 
   End aLens_section.
 
-  Instance separate_independent u u' (H: separate u u') : Independent (MEM' u) (MEM' u').
-  Proof.
-    intros s m m'.
+  (* Instance separate_independent u u' (H: separate u u') : Independent (MEM' u) (MEM' u'). *)
+  (* Proof. *)
+  (*   intros s m m'. *)
 
-    (* TODO: Continue from here *)
+  (*   (* TODO: Continue from here *) *)
 
 
-    Qed.
+  (* Qed. *)
+
 
   (** *** Extract the boxed element from an [option] type or fail. *)
 
@@ -431,8 +439,14 @@ Module Core (MP: MachineParameters).
 
   Definition load0 (a: Addr): M (option Cell) :=
     assert* available a as H in
-    let* s := get' MEM in
-    ret (s a H).
+    let* mem := get' MEM in
+    ret (mem a H).
+
+  Proposition load0_spec a :
+    load0 a = assert* available a as H in
+      let* m := get' (MEM' {a}) in
+      ret (m a eq_refl H).
+
 
   Definition load (a: Addr): M Cell := load0 a >>= extr.
   Definition load_spec := ltac:(spec_tac load).
