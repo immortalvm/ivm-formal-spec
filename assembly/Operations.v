@@ -319,14 +319,16 @@ Module Core (MP: MachineParameters).
 
   Definition singletonAddrSet a := aSet (eq a).
   Notation " { a } " := (singletonAddrSet a) : AddrSet_scope.
-  (* TODO: Can this be avoided? *)
-  Notation " a ∈ { a' } " := (a ∈ singletonAddrSet a') (at level 70) : type_scope.
+  Notation " a  ∈  { a' } " := (a ∈ singletonAddrSet a') (at level 70) : type_scope. (* TODO *)
   Proposition singletonAddrSet_spec a a' : a ∈ {a'} <-> a = a'.
   Proof.
     unfold singletonAddrSet.
     rewrite aSet_spec.
     split; intro H; symmetry; exact H.
   Qed.
+
+  Definition aSet_refl {a} : a ∈ {a} :=
+    proj2 (singletonAddrSet_spec a a) eq_refl.
 
   Definition unionAddrSet (u v : AddrSet) := aSet(fun a => a ∈ u \/ a ∈ v).
   Notation "u ∪ v" := (unionAddrSet u v) (at level 40) : AddrSet_scope.
@@ -337,22 +339,39 @@ Module Core (MP: MachineParameters).
     reflexivity.
   Qed.
 
-  Definition separate (u v : AddrSet) := forall a, not (a ∈ u /\ a ∈ v).
+  Definition aSeparate u v := forall a, not (a ∈ u /\ a ∈ v).
 
-  Proposition separate_not_member a u : separate {a} u <-> not (a ∈ u).
+  Proposition aSeparate_not_member a u : aSeparate {a} u <-> not (a ∈ u).
   Proof.
-    unfold separate.
+    unfold aSeparate.
     setoid_rewrite singletonAddrSet_spec.
     intuition.
     congruence.
   Qed.
 
-  Corollary separate_singeltons a a' : separate {a} {a'} <-> a <> a'.
+  Corollary aSeparate_singeltons a a' : aSeparate {a} {a'} <-> a <> a'.
   Proof.
     transitivity (not (a ∈ {a'}));
-      [ rewrite separate_not_member
+      [ rewrite aSeparate_not_member
       | rewrite singletonAddrSet_spec ];
       reflexivity.
+  Qed.
+
+  Definition aSubset u v := forall a, a ∈ u -> a ∈ v.
+  Infix "⊆" := aSubset (at level 70) : type_scope. (* NB *)
+  Notation " { a }  ⊆  u " := (aSubset {a} u) (at level 70) : type_scope.
+
+  Proposition singletonSubset a u : {a} ⊆ u <-> a ∈ u.
+  Proof.
+    unfold aSubset.
+    split.
+    - intros H.
+      apply (H a aSet_refl).
+    - intros H a'.
+      rewrite singletonAddrSet_spec.
+      intros Ha.
+      subst a'.
+      exact H.
   Qed.
 
 
@@ -393,6 +412,12 @@ Module Core (MP: MachineParameters).
 
     Global Instance MEM' : Lens State aSetMem := aLens ∘ MEM.
 
+    (* TODO: Should this be global? *)
+    #[refine] Instance mem_cover : Cover MEM MEM' := { cover := aLens }.
+    Proof.
+      intros s m. reflexivity.
+    Defined.
+
     Proposition get_mem_spec : get' MEM' = let* mem := get' MEM in
                                            ret (proj mem).
     Proof.
@@ -409,14 +434,14 @@ Module Core (MP: MachineParameters).
 
   End aLens_section.
 
-  (* Instance separate_independent u u' (H: separate u u') : Independent (MEM' u) (MEM' u'). *)
-  (* Proof. *)
-  (*   intros s m m'. *)
+  Instance aSeparate_independent u u' (H: aSeparate u u') : Independent (MEM' u) (MEM' u').
+  Proof.
+    intros s m m'.
 
-  (*   (* TODO: Continue from here *) *)
+  Admitted.
 
-
-  (* Qed. *)
+  Instance aSubset_cover u u' (H: u ⊆ u') : Cover (MEM' u) (MEM' u').
+  Admitted.
 
 
   (** *** Extract the boxed element from an [option] type or fail. *)
@@ -444,9 +469,11 @@ Module Core (MP: MachineParameters).
 
   Proposition load0_spec a :
     load0 a = assert* available a as H in
-      let* m := get' (MEM' {a}) in
-      ret (m a eq_refl H).
-
+              let* m := get' (MEM' {a}) in
+              ret (m a aSet_refl H).
+  Proof.
+    (* TODO *)
+  Qed.
 
   Definition load (a: Addr): M Cell := load0 a >>= extr.
   Definition load_spec := ltac:(spec_tac load).
