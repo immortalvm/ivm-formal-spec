@@ -75,6 +75,12 @@ Qed.
 
 Coercion Is_true : bool >-> Sortclass.
 
+Proposition bool_extensionality (x y : bool) (H: x <-> y) : x = y.
+Proof.
+  unfold Is_true in H.
+  destruct x, y; tauto.
+Qed.
+
 Proposition true_is_true : true.
 Proof. exact I. Qed.
 
@@ -120,6 +126,17 @@ Instance is_true_decidable (x: bool) : Decidable (x) :=
   if x return (Decidable x)
   then left true_is_true
   else right false_is_false.
+
+Proposition asBool_decide P {DP: Decidable P} : as_bool (decide P) <-> P.
+Proof.
+  destruct (decide P) as [H|H].
+  - split; intros _; [ exact H | exact I ].
+  - cbv.
+    split;
+      intros HH;
+      [ exfalso | apply H ];
+      exact HH.
+Qed.
 
 (** Eliminate [decide P] when we already know [P]. *)
 Ltac decided H :=

@@ -1,6 +1,45 @@
-From Assembly Require Import Init Lens.
+From Assembly Require Import Init DSet Lens.
 
 Unset Suggest Proof Using.
+
+
+(** ** Unit and false lenses
+
+Instances placed in a section to avoid confusing [typeclasses eauto].
+Are these observations ever useful? *)
+
+Section unit_and_false_section.
+
+  (** Since "unit" shorter than "terminal". *)
+  #[refine] Instance unitLens {A} : Lens A unit :=
+  {
+    proj _ := tt;
+    update a _ := a;
+  }.
+  Proof.
+    all: intro a; repeat intros []; reflexivity.
+  Defined.
+
+  Program Instance independent_unit {A X} {LX: Lens A X} : Independent unitLens LX.
+
+  #[refine] Instance falseLens {X} : Lens False X :=
+  {
+    proj a := False_rect X a;
+    update a x := a;
+  }.
+  Proof.
+    all: intros [].
+  Defined.
+
+  Instance independent_False {X Y} {LY: Lens False Y} : Independent (@falseLens X) LY.
+  Proof.
+    split; intros [].
+  Qed.
+
+End unit_and_false_section.
+
+
+(** ** Characterization *)
 
 Section char_section.
 
@@ -21,18 +60,6 @@ Section char_section.
 End char_section.
 
 Global Program Instance initialCover {A X} (LX: Lens A X) : Cover idLens LX := { cover := LX }.
-
-(** Since "unit" shorter than "terminal". *)
-#[refine] Instance unitLens {A} : Lens A unit :=
-{
-  proj _ := tt;
-  update a _ := a;
-}.
-Proof.
-  - intros _ []. reflexivity.
-  - reflexivity.
-  - reflexivity.
-Defined.
 
 (** Beware, this can cause loops! *)
 #[refine] Instance unitCover {A X} (LX: Lens A X) : Cover LX unitLens :=
@@ -253,6 +280,32 @@ Class Prism (X: Type) (A: Type) :=
 }.
 
 Arguments injected_some {_ _ _ _ _}.
+
+Import DSetNotations.
+
+Definition prism_dset {X A} (P: Prism X A) : DSet A :=
+  DSet.def (fun a => injected a).
+
+#[refine] Instance dset_prism {A} (u: DSet A) : Prism { a: A | a ∈ u } A :=
+{
+  inj x := proj1_sig x;
+  injected a := match decide (a ∈ u) with
+                | left Ha => Some (exist _ a Ha)
+                | right _ => None
+                end;
+}.
+Proof.
+  - intros [a Ha]. cbn.
+    decided Ha. reflexivity.
+  - intros a [a' Ha'] H.
+    cbn.
+    destruct (decide (a ∈ u)) as [Ha|Ha]; [ | discriminate H ].
+    derive H (noConfusion_inv H).
+    cbn in H.
+    derive H (f_equal (@proj1_sig A _) H).
+    symmetry.
+    exact H.
+Defined.
 
 Notation Bijection_prism P := (Bijection (inj (Prism:=P))).
 
@@ -671,7 +724,7 @@ Section lens_vector_section.
     reflexivity.
   Qed.
 
-  Existing Instance prodlens.
+  Existing Instance prodLens.
   Context (Bp: Bijection_lens (LX * LA)).
 
   Equations inverseN {n} `(vector X n) `(A) : A :=

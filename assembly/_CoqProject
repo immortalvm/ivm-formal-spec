@@ -1,6 +1,7 @@
 -Q . Assembly
 -Q ../coq-record-update/src RecordUpdate
 Init.v
+DSet.v
 Lens.v
 LensExtras.v
 Mon.v

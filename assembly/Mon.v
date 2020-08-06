@@ -1,4 +1,4 @@
-From Assembly Require Import Init Lens.
+From Assembly Require Import Init DSet Lens.
 
 Unset Suggest Proof Using.
 

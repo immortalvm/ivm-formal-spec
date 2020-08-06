@@ -1,4 +1,4 @@
-From Assembly Require Import Init.
+From Assembly Require Import Init DSet.
 
 Unset Suggest Proof Using.
 
@@ -111,93 +111,6 @@ Ltac lens_rewrite1 := rewrite_strat (outermost (hints lens))
 Ltac lens_rewrite := repeat lens_rewrite1; try reflexivity.
 
 
-(** ** Unit and false lenses
-
-Instances placed in a section to avoid confusing [typeclasses eauto].
-Are these observations ever useful? *)
-
-Section unit_and_false_section.
-
-  #[refine] Instance lens_unit {A} : Lens A unit :=
-  {
-    proj _ := tt;
-    update a _ := a;
-  }.
-  Proof.
-    all: intro a; repeat intros []; reflexivity.
-  Defined.
-
-  Program Instance independent_unit {A X} {LX: Lens A X} : Independent lens_unit LX.
-
-  #[refine] Instance lens_false {X} : Lens False X :=
-  {
-    proj a := False_rect X a;
-    update a x := a;
-  }.
-  Proof.
-    all: intros [].
-  Defined.
-
-  Instance independent_False {X Y} {LY: Lens False Y} : Independent (@lens_false X) LY.
-  Proof.
-    split; intros [].
-  Qed.
-
-End unit_and_false_section.
-
-
-(** ** Products and projections *)
-
-Section projection_section.
-
-  Context {X Y: Type}.
-
-  Program Instance lens_fst : Lens (X * Y) X :=
-  {
-    proj := fst;
-    update s x := (x, snd s);
-  }.
-
-  Program Instance lens_snd : Lens (X * Y) Y :=
-  {
-    proj := snd;
-    update s y := (fst s, y);
-  }.
-
-  Program Instance independent_projs : Independent lens_fst lens_snd.
-
-  Context {A} (LX: Lens A X) (LY: Lens A Y) {IXY: Independent LX LY}.
-
-  #[refine]
-  Instance prodlens : Lens A (X * Y) :=
-  {
-    proj a := (proj a, proj a);
-    update a xy := update (update a (fst xy)) (snd xy);
-  }.
-  Proof.
-    all: idestructs; repeat (lens_rewrite || simpl).
-  Defined.
-
-  Proposition prod_proj_spec (a: A) : proj a = (proj a, proj a).
-  Proof. reflexivity. Qed.
-
-  Proposition prod_update_spec (a: A) (xy: X * Y) : update a xy = update (update a (fst xy)) (snd xy).
-  Proof. reflexivity. Qed.
-
-  Context Z (LZ: Lens A Z) (IXZ: Independent LX LZ) (IYZ: Independent LY LZ).
-
-  Global Instance independent_prod : Independent prodlens LZ.
-  Proof.
-    intros s [x y] z. simpl. lens_rewrite.
-  Qed.
-
-End projection_section.
-
-(** The projections from a record type have the same property, cf. MachineExtras.v. *)
-
-Infix "*" := prodlens : lens_scope.
-
-
 (** ** Lens cateogory *)
 
 Section lens_category_section.
@@ -239,26 +152,40 @@ End lens_category_section.
 
 Infix "∘" := compositeLens (at level 40, left associativity) : lens_scope.
 
+Section composite_independent_section.
+
+  Context {A X Y Y'} (LX: Lens A X) (LY: Lens X Y) (LY': Lens X Y')
+          {HI: Independent LY LY'}.
+
+  Instance composite_independent : Independent (LY ∘ LX) (LY' ∘ LX).
+  Proof.
+    intros a y y'. cbn.
+    unfold compose. lens_rewrite.
+  Qed.
+
+End composite_independent_section.
+
 
 (** ** Covers
-    I don't know if this has an established name. *)
 
-Local Arguments proj {_ _} _ _.
-Local Arguments update {_ _} _ _ _.
-
-(** This can be simplified if we assume extensionality, cf. LensExtras.v. *)
-Proposition update_characterizes_proj
-            {A X} (LX: Lens A X) (LX': Lens A X)
-            (H: forall a x, update LX a x = update LX' a x) :
-  forall a, proj LX a = proj LX' a.
-Proof.
-  intros a.
-  setoid_rewrite <- (update_proj (Lens:=LX')) at 1.
-  rewrite <- H.
-  apply proj_update.
-Qed.
+I don't know if this has an established name. *)
 
 Section cover_section.
+
+  Local Arguments proj {_ _} _ _.
+  Local Arguments update {_ _} _ _ _.
+
+  (** This can be simplified if we assume extensionality, cf. LensExtras.v. *)
+  Proposition update_characterizes_proj
+              {A X} (LX: Lens A X) (LX': Lens A X)
+              (H: forall a x, update LX a x = update LX' a x) :
+    forall a, proj LX a = proj LX' a.
+  Proof.
+    intros a.
+    setoid_rewrite <- (update_proj (Lens:=LX')) at 1.
+    rewrite <- H.
+    apply proj_update.
+  Qed.
 
   Context {A X Y} (LX: Lens A X) (LY: Lens A Y).
 
@@ -305,16 +232,52 @@ End cover_category_section.
 
 Arguments compositeCover {_ _ LX _ _} CXY {_ _} CYZ.
 
-Section prod_cover_section.
 
-  Context {A X Y} (LX: Lens A X) (LY: Lens A Y) {HI: Independent LX LY}.
+(** ** Products and projections *)
 
-  #[refine] Global Instance prod_cover1 : Cover (LX * LY) LX := { cover := lens_fst; }.
+Section projection_section.
+
+  Context {X Y: Type}.
+
+  Program Instance lens_fst : Lens (X * Y) X :=
+  {
+    proj := fst;
+    update s x := (x, snd s);
+  }.
+
+  Program Instance lens_snd : Lens (X * Y) Y :=
+  {
+    proj := snd;
+    update s y := (fst s, y);
+  }.
+
+  Program Instance independent_projs : Independent lens_fst lens_snd.
+
+  Context {A} (LX: Lens A X) (LY: Lens A Y) {IXY: Independent LX LY}.
+
+  #[refine]
+  Instance prodLens : Lens A (X * Y) :=
+  {
+    proj a := (proj a, proj a);
+    update a xy := update (update a (fst xy)) (snd xy);
+  }.
+  Proof.
+    all: idestructs; repeat (lens_rewrite || simpl).
+  Defined.
+
+  (* TODO: Can we do these two propositions? *)
+  Proposition prod_proj_spec (a: A) : proj a = (proj a, proj a).
+  Proof. reflexivity. Qed.
+
+  Proposition prod_update_spec (a: A) (xy: X * Y) : update a xy = update (update a (fst xy)) (snd xy).
+  Proof. reflexivity. Qed.
+
+  #[refine] Global Instance prod_cover1 : Cover prodLens LX := { cover := lens_fst; }.
   Proof.
     intros a x. cbn. lens_rewrite.
   Defined.
 
-  #[refine] Global Instance prod_cover2 : Cover (LX * LY) LY := { cover := lens_snd; }.
+  #[refine] Global Instance prod_cover2 : Cover prodLens LY := { cover := lens_snd; }.
   Proof.
     intros a y. cbn. lens_rewrite.
   Defined.
@@ -322,9 +285,115 @@ Section prod_cover_section.
   Context {X'} (LX': Lens A X') {HC: Cover LX LX'}.
 
   (** A loop-safe corollary. *)
-  Global Instance prod_cover1' : Cover (LX * LY) LX'.
+  Global Instance prod_cover1' : Cover prodLens LX'.
   Proof.
     apply (compositeCover prod_cover1 HC).
   Defined.
 
-End prod_cover_section.
+  Context Z (LZ: Lens A Z) (IXZ: Independent LX LZ) (IYZ: Independent LY LZ).
+
+  Global Instance independent_prod : Independent prodLens LZ.
+  Proof.
+    intros s [x y] z. simpl. lens_rewrite.
+  Qed.
+
+End projection_section.
+
+(** The projections from a record type have the same property, cf. MachineExtras.v. *)
+
+Infix "*" := prodLens : lens_scope.
+
+
+(** *** Restriction lenses *)
+
+Section restriction_section.
+
+  Import DSetNotations.
+
+  Context (A B : Type) {H_eqdec: EqDec A}.
+
+  Definition restr u : Type := forall (a: A), a ∈ u -> B.
+
+  #[refine] Instance unrestrLens : Lens (A -> B) (restr Ω) :=
+  {
+    proj f a _ := f a;
+    update _ g a := g a I;
+  }.
+  Proof.
+    all: unfold restr; try reflexivity.
+    cbn. intros f g.
+    extensionality a.
+    extensionality t.
+    destruct t. reflexivity.
+  Defined.
+
+  #[refine] Instance subsetLens {u v} (Huv: u ⊆ v) : Lens (restr v) (restr u) :=
+  {
+    proj f a Ha := f a (Huv a Ha);
+    update f g a Hv := match decide (a ∈ u) with
+                       | left Hu => g a Hu
+                       | right _ => f a Hv
+                       end;
+  }.
+  Proof.
+    - abstract (intros f g;
+                extensionality a;
+                extensionality Ha;
+                decided Ha;
+                reflexivity).
+    - abstract (intros f;
+                extensionality a;
+                extensionality Hv;
+                destruct (decide _) as [Hu|_];
+                [ f_equal; apply is_true_unique
+                | reflexivity ]).
+    - abstract (intros f g g';
+                extensionality a;
+                extensionality Hv;
+                destruct (decide _);
+                reflexivity).
+  Defined.
+
+  Instance restrLens u : Lens (A -> B) (restr u) :=
+    subsetLens (univ_terminal _) ∘ unrestrLens.
+
+  (** By construction *)
+  #[refine] Instance unrestr_cover u : Cover unrestrLens (restrLens u) :=
+  {
+    cover := subsetLens (univ_terminal _);
+  }.
+  Proof.
+    reflexivity.
+  Defined.
+
+  #[refine] Instance subset_cover {u v} (Huv: u ⊆ v) :
+    Cover (restrLens v) (restrLens u) :=
+  {
+    cover := subsetLens Huv;
+  }.
+  Proof.
+    intros f g. extensionality a. cbn.
+    destruct (decide (a ∈ u)) as [Hu|Hu];
+      destruct (decide (a ∈ v)) as [Hv|Hv];
+      try reflexivity.
+    exfalso.
+    apply Hv, Huv, Hu.
+  Defined.
+
+  (** I.e. [subsetLength] respects the transitivity of [⊆]. *)
+
+  Instance separate_independent u v (Huv: u # v) :
+    Independent (restrLens u) (restrLens v).
+  Proof.
+    intros f g h.
+    extensionality a.
+    cbn.
+    destruct (decide (a ∈ v)) as [Hv|Hv];
+      destruct (decide (a ∈ u)) as [Hu|Hu];
+      try reflexivity.
+    exfalso.
+    apply (Huv a).
+    split; assumption.
+  Qed.
+
+End restriction_section.

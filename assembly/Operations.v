@@ -278,139 +278,13 @@ Module Core (MP: MachineParameters).
 
   (** *** Decidable subsets of the address space *)
 
-  Definition AddrSet := Addr -> bool.
-  Declare Scope AddrSet_scope.
-  Bind Scope AddrSet_scope with AddrSet.
-  Delimit Scope AddrSet_scope with AddrSet.
+  Import DSet.
 
-  Definition AddrSet_member a (u: AddrSet) : Prop := u a.
-  Infix "∈" := AddrSet_member (at level 70) : type_scope. (* NB *)
-
-  Definition aSet (p: Addr -> Prop) {dec: forall a, Decidable (p a)} : AddrSet :=
-    fun a => as_bool (decide (p a)).
-
-  (* TODO: move *)
-  Proposition asBool_decide P {DP: Decidable P} : as_bool (decide P) <-> P.
-  Proof.
-    destruct (decide P) as [H|H].
-    - split; intros _; [ exact H | exact I ].
-    - cbv.
-      split;
-        intros HH;
-        [ exfalso | apply H ];
-        exact HH.
-  Qed.
-
-  Proposition aSet_spec a p {dec: forall a', Decidable (p a')} : a ∈ aSet p <-> p a.
-  Proof.
-    unfold aSet, AddrSet_member.
-    setoid_rewrite <- (asBool_decide (p a) (DP := dec a)) at 2.
-    destruct (decide (p a)) as [H|H]; tauto.
-  Qed.
-
-  Definition emptyAddrSet : AddrSet := aSet (fun _ => False).
-  Notation "∅" := emptyAddrSet : AddrSet_scope.
-  Proposition emptyAddrSet_spec a : not ( a ∈ ∅ ).
-  Proof.
-    unfold emptyAddrSet.
-    rewrite aSet_spec.
-    exact id.
-  Qed.
-
-  Definition singletonAddrSet a := aSet (eq a).
-  Notation " { a } " := (singletonAddrSet a) : AddrSet_scope.
-  Notation " a  ∈  { a' } " := (a ∈ singletonAddrSet a') (at level 70) : type_scope. (* TODO *)
-  Proposition singletonAddrSet_spec a a' : a ∈ {a'} <-> a = a'.
-  Proof.
-    unfold singletonAddrSet.
-    rewrite aSet_spec.
-    split; intro H; symmetry; exact H.
-  Qed.
-
-  Definition aSet_refl {a} : a ∈ {a} :=
-    proj2 (singletonAddrSet_spec a a) eq_refl.
-
-  Definition unionAddrSet (u v : AddrSet) := aSet(fun a => a ∈ u \/ a ∈ v).
-  Notation "u ∪ v" := (unionAddrSet u v) (at level 40) : AddrSet_scope.
-  Proposition unionAddrSet_spec u v a : a ∈ u ∪ v <-> a ∈ u \/ a ∈ v.
-  Proof.
-    unfold unionAddrSet.
-    rewrite aSet_spec.
-    reflexivity.
-  Qed.
-
-  Definition aSeparate u v := forall a, not (a ∈ u /\ a ∈ v).
-
-  Proposition aSeparate_not_member a u : aSeparate {a} u <-> not (a ∈ u).
-  Proof.
-    unfold aSeparate.
-    setoid_rewrite singletonAddrSet_spec.
-    intuition.
-    congruence.
-  Qed.
-
-  Corollary aSeparate_singeltons a a' : aSeparate {a} {a'} <-> a <> a'.
-  Proof.
-    transitivity (not (a ∈ {a'}));
-      [ rewrite aSeparate_not_member
-      | rewrite singletonAddrSet_spec ];
-      reflexivity.
-  Qed.
-
-  Definition aSubset u v := forall a, a ∈ u -> a ∈ v.
-  Infix "⊆" := aSubset (at level 70) : type_scope. (* NB *)
-  Notation " { a }  ⊆  u " := (aSubset {a} u) (at level 70) : type_scope.
-
-  Proposition singletonSubset a u : {a} ⊆ u <-> a ∈ u.
-  Proof.
-    unfold aSubset.
-    split.
-    - intros H.
-      apply (H a aSet_refl).
-    - intros H a'.
-      rewrite singletonAddrSet_spec.
-      intros Ha.
-      subst a'.
-      exact H.
-  Qed.
+  Global Instance MEM' (u: DSet Addr) : Lens State (restr _ _ u) := (restrLens _ _ u) ∘ MEM.
 
 
-  (** *** [AddrSet] lenses *)
 
-  Section aLens_section.
-
-    Context (u: AddrSet).
-
-    Definition aSetMem : Type :=
-      forall a, a ∈ u -> available a -> option Cell.
-
-    #[refine] Global Instance aLens : Lens Memory aSetMem :=
-    {
-      proj m a _ := m a;
-      update m m' a := match decide (a ∈ u) with
-                       | left H => m' a H
-                       | _ => m a
-                       end;
-    }.
-    Proof.
-      - unfold aSetMem.
-        intros mem umem.
-        extensionality a.
-        extensionality H.
-        decided H.
-        reflexivity.
-      - intros mem.
-        extensionality a.
-        destruct (decide (a ∈ u));
-          extensionality H;
-          reflexivity.
-      - intros mem umem umem'.
-        extensionality a.
-        destruct (decide (a ∈ u));
-          reflexivity.
-    Defined.
-
-    Global Instance MEM' : Lens State aSetMem := aLens ∘ MEM.
+    Global Instance MEM' : Lens State defMem := aLens ∘ MEM.
 
     (* TODO: Should this be global? *)
     #[refine] Instance mem_cover : Cover MEM MEM' := { cover := aLens }.
@@ -433,15 +307,6 @@ Module Core (MP: MachineParameters).
     Qed.
 
   End aLens_section.
-
-  Instance aSeparate_independent u u' (H: aSeparate u u') : Independent (MEM' u) (MEM' u').
-  Proof.
-    intros s m m'.
-
-  Admitted.
-
-  Instance aSubset_cover u u' (H: u ⊆ u') : Cover (MEM' u) (MEM' u').
-  Admitted.
 
 
   (** *** Extract the boxed element from an [option] type or fail. *)
@@ -470,7 +335,7 @@ Module Core (MP: MachineParameters).
   Proposition load0_spec a :
     load0 a = assert* available a as H in
               let* m := get' (MEM' {a}) in
-              ret (m a aSet_refl H).
+              ret (m a ASet_refl H).
   Proof.
     (* TODO *)
   Qed.
@@ -500,7 +365,7 @@ Module Core (MP: MachineParameters).
     smon_rewrite'.
 
     simpl (extr _).
-    unfold singletonAddrSet.
+    unfold ASet_singleton.
     assert (aSet (eq a) a) as Haa.
     - cbv.
       destruct (H_eqdec a a) as [H|H].
