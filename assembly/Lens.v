@@ -166,6 +166,52 @@ Section composite_independent_section.
 End composite_independent_section.
 
 
+(** ** Lens equality *)
+
+Section equality_section.
+
+  Local Arguments proj {_ _} _ _.
+  Local Arguments update {_ _} _ _ _.
+
+  Context {A X : Type}.
+
+  Section eq_section.
+
+    Context (L1: Lens A X) (L2: Lens A X).
+
+
+    (** This is equivalent to "L1 = L2" if/when we assume extensionality,
+        see LensExtras.v. *)
+    Definition lens_eq : Prop :=
+      forall a x, update L1 a x = update L2 a x.
+
+    Proposition proj_eq (H: lens_eq) : forall a, proj L1 a = proj L2 a.
+    Proof.
+      intros a.
+      setoid_rewrite <- (update_proj (Lens:=L2)) at 1.
+      rewrite <- H.
+      apply proj_update.
+    Qed.
+
+  End eq_section.
+
+  Global Instance proj_eq_equivalence : Equivalence lens_eq.
+  Proof.
+    split.
+    - intros LX a x. reflexivity.
+    - intros L1 L2 H12 a x. rewrite H12. reflexivity.
+    - intros L1 L2 L3 H12 H23 a x.
+      transitivity (update L2 a x).
+      + apply H12.
+      + apply H23.
+  Qed.
+
+End equality_section.
+
+(* TODO: Define notation scope. *)
+Notation "L1 ≅ L2" := (lens_eq L1 L2) (at level 70, no associativity).
+
+
 (** ** Covers
 
 I don't know if this has an established name. *)
@@ -175,51 +221,34 @@ Section cover_section.
   Local Arguments proj {_ _} _ _.
   Local Arguments update {_ _} _ _ _.
 
-  (** This can be simplified if we assume extensionality, cf. LensExtras.v. *)
-  Proposition update_characterizes_proj
-              {A X} (LX: Lens A X) (LX': Lens A X)
-              (H: forall a x, update LX a x = update LX' a x) :
-    forall a, proj LX a = proj LX' a.
-  Proof.
-    intros a.
-    setoid_rewrite <- (update_proj (Lens:=LX')) at 1.
-    rewrite <- H.
-    apply proj_update.
-  Qed.
-
   Context {A X Y} (LX: Lens A X) (LY: Lens A Y).
 
-  Class Cover :=
-  {
-    cover : Lens X Y;
-    cover_update a y : update LY a y = update LX a (update cover (proj LX a) y);
-  }.
-
-  Proposition cover_proj {HC: Cover} a : proj LY a = proj cover (proj LX a).
-  Proof.
-    transitivity (proj (cover ∘ LX) a).
-    - apply update_characterizes_proj, HC.
-    - reflexivity.
-  Qed.
-
-  (** Instances of [Cover] can be declared as opaque (i.e. with [Qed]). *)
-  (* TODO: Is this correct? *)
+  Class Cover : Prop :=
+    cover : exists (c: Lens X Y), LY ≅ c ∘ LX.
 
 End cover_section.
 
 Arguments cover {_ _ _ _ _} _.
-Arguments cover_update {_ _ _ _ _} _.
-Arguments cover_proj {_ _ _ _ _} _.
+
+Notation "( L2 | L1 )" := (Cover L1 L2) : type_scope.
 
 (** By definition *)
-Program Instance compositionCover {A X Y} (LX: Lens A X) (LY: Lens X Y) :
-  Cover LX (LY ∘ LX) := { cover := LY }.
+Instance compositionCover {A X Y} (LX: Lens A X) (LY: Lens X Y) :
+  (LY ∘ LX | LX).
+Proof. exists LY. reflexivity. Qed.
 
-Section cover_category_section.
+
+Section cover_ordering_section.
 
   Context {A X} (LX: Lens A X).
 
-  Program Instance idCover : Cover LX LX := { cover := idLens; }.
+  Instance idCover : (LX | LX).
+  Proof.
+    exists idLens.
+    reflexivity.
+
+ := { cover := idLens; }.
+
 
   Context {Y} {LY: Lens A Y} (CXY: Cover LX LY)
           {Z} {LZ: Lens A Z} (CYZ: Cover LY LZ).
@@ -235,7 +264,7 @@ Section cover_category_section.
     reflexivity.
   Qed.
 
-End cover_category_section.
+End cover_ordering_section.
 
 Arguments compositeCover {_ _ LX _ _} CXY {_ _} CYZ.
 
