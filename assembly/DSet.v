@@ -101,22 +101,22 @@ Section DSet_section.
 
   Definition univ : DSet := def (fun _ => True).
   Notation "'Ω'" := univ : DSet_scope.
-  Proposition univ_spec x : x ∈ Ω.
+  Proposition univ_spec {x} : x ∈ Ω.
   Proof. exact I. Qed.
 
-  Corollary univ_terminal u : u ⊆ Ω.
+  Corollary univ_terminal {u} : u ⊆ Ω.
   Proof.
-    intros x _. apply (univ_spec _).
+    intros x _. apply univ_spec.
   Qed.
 
   Definition empty : DSet := def (fun _ => False).
   Notation "∅" := empty : DSet_scope.
-  Proposition empty_spec x : not ( x ∈ ∅ ).
+  Proposition empty_spec {x} : not ( x ∈ ∅ ).
   Proof. exact id. Qed.
 
-  Corollary empty_initial u : ∅ ⊆ u.
+  Corollary empty_initial {u} : ∅ ⊆ u.
   Proof.
-    intros x H. exfalso. apply (empty_spec _ H).
+    intros x H. exfalso. apply (empty_spec H).
   Qed.
 
   (** Required to define singleton sets. *)
@@ -124,7 +124,7 @@ Section DSet_section.
 
   Definition singleton x := def (eq x).
   (** Since [{x}] collides with the standard notations. *)
-  Notation "!{ x }" := (singleton x) (at level 0, x at level 99) : DSet_scope.
+  Notation "!{  x  }" := (singleton x) (at level 0, x at level 99) : DSet_scope.
   Proposition singleton_spec x x' : x ∈ !{x'} <-> x = x'.
   Proof.
     unfold singleton. rewrite def_spec.
@@ -222,7 +222,7 @@ Module DSetNotations.
 
   Notation "'Ω'" := univ : DSet_scope.
   Notation "∅" := empty : DSet_scope.
-  Notation "!{ x }" := (singleton x) (at level 0, x at level 99) : DSet_scope.
+  Notation "!{  x  }" := (singleton x) (at level 0, x at level 99) : DSet_scope.
   Infix "∪" := union (at level 40, left associativity) : DSet_scope.
 
 End DSetNotations.

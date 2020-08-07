@@ -280,33 +280,15 @@ Module Core (MP: MachineParameters).
 
   Import DSet.
 
-  Global Instance MEM' (u: DSet Addr) : Lens State (restr _ _ u) := (restrLens _ _ u) ∘ MEM.
+  Global Instance MEM' u : Lens State (restr u) :=
+    (restrLens u) ∘ MEM.
 
+  Goal forall u, Cover MEM (MEM' u).
+    typeclasses eauto.
+  Qed.
 
-
-    Global Instance MEM' : Lens State defMem := aLens ∘ MEM.
-
-    (* TODO: Should this be global? *)
-    #[refine] Instance mem_cover : Cover MEM MEM' := { cover := aLens }.
-    Proof.
-      intros s m. reflexivity.
-    Defined.
-
-    Proposition get_mem_spec : get' MEM' = let* mem := get' MEM in
-                                           ret (proj mem).
-    Proof.
-      setoid_rewrite get_spec.
-      smon_rewrite.
-    Qed.
-
-    Proposition put_mem_spec umem : put' MEM' umem = let* mem := get' MEM in
-                                                     put' MEM (update mem umem).
-    Proof.
-      rewrite get_spec, put_spec, put_spec.
-      smon_rewrite.
-    Qed.
-
-  End aLens_section.
+  Global Instance MEM'' a : Lens State (available a -> option Cell) :=
+    (pointLens a) ∘ MEM.
 
 
   (** *** Extract the boxed element from an [option] type or fail. *)
@@ -322,7 +304,9 @@ Module Core (MP: MachineParameters).
 
   Global Instance confined_extr
          {X} (ox: option X) : Confined' (extr ox).
-  Proof. rewrite extr_spec. split. typeclasses eauto. Qed.
+  Proof.
+    rewrite extr_spec. split. typeclasses eauto.
+  Qed.
 
 
   (** ** [load] and [store] *)
@@ -332,19 +316,46 @@ Module Core (MP: MachineParameters).
     let* mem := get' MEM in
     ret (mem a H).
 
-  Proposition load0_spec a :
+  Proposition load0_alt a :
     load0 a = assert* available a as H in
-              let* m := get' (MEM' {a}) in
-              ret (m a ASet_refl H).
+              let* c := get' (MEM'' a) in
+              ret (c H).
   Proof.
-    (* TODO *)
+    unfold load0.
+    destruct (decide (available a)) as [H|H];
+      [ | reflexivity ].
+    setoid_rewrite get_spec.
+    smon_rewrite.
   Qed.
 
   Definition load (a: Addr): M Cell := load0 a >>= extr.
   Definition load_spec := ltac:(spec_tac load).
   Global Opaque load.
 
-  Global Instance confined_load {a} : Confined (MEM' {a}) (load a).
+  Import DSetNotations.
+
+  Global Instance confined_load {a} : Confined (MEM'' a) (load a).
+  Proof.
+    rewrite load_spec, load0_alt.
+    typeclasses eauto.
+  Qed.
+
+  Global Instance icover {a} : Cover (MEM' !{a}) (MEM'' a).
+  Proof.
+
+
+    apply compositionCover.
+    eapply (pointLens_cover _ DSet.refl).
+
+    typeclasses eauto.
+
+  (** Corollary *)
+  Global Instance confined_load {a} : Confined (MEM' !{a}) (load a).
+  Proof.
+    typeclasses eauto.
+
+
+  Global Instance confined_load {a} : Confined (MEM' !{a}) (load a).
   Proof.
     (* TODO: Simplify *)
     rewrite load_spec.

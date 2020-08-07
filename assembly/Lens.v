@@ -202,11 +202,18 @@ Section cover_section.
     - reflexivity.
   Qed.
 
+  (** Instances of [Cover] can be declared as opaque (i.e. with [Qed]). *)
+  (* TODO: Is this correct? *)
+
 End cover_section.
 
 Arguments cover {_ _ _ _ _} _.
 Arguments cover_update {_ _ _ _ _} _.
 Arguments cover_proj {_ _ _ _ _} _.
+
+(** By definition *)
+Program Instance compositionCover {A X Y} (LX: Lens A X) (LY: Lens X Y) :
+  Cover LX (LY ∘ LX) := { cover := LY }.
 
 Section cover_category_section.
 
@@ -226,7 +233,7 @@ Section cover_category_section.
       (cover_update CXY),
       (cover_proj CXY).
     reflexivity.
-  Defined.
+  Qed.
 
 End cover_category_section.
 
@@ -275,12 +282,12 @@ Section projection_section.
   #[refine] Global Instance prod_cover1 : Cover prodLens LX := { cover := lens_fst; }.
   Proof.
     intros a x. cbn. lens_rewrite.
-  Defined.
+  Qed.
 
   #[refine] Global Instance prod_cover2 : Cover prodLens LY := { cover := lens_snd; }.
   Proof.
     intros a y. cbn. lens_rewrite.
-  Defined.
+  Qed.
 
   Context {X'} (LX': Lens A X') {HC: Cover LX LX'}.
 
@@ -288,7 +295,7 @@ Section projection_section.
   Global Instance prod_cover1' : Cover prodLens LX'.
   Proof.
     apply (compositeCover prod_cover1 HC).
-  Defined.
+  Qed.
 
   Context Z (LZ: Lens A Z) (IXZ: Independent LX LZ) (IYZ: Independent LY LZ).
 
@@ -306,15 +313,15 @@ Infix "*" := prodLens : lens_scope.
 
 (** *** Restriction lenses *)
 
+Import DSetNotations.
+
 Section restriction_section.
 
-  Import DSetNotations.
+  Context {A : Type} {F : A -> Type}.
 
-  Context (A B : Type) {H_eqdec: EqDec A}.
+  Definition restr u : Type := forall (a: A), a ∈ u -> F a.
 
-  Definition restr u : Type := forall (a: A), a ∈ u -> B.
-
-  #[refine] Instance unrestrLens : Lens (A -> B) (restr Ω) :=
+  #[refine] Instance unrestrLens : Lens (forall a, F a) (restr Ω) :=
   {
     proj f a _ := f a;
     update _ g a := g a I;
@@ -332,7 +339,7 @@ Section restriction_section.
     proj f a Ha := f a (Huv a Ha);
     update f g a Hv := match decide (a ∈ u) with
                        | left Hu => g a Hu
-                       | right _ => f a Hv
+                       | _ => f a Hv
                        end;
   }.
   Proof.
@@ -354,17 +361,17 @@ Section restriction_section.
                 reflexivity).
   Defined.
 
-  Instance restrLens u : Lens (A -> B) (restr u) :=
-    subsetLens (univ_terminal _) ∘ unrestrLens.
+  Instance restrLens u : Lens (forall a, F a) (restr u) :=
+    subsetLens univ_terminal ∘ unrestrLens.
 
   (** By construction *)
   #[refine] Instance unrestr_cover u : Cover unrestrLens (restrLens u) :=
   {
-    cover := subsetLens (univ_terminal _);
+    cover := subsetLens univ_terminal;
   }.
   Proof.
     reflexivity.
-  Defined.
+  Qed.
 
   #[refine] Instance subset_cover {u v} (Huv: u ⊆ v) :
     Cover (restrLens v) (restrLens u) :=
@@ -378,7 +385,7 @@ Section restriction_section.
       try reflexivity.
     exfalso.
     apply Hv, Huv, Hu.
-  Defined.
+  Qed.
 
   (** I.e. [subsetLength] respects the transitivity of [⊆]. *)
 
@@ -397,3 +404,57 @@ Section restriction_section.
   Qed.
 
 End restriction_section.
+
+
+(** ** Point lenses *)
+
+Section point_section.
+
+  Context {A : Type}
+          {F : A -> Type}
+          {H_eqdec: EqDec A}
+          (a: A).
+
+  #[refine] Instance pointLens' {u} (Ha: a ∈ u) : Lens (restr u) (F a) :=
+  {
+    proj f := f a Ha;
+    update f x a' Hu := match decide (a = a') with
+                        | left H => rew H in x
+                        | _ => f a' Hu
+                        end;
+  }.
+  Proof.
+    - abstract (intros f x;
+                decided (@eq_refl _ a);
+                revert H;
+                apply EqDec.UIP_K;
+                reflexivity).
+    - intros f;
+        extensionality a';
+        extensionality Hu;
+        destruct (decide (a = a')) as [H|H];
+        [ subst a; cbn; f_equal; apply is_true_unique
+        | reflexivity ].
+
+    - abstract (intros f x x';
+                extensionality a';
+                extensionality Hu;
+                destruct (decide (a = a')) as [H|H];
+                reflexivity).
+  Defined.
+
+  Instance pointLens : Lens (forall a', F a') (F a) :=
+    pointLens' univ_spec ∘ unrestrLens.
+
+  #[refine] Instance pointLens_cover {u} (Ha: a ∈ u) : Cover (restrLens u) pointLens :=
+  {
+    cover := pointLens' Ha
+  }.
+  Proof.
+    intros f x. extensionality a'. cbn.
+    destruct (decide (a = a')) as [H|H].
+    - subst a. decided Ha. reflexivity.
+    - destruct (decide _); reflexivity.
+  Qed.
+
+End point_section.
