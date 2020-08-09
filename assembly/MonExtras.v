@@ -97,7 +97,7 @@ End Initial.
 
 (** ** The trivial [SMonad] *)
 
-Section Trivial.
+Section trivial_section.
 
   Context (S: Type).
 
@@ -121,10 +121,12 @@ Section Trivial.
       [SMonads]. Thus, we shall express and prove such properties only for
       the initial [SMonad]. *)
 
-End Trivial.
+End trivial_section.
 
 
 (** ** Confined' **)
+
+Existing Instance initial_sublens.
 
 Instance unitCover_confined'
          {S: Type}

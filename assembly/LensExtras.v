@@ -1,14 +1,44 @@
 From Assembly Require Import Init DSet Lens.
 
+Require Import Coq.Logic.ProofIrrelevance.
+
 Unset Suggest Proof Using.
 
 
-(** ** Unit and false lenses
+(** ** Extensionality *)
 
-Instances placed in a section to avoid confusing [typeclasses eauto].
-Are these observations ever useful? *)
+Section char_section.
 
-Section unit_and_false_section.
+  Local Arguments proj {_ _} _ _.
+  Local Arguments update {_ _} _ _ _.
+
+  Context {A X} (L1 L2: Lens A X).
+
+  Lemma lensEq_eq (H: L1 ≅ L2) : L1 = L2.
+  Proof.
+    destruct L1 as [p1 u1 pu1 up1 uu1].
+    destruct L2 as [p2 u2 pu2 up2 uu2].
+    cbn in H.
+
+    assert (u1 = u2) as Hu;
+      [ extensionality a; extensionality x; apply H
+      | subst u1 ].
+
+    assert (p1 = p2) as Hp;
+      [ extensionality a;
+        setoid_rewrite <- up2 at 1;
+        apply pu1
+      | subst p1 ].
+
+    f_equal; apply proof_irrelevance.
+   Qed.
+
+End char_section.
+
+
+(** ** Elementary *)
+
+Section elementary_section.
 
   (** Since "unit" shorter than "terminal". *)
   #[refine] Instance unitLens {A} : Lens A unit :=
@@ -20,7 +50,7 @@ Section unit_and_false_section.
     all: intro a; repeat intros []; reflexivity.
   Defined.
 
-  Program Instance independent_unit {A X} {LX: Lens A X} : Independent unitLens LX.
+  Program Instance independent_unit {A X} {Lx: Lens A X} : Independent unitLens Lx.
 
   #[refine] Instance falseLens {X} : Lens False X :=
   {
@@ -31,44 +61,34 @@ Section unit_and_false_section.
     all: intros [].
   Defined.
 
-  Instance independent_False {X Y} {LY: Lens False Y} : Independent (@falseLens X) LY.
+  Instance independent_False {X Y} {Ly: Lens False Y} : Independent (@falseLens X) Ly.
   Proof.
     split; intros [].
   Qed.
 
-End unit_and_false_section.
+  Context {A X} (Lx: Lens A X).
 
-
-(** ** Characterization *)
-
-Section char_section.
-
-  Local Arguments proj {_ _} _ _.
-  Local Arguments update {_ _} _ _ _.
-
-  Context {A X} (LX: Lens A X) (LX': Lens A X).
-
-  Proposition update_characterizes_proj' :
-    update LX = update LX' -> proj LX = proj LX'.
+  Instance sublens_refl : (Lx | Lx).
   Proof.
-    intros H. extensionality a.
-    apply update_characterizes_proj.
-    rewrite H.
+    exists idLens. symmetry. apply composite_idLens.
+  Qed.
+
+  Instance terminal_sublens : (Lx | idLens ).
+  Proof.
+    exists Lx. symmetry. apply idLens_composite.
+  Qed.
+
+  Instance initial_sublens : (unitLens | Lx).
+  Proof.
+    exists unitLens.
+    intros a [].
+    cbn.
+    unfold compose.
+    rewrite update_proj.
     reflexivity.
   Qed.
 
-End char_section.
-
-Global Program Instance initialCover {A X} (LX: Lens A X) : Cover idLens LX := { cover := LX }.
-
-(** Beware, this can cause loops! *)
-#[refine] Instance unitCover {A X} (LX: Lens A X) : Cover LX unitLens :=
-{
- cover := unitLens;
-}.
-Proof.
-  intros a []. cbn. lens_rewrite.
-Qed.
+End elementary_section.
 
 
 (** ** Bijections *)
@@ -168,7 +188,7 @@ End bijection_lens_section.
 
 Section lens_bijection_section.
 
-  Context {A X} {LX: Lens A X}.
+  Context {A X} {Lx: Lens A X}.
 
   Proposition proj_characterized a x : proj a = x <-> update a x = a.
   Proof.
@@ -186,7 +206,7 @@ Section lens_bijection_section.
   (** Conversely: *)
 
   #[refine] Instance bijection_lens (g: X -> A)
-            (Hup: forall a x, update a x = g x) : Bijection_lens LX :=
+            (Hup: forall a x, update a x = g x) : Bijection_lens Lx :=
   {
     inverse := g;
   }.
@@ -203,8 +223,8 @@ End lens_bijection_section.
 Section projection_section.
 
   Context {X Y: Type}
-          {A} (LX: Lens A X) (LY: Lens A Y) {IXY: Independent LX LY}
-          {Bp: Bijection_lens (LX * LY)}.
+          {A} (Lx: Lens A X) (Ly: Lens A Y) {IXY: Independent Lx Ly}
+          {Bp: Bijection_lens (Lx * Ly)}.
 
   Local Ltac update_prod_tac a :=
     apply (B_injective (Bf:=Bp));
@@ -250,7 +270,7 @@ End projection_section.
 
 Section sum_section.
 
-  Context {A B X : Type} {LX : Lens A X} {LY : Lens B X}.
+  Context {A B X : Type} {Lx : Lens A X} {Ly : Lens B X}.
 
   #[refine] Instance lens_sum : Lens (A + B) X :=
   {
@@ -604,7 +624,7 @@ Qed.
 
 Section sublens_section.
 
-  Context {X A Y} {PX: Prism X A} {LY: Lens A Y}.
+  Context {X A Y} {PX: Prism X A} {Ly: Lens A Y}.
 
   Context (H: forall x y, injected X (update (inj x) y)).
 
@@ -642,7 +662,7 @@ Section lens_vector_section.
 
   Open Scope vector.
 
-  Context {A X: Type} {LX: Lens A X} {LA: Lens A A}.
+  Context {A X: Type} {Lx: Lens A X} {La: Lens A A}.
 
   Equations projN n (_: A) : vector X n :=
     projN 0 _ := [];
@@ -656,14 +676,14 @@ Section lens_vector_section.
   Arguments update {_ _} _ _ _.
 
   Equations updateN {n} `(A) `(vector X n) : A :=
-    updateN (n:=S n) a (x :: r) := (update LX (update LA a (updateN (proj a) r)) x);
+    updateN (n:=S n) a (x :: r) := (update Lx (update La a (updateN (proj a) r)) x);
     updateN a _ := a.
 
   Equations updateN' (n:nat) `(A) `(A) : A :=
-    updateN' (S n) a a' := update LA a (updateN' n (proj a) a');
+    updateN' (S n) a a' := update La a (updateN' n (proj a) a');
     updateN' _ _ a' := a'.
 
-  Context {IXA: Independent LX LA}.
+  Context {IXA: Independent Lx La}.
 
   #[refine] Instance lens_vector n : Lens A (vector X n) :=
   {
@@ -725,7 +745,7 @@ Section lens_vector_section.
   Qed.
 
   Existing Instance prodLens.
-  Context (Bp: Bijection_lens (LX * LA)).
+  Context (Bp: Bijection_lens (Lx * La)).
 
   Equations inverseN {n} `(vector X n) `(A) : A :=
     inverseN (n:=S n) (x :: r) a := inverse (x, inverseN r a);
@@ -754,16 +774,12 @@ Arguments lens_vector' : clear implicits.
 Arguments lens_vector' {_} _ _.
 
 
-(** ** Every (very well-behaved) lens is a product lens
+(** ** Every lens is a product lens
 
 Assuming functional extensionality and proof irrelevance, we have a
 converse of [lens_fst]: If [Lens S X], then [S ≅ X * S'] for some S'. *)
 
-Require Coq.Logic.ProofIrrelevance.
-
 Section Inv_lens.
-
-  Import Coq.Logic.ProofIrrelevance.
 
   Context S X (PX: Lens S X).
 

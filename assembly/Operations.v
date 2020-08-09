@@ -1,4 +1,5 @@
-From Assembly Require Import Init Lens Mon.
+From Assembly Require Import Init DSet Lens Mon.
+Import DSetNotations.
 
 Unset Suggest Proof Using.
 
@@ -278,17 +279,32 @@ Module Core (MP: MachineParameters).
 
   (** *** Decidable subsets of the address space *)
 
-  Import DSet.
-
-  Global Instance MEM' u : Lens State (restr u) :=
+  Instance MEM' u : Lens State (restr u) :=
     (restrLens u) ∘ MEM.
 
-  Goal forall u, Cover MEM (MEM' u).
+  Global Instance subset_mem u : (MEM' u | MEM).
     typeclasses eauto.
   Qed.
 
-  Global Instance MEM'' a : Lens State (available a -> option Cell) :=
+  Instance MEM'' a : Lens State (available a -> option Cell) :=
     (pointLens a) ∘ MEM.
+
+  Global Instance point_mem {a} : (MEM'' a | MEM).
+  Proof.
+    typeclasses eauto.
+  Qed.
+
+  Instance point_mem' {a u} (Hau: a ∈ u) : (MEM'' a | MEM' u).
+  Proof.
+    unfold MEM'', MEM'.
+    apply sublens_comp'.
+    eset (H:=pointLens_sublens a Hau).
+    (* For some reason, [apply H] does not work. *)
+    destruct H as [L H]. exists L. exact H.
+  Qed.
+
+  Global Instance point_mem'' {a} : (MEM'' a | MEM' !{a}) :=
+    point_mem' DSet.refl.
 
 
   (** *** Extract the boxed element from an [option] type or fail. *)
@@ -299,7 +315,7 @@ Module Core (MP: MachineParameters).
     | Some x => ret x
     | None => err
     end.
-  Definition extr_spec := ltac:(spec_tac @extr).
+  Definition extr_spec := unfolded_eq (@extr).
   Global Opaque extr.
 
   Global Instance confined_extr
@@ -312,117 +328,107 @@ Module Core (MP: MachineParameters).
   (** ** [load] and [store] *)
 
   Definition load0 (a: Addr): M (option Cell) :=
-    assert* available a as H in
+    assert* available a as Ha in
     let* mem := get' MEM in
-    ret (mem a H).
+    ret (mem a Ha).
 
-  Proposition load0_alt a :
-    load0 a = assert* available a as H in
-              let* c := get' (MEM'' a) in
-              ret (c H).
+  Definition load0_spec := unfolded_eq load0.
+
+  Definition load0_spec' a u (Hau: a ∈ u):
+    load0 a = assert* available a as Ha in
+              let* mem := get' (MEM' u) in
+              ret (mem a Hau Ha).
   Proof.
-    unfold load0.
-    destruct (decide (available a)) as [H|H];
-      [ | reflexivity ].
+    unfold load0. destruct (decide (available a)) as [Ha|_]; [ | reflexivity ].
     setoid_rewrite get_spec.
     smon_rewrite.
   Qed.
 
+  Proposition load0_spec'' a :
+    load0 a = assert* available a as Ha in
+              let* c := get' (MEM'' a) in
+              ret (c Ha).
+  Proof.
+    unfold load0. destruct (decide (available a)) as [Ha|_]; [ | reflexivity ].
+    setoid_rewrite get_spec.
+    smon_rewrite.
+  Qed.
+
+  Global Opaque load0.
+
+  Global Instance confined_load0 {a} : Confined (MEM'' a) (load0 a).
+  Proof.
+    rewrite load0_spec''.
+    typeclasses eauto.
+  Qed.
+
   Definition load (a: Addr): M Cell := load0 a >>= extr.
-  Definition load_spec := ltac:(spec_tac load).
-  Global Opaque load.
-
-  Import DSetNotations.
-
+  Definition load_spec := unfolded_eq load.
   Global Instance confined_load {a} : Confined (MEM'' a) (load a).
   Proof.
-    rewrite load_spec, load0_alt.
+    typeclasses eauto.
+  Qed.
+  Global Opaque load.
+
+  Definition store0 (a: Addr) (ox: option Cell) : M unit :=
+    assert* available a in
+    put' (MEM'' a) (fun _ => ox).
+
+  Definition store0_spec'' := unfolded_eq store0.
+
+  Global Instance confined_store0 {a ox} : Confined (MEM'' a) (store0 a ox).
+  Proof.
     typeclasses eauto.
   Qed.
 
-  Global Instance icover {a} : Cover (MEM' !{a}) (MEM'' a).
-  Proof.
-
-
-    apply compositionCover.
-    eapply (pointLens_cover _ DSet.refl).
-
-    typeclasses eauto.
-
-  (** Corollary *)
-  Global Instance confined_load {a} : Confined (MEM' !{a}) (load a).
-  Proof.
-    typeclasses eauto.
-
-
-  Global Instance confined_load {a} : Confined (MEM' !{a}) (load a).
+  Proposition store0_spec a ox :
+    store0 a ox = assert* available a in
+                  let* s := get' MEM in
+                  let s' a' H := if decide (a = a') then ox else s a' H in
+                  put' MEM s'.
   Proof.
     (* TODO: Simplify *)
-    rewrite load_spec.
-    unfold load0.
-    destruct (decide (available a)) as [Ha|Ha];
-      [ | typeclasses eauto ].
-    intros Y my Hmy.
-    intros A f.
+    unfold store0.
+    repeat rewrite get_spec.
+    repeat rewrite put_spec.
+    cbn.
+    unfold compose.
+    destruct (decide (available a)) as [Ha|_];
+      [ | reflexivity ].
     smon_rewrite.
-    smon_ext' MEM mem.
-
-    unfold Neutral in Hmy.
-    setoid_rewrite put_mem_spec in Hmy.
-    setoid_rewrite get_mem_spec in Hmy.
-
-    unshelve setoid_rewrite Hmy at 1;
-      [ exact (proj mem) | ].
-    smon_rewrite'.
-
-    simpl (extr _).
-    unfold ASet_singleton.
-    assert (aSet (eq a) a) as Haa.
-    - cbv.
-      destruct (H_eqdec a a) as [H|H].
-      exact I.
-      contradict H.
+    apply bind_extensional. intro s.
+    f_equal.
+    f_equal.
+    extensionality a'.
+    destruct (decide (a = a')) as [[]|_];
       reflexivity.
-
-    - decided Haa.
-      destruct (mem a Ha) as [x|];
-        [ | smon_rewrite ].
-      rewrite extr_spec.
-      smon_rewrite.
-
-      unshelve setoid_rewrite Hmy at 2;
-        [ exact (proj mem) | ].
-      smon_rewrite'.
   Qed.
 
-  (* TODO: Continue strengthening from here. *)
-
-  Definition store0 (a: Addr) (o: option Cell) : M unit :=
-    assert* available a in
-    let* s := get' MEM in
-    let s' a' H := if decide (a = a') then o else s a' H in
-    put' MEM s'.
+  Opaque store0.
 
   Definition store (a: Addr) (x: Cell) : M unit := store0 a (Some x).
-  Definition store_spec := ltac:(spec_tac store).
-  Global Opaque store.
+  Definition store_spec := unfolded_eq store.
 
   Global Instance confined_store a x : Confined MEM (store a x).
   Proof.
-    rewrite store_spec.
     typeclasses eauto.
   Qed.
+
+  Global Opaque store.
+
 
   Lemma store_load a x {Y} (f: unit -> Cell -> M Y) : let* u := store a x in
                                                  let* x' := load a in
                                                  f u x' = store a x;;
                                                           f tt x.
   Proof.
-    rewrite store_spec, load_spec, extr_spec.
+    rewrite
+      store_spec, load_spec,
+      load0_spec'', store0_spec'',
+      extr_spec.
     smon_rewrite.
-    destruct (decide (available a)) as [Ha|Ha]; smon_rewrite.
+    destruct (decide (available a)) as [Ha|_]; smon_rewrite.
     decided Ha. smon_rewrite.
-    decided (@eq_refl _ a). smon_rewrite.
   Qed.
 
   Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
@@ -432,12 +438,12 @@ Module Core (MP: MachineParameters).
             let* u := store a x in
             f u v.
   Proof.
-    rewrite store_spec.
-    unfold store0.
+    rewrite store_spec, store0_spec''.
     smon_rewrite.
-    destruct (decide (available a)) as [Ha|Ha];
-      destruct (decide (available a')) as [Ha'|Ha'];
+    destruct (decide (available a)) as [Ha|_];
+      destruct (decide (available a')) as [Ha'|_];
       smon_rewrite.
+
     apply bind_extensional. intros mem.
     f_equal.
     f_equal.
@@ -523,7 +529,7 @@ Module Core (MP: MachineParameters).
     let* sp := get' SP in
     put' SP (offset 1 sp);;
     load sp.
-  Definition pop_spec := ltac:(spec_tac pop).
+  Definition pop_spec := unfolded_eq (pop).
   Global Opaque pop.
 
   Global Instance confined_pop : Confined (MEM * SP) pop.
@@ -736,7 +742,7 @@ Module Core (MP: MachineParameters).
     let a := offset (- 1) sp in
     put' SP a;;
     store a x.
-  Definition push_spec := ltac:(spec_tac push).
+  Definition push_spec := unfolded_eq (push).
   Global Opaque push.
 
   (** NB: Stores the elements in reversed order. *)
@@ -829,7 +835,7 @@ Module Core (MP: MachineParameters).
     let img := nth (N.to_nat i) allInputImages noImage in
     ret (width img, height img).
 
-  Definition readFrame_spec := ltac:(spec_tac readFrame).
+  Definition readFrame_spec := unfolded_eq (readFrame).
 
   Global Opaque readFrame.
 
@@ -846,7 +852,7 @@ Module Core (MP: MachineParameters).
     assert* y < height img as Hy in
     ret (pixel img Hx Hy).
 
-  Definition readPixel_spec := ltac:(spec_tac readPixel).
+  Definition readPixel_spec := unfolded_eq (readPixel).
 
   Global Opaque readPixel.
 
@@ -868,7 +874,7 @@ Module Core (MP: MachineParameters).
   Definition putChar (c: Char) : M unit :=
     let* chars := get' OUT_CHARS in
     put' OUT_CHARS (cons c chars).
-  Definition putChar_spec := ltac:(spec_tac putChar).
+  Definition putChar_spec := unfolded_eq (putChar).
   Global Opaque putChar.
   Global Instance confined_putChar c : Confined OUT_CHARS (putChar c).
   Proof. rewrite putChar_spec. typeclasses eauto. Qed.
@@ -876,7 +882,7 @@ Module Core (MP: MachineParameters).
   Definition putByte (b: Byte) : M unit :=
     let* bytes := get' OUT_BYTES in
     put' OUT_BYTES (cons b bytes).
-  Definition putByte_spec := ltac:(spec_tac putByte).
+  Definition putByte_spec := unfolded_eq (putByte).
   Global Opaque putByte.
   Global Instance confined_putByte c : Confined OUT_BYTES (putByte c).
   Proof. rewrite putByte_spec. typeclasses eauto. Qed.
@@ -884,7 +890,7 @@ Module Core (MP: MachineParameters).
   Definition addSample (l r: Sample) : M unit :=
     let* samples := get' OUT_SOUND in
     put' OUT_SOUND (extendSamples l r samples).
-  Definition addSample_spec := ltac:(spec_tac addSample).
+  Definition addSample_spec := unfolded_eq (addSample).
   Global Opaque addSample.
   Global Instance confined_addSample l r : Confined OUT_SOUND (addSample l r).
   Proof. rewrite addSample_spec. typeclasses eauto. Qed.
@@ -894,7 +900,7 @@ Module Core (MP: MachineParameters).
     assert* x < width img in
     assert* y < height img in
     put' OUT_IMAGE (updatePixel x y (Some c) img).
-  Definition setPixel_spec := ltac:(spec_tac setPixel).
+  Definition setPixel_spec := unfolded_eq (setPixel).
   Global Opaque setPixel.
   Global Instance confined_setPixel x y c : Confined OUT_IMAGE (setPixel x y c).
   Proof. rewrite setPixel_spec. typeclasses eauto. Qed.
@@ -912,7 +918,7 @@ Module Core (MP: MachineParameters).
         height := height img;
         pixel x Hx y Hy := extract (H_complete x Hx y Hy);
       |}.
-  Definition extractImage_spec := ltac:(spec_tac extractImage).
+  Definition extractImage_spec := unfolded_eq (extractImage).
   Global Opaque extractImage.
 
   Global Instance extractImage_confined img : Confined' (extractImage img).
@@ -944,7 +950,7 @@ Module Core (MP: MachineParameters).
            height := h;
            pixel _ _ _ _ := None;
          |}.
-  Definition newFrame_spec := ltac:(spec_tac newFrame).
+  Definition newFrame_spec := unfolded_eq (newFrame).
   Global Opaque newFrame.
 
   Global Instance confined_newFrame w r h :

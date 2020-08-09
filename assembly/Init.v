@@ -32,6 +32,7 @@ Ltac lia_rewrite P :=
   setoid_rewrite H;
   clear H.
 
+(* TODO: Replace with [apply ... in ...]. *)
 Ltac derive name term :=
   let H := fresh in
   let A := type of term in
@@ -53,14 +54,11 @@ Tactic Notation "given" constr(P) "as" ident(H) :=
   let T := type of P in
   cut T; [intro H|exact P].
 
-(** Given a transparent symbol, construct a proof of <symbol>=<definition>.
-    Using this, we don't have to repeat the definition in specification lemmas. *)
-Ltac spec_tac symbol :=
-  (* TODO: Presumably, there are more elegant ways to do this. *)
-  let H := fresh in
-  set (H := @eq_refl _ symbol);
-  unfold symbol in H at 1;
-  exact (eq_sym H).
+(** From https://github.com/tchajed/coq-tricks. *)
+Local Tactic Notation "unfolded_eq" constr(pf) :=
+  let x := (eval red in pf) in
+  exact (eq_refl : (pf = x)).
+Notation unfolded_eq pf := ltac:(unfolded_eq pf) (only parsing).
 
 
 (** ** Booleans *)

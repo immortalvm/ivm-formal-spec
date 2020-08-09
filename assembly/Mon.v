@@ -255,8 +255,7 @@ Section lensmonad_section.
 
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type} (LA: Lens S A).
-
+          {A: Type} (La: Lens S A).
 
   (** *** Definition *)
 
@@ -349,7 +348,7 @@ Section lensmonad_section.
 
 End lensmonad_section.
 
-Ltac smon_ext' LA a := apply (smonad_ext' LA); intros a.
+Ltac smon_ext' La a := apply (smonad_ext' La); intros a.
 
 Ltac smon_rewrite1_lens :=
   setoid_rewrite lens_put_put
@@ -362,26 +361,31 @@ Ltac2 Set smon_rewrite1 := fun _ =>
   ltac1:(smon_rewrite1_basics);
   ltac1:(repeat smon_rewrite1_lens).
 
-Set Typeclasses Unique Instances.
+
+Set Typeclasses Unique Instances. (* ! *)
 
 
 (** ** Neutral and confined computations *)
 
 Section neutral_section.
 
-  Context {S: Type}
-          {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type} (LA: Lens S A).
-
   Arguments get' {_ _ _ _ _}.
   Arguments put' {_ _ _ _ _}.
 
-  Class Neutral {X} (mx: M X) : Prop :=
+  Context {S: Type}
+          {M: Type -> Type} `{SM: SMonad S M}
+          {A: Type}.
+
+  Class Neutral {X} (La: Lens S A) (mx: M X) : Prop :=
     neutral : forall aa, mx = let* a := get' in
                          put' aa;;
                          let* x := mx in
                          put' a;;
                          ret x.
+
+  Arguments Neutral {_ _}.
+
+  Context (La: Lens S A).
 
   Global Instance neutral_if (b: bool) {X} (mx mx': M X)
          {Hmx: Neutral mx}
@@ -525,54 +529,90 @@ Class Confined'
       {M: Type -> Type} `{SM: SMonad S M}
       {X} (mx: M X) : Prop :=
 {
-  confined' {B} {LB: Lens S B} :> Confined LB mx;
+  confined' {B} {Lb: Lens S B} :> Confined Lb mx;
 }.
 
 
-(** ** Covers *)
+(** ** Sublenses and propriety *)
 
-Section cover_section.
+Section sub_and_prop_section.
 
-  Arguments proj {_ _} _ _.
-  Arguments update {_ _} _ _ _.
+  Context {S M} {SM: SMonad S M}.
 
-  Context {S: Type}
-          {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type} (LA: Lens S A)
-          {B: Type} (LB: Lens S B)
-          {HAB: Cover LA LB}.
-
-  (* TODO: Move? *)
-  Existing Instance cover.
-
-  Global Instance cover_neutral
-         {X} (mx: M X)
-         {Hmx: Neutral LA mx} : Neutral LB mx.
+  Global Instance lens_get_proper {A} :
+    Proper (@lensEq S A ==> eq) get'.
   Proof.
-    unfold Neutral in *.
-    intro bb.
-    smon_ext s.
-    specialize (Hmx (update (cover HAB) (proj LA s) bb)).
-    rewrite Hmx.
-    setoid_rewrite get_spec.
-    setoid_rewrite put_spec'.
-    smon_rewrite.
-    repeat (
-        setoid_rewrite (cover_update HAB)
-        || setoid_rewrite (cover_proj HAB)
-        || lens_rewrite).
+    intros La La' Hla.
+    setoid_rewrite get_spec. cbn.
+    setoid_rewrite Hla.
+    reflexivity.
   Qed.
 
-  Global Instance cover_confined
-           {X} (mx: M X)
-           {Hmx: Confined LB mx} : Confined LA mx.
+  Global Instance lens_put_proper {A} :
+    Proper (@lensEq S A ==> eq ==> eq) put'.
+  Proof.
+    intros La La' Hla
+           a a' Ha.
+    destruct Ha.
+    setoid_rewrite put_spec'. cbn.
+    setoid_rewrite Hla.
+    reflexivity.
+  Qed.
+
+  Global Instance neutral_proper {A X} :
+    Proper (@lensEq S A ==> @eq (M X) ==> iff) Neutral.
+  Proof.
+    (* TODO: Why doesn't [typeclasses eauto] solve this? *)
+    intros La La' Hla
+           mx mx' Hmx.
+    destruct Hmx.
+    unfold Neutral.
+    setoid_rewrite Hla.
+    reflexivity.
+  Qed.
+
+  Instance neutral_composite
+           {A} {La: Lens S A}
+           {B} {Lb: Lens A B}
+           {X} (mx: M X) {Hmx: Neutral La mx} : Neutral (Lb ∘ La) mx.
+  Proof.
+    unfold Neutral.
+    intros bb.
+    smon_ext' La a.
+    setoid_rewrite (Hmx a).
+    repeat rewrite get_spec, put_spec.
+    cbn.
+    unfold compose.
+    smon_rewrite.
+    lens_rewrite.
+  Qed.
+
+  Context {A} {La: Lens S A}
+          {B} {Lb: Lens S B} {Sab: (La | Lb)}.
+
+  Global Instance neutral_sublens
+         {X} (mx: M X) {Hmx: Neutral Lb mx} : Neutral La mx.
+  Proof.
+    destruct Sab as [Lba Ha].
+    rewrite (neutral_proper _ _ Ha _ _ eq_refl).
+    apply neutral_composite.
+    exact Hmx.
+  Qed.
+
+  Global Instance confined_sublens
+         {X} (mx: M X) {Hmx: Confined La mx} : Confined Lb mx.
   Proof.
     unfold Confined in *. intros.
-    apply Hmx, cover_neutral.
-    exact Hmy.
+    apply Hmx, neutral_sublens.
+    assumption.
   Qed.
 
-End cover_section.
+End sub_and_prop_section.
+
+(* TODO: How useful is this? *)
+Arguments lens_get_proper {_ _ _ _ _ _} _.
+Arguments lens_put_proper {_ _ _ _ _ _} _ {_ _} _.
+Arguments neutral_proper {_ _ _ _ _ _ _} _ {_ _} _.
 
 
 (** ** Independence *)
@@ -581,15 +621,15 @@ Section independence_section1.
 
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type} (LA: Lens S A)
-          {B: Type} (LB: Lens S B).
+          {A: Type} (La: Lens S A)
+          {B: Type} (Lb: Lens S B).
 
-  (** This holds even if LA and LB are dependent. *)
+  (** This holds even if La and Lb are dependent. *)
   Proposition flip_get_get {X} (f: A -> B -> M X) :
-    let* b := get' LB in
-    let* a := get' LA in
-    f a b = let* a := get' LA in
-            let* b := get' LB in
+    let* b := get' Lb in
+    let* a := get' La in
+    f a b = let* a := get' La in
+            let* b := get' Lb in
             f a b.
   Proof.
     setoid_rewrite get_spec.
@@ -597,17 +637,17 @@ Section independence_section1.
   Qed.
 
   (** Extra assumption used for lens ordering in order to avoid loops. *)
-  Definition flip_get_get' {HI: Independent LA LB} {X} (f: A -> B -> M X) :=
+  Definition flip_get_get' {Hi: Independent La Lb} {X} (f: A -> B -> M X) :=
     flip_get_get f.
   Opaque flip_get_get'.
 
-  Context {HI: Independent LA LB}.
+  Context {Hi: Independent La Lb}.
 
   Proposition flip_put_get (a: A) {X} (f: unit -> B -> M X) :
-    let* u := put' LA a in
-    let* b := get' LB in
-    f u b = let* b := get' LB in
-            let* u := put' LA a in
+    let* u := put' La a in
+    let* b := get' Lb in
+    f u b = let* b := get' Lb in
+            let* u := put' La a in
             f u b.
   Proof.
     rewrite get_spec, put_spec.
@@ -615,10 +655,10 @@ Section independence_section1.
   Qed.
 
   Proposition flip_put_put (a: A) (b: B) {X} (f: unit -> unit -> M X) :
-    let* v := put' LB b in
-    let* u := put' LA a in
-    f u v = let* u := put' LA a in
-            let* v := put' LB b in
+    let* v := put' Lb b in
+    let* u := put' La a in
+    f u v = let* u := put' La a in
+            let* v := put' Lb b in
             f u v.
   Proof.
     setoid_rewrite put_spec'.
@@ -629,11 +669,11 @@ End independence_section1.
 
 Ltac smon_rewrite1_independent :=
   match goal with
-  | HI: Independent ?LA ?LB |- _ =>
-    setoid_rewrite (flip_get_get' LA LB (HI:=HI))
-    || setoid_rewrite (flip_put_get LA LB (HI:=HI))
-    || setoid_rewrite <- (flip_put_get LA LB (HI:=HI))
-    || setoid_rewrite (flip_put_put LA LB (HI:=HI))
+  | Hi: Independent ?La ?Lb |- _ =>
+    setoid_rewrite (flip_get_get' La Lb (Hi:=Hi))
+    || setoid_rewrite (flip_put_get La Lb (Hi:=Hi))
+    || setoid_rewrite <- (flip_put_get La Lb (Hi:=Hi))
+    || setoid_rewrite (flip_put_put La Lb (Hi:=Hi))
   end.
 
 Ltac2 Set smon_rewrite1 := fun _ =>
@@ -644,22 +684,22 @@ Section independence_section2.
 
   Context {S: Type}
           {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type} (LA: Lens S A)
-          {B: Type} (LB: Lens S B).
+          {A: Type} (La: Lens S A)
+          {B: Type} (Lb: Lens S B).
 
-  Context {HI: Independent LA LB}.
+  Context {Hi: Independent La Lb}.
 
-  Global Instance neutral_get : Neutral LA (get' LB).
+  Global Instance neutral_get : Neutral La (get' Lb).
   Proof.
     intros aa. smon_rewrite.
   Qed.
 
-  Global Instance neutral_put b : Neutral LA (put' LB b).
+  Global Instance neutral_put b : Neutral La (put' Lb b).
   Proof.
     intros aa. smon_rewrite.
   Qed.
 
-  Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined LA mx} : Neutral LB mx.
+  Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined La mx} : Neutral Lb mx.
   Proof.
     intros bb.
     setoid_rewrite Hmx; [ | typeclasses eauto ].

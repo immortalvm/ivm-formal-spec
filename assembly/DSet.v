@@ -99,14 +99,14 @@ Section DSet_section.
     destruct (decide (p x)) as [H|H]; tauto.
   Qed.
 
-  Definition univ : DSet := def (fun _ => True).
-  Notation "'Ω'" := univ : DSet_scope.
-  Proposition univ_spec {x} : x ∈ Ω.
+  Definition full : DSet := def (fun _ => True).
+  Notation "'Ω'" := full : DSet_scope.
+  Proposition full_spec {x} : x ∈ Ω.
   Proof. exact I. Qed.
 
-  Corollary univ_terminal {u} : u ⊆ Ω.
+  Corollary full_terminal {u} : u ⊆ Ω.
   Proof.
-    intros x _. apply univ_spec.
+    intros x _. apply full_spec.
   Qed.
 
   Definition empty : DSet := def (fun _ => False).
@@ -220,7 +220,7 @@ Module DSetNotations.
   Infix "⊆" := subset (at level 70) : type_scope.
   Infix "#" := disjoint (at level 50) : type_scope.
 
-  Notation "'Ω'" := univ : DSet_scope.
+  Notation "'Ω'" := full : DSet_scope.
   Notation "∅" := empty : DSet_scope.
   Notation "!{  x  }" := (singleton x) (at level 0, x at level 99) : DSet_scope.
   Infix "∪" := union (at level 40, left associativity) : DSet_scope.

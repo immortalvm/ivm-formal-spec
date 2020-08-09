@@ -14,51 +14,54 @@ Class Lens (A: Type) (X: Type) :=
   update_update (a: A) (x: X) (x': X) : update (update a x) x' = update a x';
 }.
 
-Declare Scope lens_scope.
-Bind Scope lens_scope with Lens.
-Delimit Scope lens_scope with lens.
-
 Hint Rewrite @proj_update : lens.
 Hint Rewrite @update_proj : lens.
 Hint Rewrite @update_update : lens.
 
+Declare Scope lens_scope.
+Bind Scope lens_scope with Lens.
+Delimit Scope lens_scope with lens.
+
+(** This applies to the remaining class declarations in this file,
+    i.e. [Independent] and [Sublens]. *)
 Set Typeclasses Unique Instances.
 
 
 (** ** Independent lenses *)
 
-Class Independent {A: Type}
-      {X: Type} (LX: Lens A X)
-      {Y: Type} (LY: Lens A Y) : Prop :=
+Class Independent {A X Y: Type}
+      (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
   independent (a: A) (x: X) (y: Y) :
     update (update a x) y = update (update a y) x.
 
 Section independence_section.
 
-  Context {A X Y} {LX: Lens A X} {LY: Lens A Y} (HI: Independent LX LY).
+  Context {A X Y : Type}
+          {Lx: Lens A X} {Ly: Lens A Y}
+          (Hi: Independent Lx Ly).
 
   Proposition proj2_update1 (a: A) (x: X) : proj (update a x) = proj a :> Y.
   Proof.
-    rewrite <- (@update_proj _ _ LY a) at 1.
+    rewrite <- (@update_proj _ _ Ly a) at 1.
     rewrite <- independent.
     apply proj_update.
   Qed.
 
   Proposition proj1_update2 (a: A) (y: Y) : proj (update a y) = proj a :> X.
   Proof.
-    rewrite <- (@update_proj _ _ LX a) at 1.
+    rewrite <- (@update_proj _ _ Lx a) at 1.
     rewrite independent.
     apply proj_update.
   Qed.
 
   (** Beware: This may cause loops. *)
-  Instance independent_symm : Independent LY LX.
+  Instance independent_symm : Independent Ly Lx.
   Proof. intros a y x. symmetry. apply independent. Qed.
 
 End independence_section.
 
-Arguments proj2_update1 {_ _ _ _ _ HI}.
-Arguments proj1_update2 {_ _ _ _ _ HI}.
+Arguments proj2_update1 {_ _ _ _ _ Hi}.
+Arguments proj1_update2 {_ _ _ _ _ Hi}.
 
 Hint Rewrite @proj2_update1 using (typeclasses eauto) : lens.
 Hint Rewrite @proj1_update2 using (typeclasses eauto) : lens.
@@ -66,40 +69,40 @@ Hint Rewrite @proj1_update2 using (typeclasses eauto) : lens.
 
 (** *** Add [independent_symm] hint without loops. *)
 
-CoInductive _independent_type1 {A X Y} (LX: Lens A X) (LY: Lens A Y) : Prop :=
+CoInductive _independent_type1 {A X Y} (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
   _independent_ctor1.
 
-Ltac independent_symm_guard LX LY :=
+Ltac independent_symm_guard Lx Ly :=
   lazymatch goal with
-  | [ _ : _independent_type1 LX LY |- _ ] => fail
+  | [ _ : _independent_type1 Lx Ly |- _ ] => fail
   | _ => let iltt := fresh "iltt" in
-        assert (iltt:=_independent_ctor1 LX LY)
+        assert (iltt:=_independent_ctor1 Lx Ly)
   end.
 
-Global Hint Extern 20 (Independent ?LX ?LY) =>
-  independent_symm_guard LX LY;
+Global Hint Extern 20 (Independent ?Lx ?Ly) =>
+  independent_symm_guard Lx Ly;
   apply independent_symm : typeclass_instances.
 
 
 (** *** Use [independent] rewrite except for [independent_symm] instances *)
 
-Inductive _independent_type2 {A X Y} (LX: Lens A X) (LY: Lens A Y) : Prop :=
-  _independent_ctor2 (HI: Independent LX LY) :
-    _independent_type2 LX LY.
+Inductive _independent_type2 {A X Y} (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
+  _independent_ctor2 (Hi: Independent Lx Ly) :
+    _independent_type2 Lx Ly.
 
 Arguments _independent_ctor2 {_ _ _} _ _ {_}.
 
 Ltac rewrite_independent :=
   match goal with
-    |- context [ @update _ _ ?LY (@update _ _ ?LX _ _) _ ] =>
+    |- context [ @update _ _ ?Ly (@update _ _ ?Lx _ _) _ ] =>
     let indeq := fresh "indeq" in
-    assert (indeq:=@eq_refl _ (_independent_ctor2 LX LY));
+    assert (indeq:=@eq_refl _ (_independent_ctor2 Lx Ly));
     lazymatch goal with
-    | [ _ : _independent_ctor2 _ _ (HI := (let _ := _ in independent_symm _)) = _ |- _ ] =>
+    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in independent_symm _)) = _ |- _ ] =>
       fail
-    | [ _ : _independent_ctor2 _ _ (HI := ?HI) = _ |- _ ] =>
+    | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
       clear indeq;
-      setoid_rewrite (@independent _ _ LX _ LY HI)
+      setoid_rewrite (@independent _ _ _ Lx Ly Hi)
     end
   end.
 
@@ -111,9 +114,89 @@ Ltac lens_rewrite1 := rewrite_strat (outermost (hints lens))
 Ltac lens_rewrite := repeat lens_rewrite1; try reflexivity.
 
 
-(** ** Lens cateogory *)
+(** ** Lens equality *)
 
-Section lens_category_section.
+Section equality_section.
+
+  Arguments proj {_ _} _ _.
+  Arguments update {_ _} _ _ _.
+
+  Context {A X : Type}.
+
+  Section eq_section.
+
+    Context (L1: Lens A X) (L2: Lens A X).
+
+    (** This is equivalent to "L1 = L2" if/when we assume extensionality,
+        see LensExtras.v. *)
+    Definition lensEq : Prop := forall a x, update L1 a x = update L2 a x.
+
+  End eq_section.
+
+  (** Useful to have as separate fact. *)
+  Proposition lens_refl {Lx} : lensEq Lx Lx.
+  Proof.
+    intros a x. reflexivity.
+  Qed.
+
+  Global Instance lensEq_equivalence : Equivalence lensEq.
+  Proof.
+    split.
+    - intro L1. exact lens_refl.
+    - intros L1 L2 H12 a x. rewrite H12. reflexivity.
+    - intros L1 L2 L3 H12 H23 a x.
+      transitivity (update L2 a x).
+      + apply H12.
+      + apply H23.
+  Qed.
+
+End equality_section.
+
+(* TODO: Define notation scope. *)
+Notation "L1 ≅ L2" := (lensEq L1 L2) (at level 70, no associativity) : type_scope. (* ! *)
+
+Section proper_section.
+
+  Context {A X Y : Type}.
+
+  Global Instance update_proper :
+    Proper (lensEq ==> eq ==> eq ==> eq) (@update A X).
+  Proof.
+    repeat intro. subst. intuition.
+  Qed.
+
+  Global Instance proj_proper :
+    Proper (lensEq ==> eq ==> eq) (@proj A X).
+  Proof.
+    intros Lx Lx' Hlx.
+    repeat intro. subst.
+    setoid_rewrite <- (update_proj (Lens:=Lx')) at 1.
+    rewrite <- Hlx.
+    apply proj_update.
+  Qed.
+
+  Global Instance independent_proper :
+    Proper (lensEq ==> lensEq ==> iff) (@Independent A X Y).
+  Proof.
+    (* Not sure why [setoid_rewrite] works with [Hx]
+       and [rewrite] with [Hy], but not vice versa. *)
+    intros Lx Lx' Hx
+           Ly Ly' Hy.
+    split; intros H a x y.
+    - setoid_rewrite <- Hx.
+      do 2 rewrite <- Hy.
+      apply H.
+    - setoid_rewrite Hx.
+      do 2 rewrite Hy.
+      apply H.
+  Qed.
+
+End proper_section.
+
+
+(** ** Lens category *)
+
+Section category_section.
 
   Context {A: Type}.
 
@@ -135,7 +218,7 @@ Section lens_category_section.
     update a x := x;
   }.
 
-  Context {X Y} (LY: Lens X Y) (LX: Lens A X).
+  Context {X Y} (Ly: Lens X Y) (Lx: Lens A X).
 
   #[refine] Instance compositeLens : Lens A Y :=
   {
@@ -146,127 +229,145 @@ Section lens_category_section.
     all: abstract (unfold compose; intros; lens_rewrite).
   Defined.
 
-  (** Clearly this defined a category up to extensionality. *)
-
-End lens_category_section.
+End category_section.
 
 Infix "∘" := compositeLens (at level 40, left associativity) : lens_scope.
 
-Section composite_independent_section.
+Section category_facts_section.
 
-  Context {A X Y Y'} (LX: Lens A X) (LY: Lens X Y) (LY': Lens X Y')
-          {HI: Independent LY LY'}.
+  Arguments proj {_ _} _ _.
+  Arguments update {_ _} _ _ _.
 
-  Instance composite_independent : Independent (LY ∘ LX) (LY' ∘ LX).
+  Context {A X Y : Type}.
+
+  Instance compositeLens_proper :
+    Proper (lensEq ==> lensEq ==> lensEq) (@compositeLens A X Y).
+  Proof.
+    intros Lx Lx' Hx
+           Ly Ly' Hy
+           a y.
+    cbn.
+    rewrite Hx.
+    rewrite Hy.
+    reflexivity.
+  Qed.
+
+  Proposition compositeLens_associative {Z}
+        (Lx : Lens A X)
+        (Ly : Lens X Y)
+        (Lz : Lens Y Z) : Lz ∘ (Ly ∘ Lx) ≅ (Lz ∘ Ly) ∘ Lx.
+  Proof.
+    intros a z. reflexivity.
+  Qed.
+
+  Context (Lx: Lens A X).
+
+  Proposition idLens_composite : idLens ∘ Lx ≅ Lx.
+  Proof.
+    intros a x. reflexivity.
+  Qed.
+
+  Proposition composite_idLens: Lx ∘ idLens ≅ Lx.
+  Proof.
+    intros a x. reflexivity.
+  Qed.
+
+  (** Independent lenses are stable under prefixing. *)
+
+  Context (Ly: Lens X Y) {Y'}
+          (Ly': Lens X Y') {Hi: Independent Ly Ly'}.
+
+  Instance composite_independent : Independent (Ly ∘ Lx) (Ly' ∘ Lx).
   Proof.
     intros a y y'. cbn.
-    unfold compose. lens_rewrite.
+    unfold compose. cbn.
+    lens_rewrite.
   Qed.
 
-End composite_independent_section.
+End category_facts_section.
+
+Arguments compositeLens_proper {_ _ _ _ _} Hlx {_ _} Hly.
 
 
-(** ** Lens equality *)
+(** ** Sublenses *)
 
-Section equality_section.
+Section sublens_section.
 
-  Local Arguments proj {_ _} _ _.
-  Local Arguments update {_ _} _ _ _.
+  Context {A X Y : Type}.
 
-  Context {A X : Type}.
+  (** This is analogous to [Z.divide], but beware that information is lost
+  here, since [Lyx] is not in general unique. *)
 
-  Section eq_section.
+  Class Sublens (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
+    sublens : exists (Lyx: Lens Y X), Lx ≅ Lyx ∘ Ly.
 
-    Context (L1: Lens A X) (L2: Lens A X).
-
-
-    (** This is equivalent to "L1 = L2" if/when we assume extensionality,
-        see LensExtras.v. *)
-    Definition lens_eq : Prop :=
-      forall a x, update L1 a x = update L2 a x.
-
-    Proposition proj_eq (H: lens_eq) : forall a, proj L1 a = proj L2 a.
-    Proof.
-      intros a.
-      setoid_rewrite <- (update_proj (Lens:=L2)) at 1.
-      rewrite <- H.
-      apply proj_update.
-    Qed.
-
-  End eq_section.
-
-  Global Instance proj_eq_equivalence : Equivalence lens_eq.
+  Global Instance sublens_proper : Proper (lensEq ==> lensEq ==> iff) Sublens.
   Proof.
-    split.
-    - intros LX a x. reflexivity.
-    - intros L1 L2 H12 a x. rewrite H12. reflexivity.
-    - intros L1 L2 L3 H12 H23 a x.
-      transitivity (update L2 a x).
-      + apply H12.
-      + apply H23.
-  Qed.
-
-End equality_section.
-
-(* TODO: Define notation scope. *)
-Notation "L1 ≅ L2" := (lens_eq L1 L2) (at level 70, no associativity).
-
-
-(** ** Covers
-
-I don't know if this has an established name. *)
-
-Section cover_section.
-
-  Local Arguments proj {_ _} _ _.
-  Local Arguments update {_ _} _ _ _.
-
-  Context {A X Y} (LX: Lens A X) (LY: Lens A Y).
-
-  Class Cover : Prop :=
-    cover : exists (c: Lens X Y), LY ≅ c ∘ LX.
-
-End cover_section.
-
-Arguments cover {_ _ _ _ _} _.
-
-Notation "( L2 | L1 )" := (Cover L1 L2) : type_scope.
-
-(** By definition *)
-Instance compositionCover {A X Y} (LX: Lens A X) (LY: Lens X Y) :
-  (LY ∘ LX | LX).
-Proof. exists LY. reflexivity. Qed.
-
-
-Section cover_ordering_section.
-
-  Context {A X} (LX: Lens A X).
-
-  Instance idCover : (LX | LX).
-  Proof.
-    exists idLens.
-    reflexivity.
-
- := { cover := idLens; }.
-
-
-  Context {Y} {LY: Lens A Y} (CXY: Cover LX LY)
-          {Z} {LZ: Lens A Z} (CYZ: Cover LY LZ).
-
-  #[refine] Instance compositeCover : Cover LX LZ := { cover := cover CYZ ∘ cover CXY }.
-  Proof.
-    intros a y.
-    cbn.
-    rewrite
-      (cover_update CYZ),
-      (cover_update CXY),
-      (cover_proj CXY).
+    intros Lx Lx' Hlx
+           Ly Ly' Hly.
+    unfold Sublens.
+    setoid_rewrite Hlx.
+    (* Hangs for some reason: setoid_rewrite Hly. *)
+    setoid_rewrite (compositeLens_proper lens_refl Hly).
     reflexivity.
   Qed.
 
-End cover_ordering_section.
+End sublens_section.
 
-Arguments compositeCover {_ _ LX _ _} CXY {_ _} CYZ.
+Arguments sublens {_ _ _ _ _} _.
+
+Notation "( Lx | Ly )" := (Sublens Lx Ly) : type_scope.
+
+Section sublens_ordering_section.
+
+  Context {A X} (Lx: Lens A X).
+
+  (* TODO: Move to LensExtras.v? *)
+  Instance unitSublens : (Lx | idLens ).
+  Proof.
+    exists Lx. symmetry. apply idLens_composite.
+  Qed.
+
+  (* By definition *)
+  Global Instance sublens_comp {Y} (Ly: Lens X Y) : (Ly ∘ Lx | Lx).
+  Proof.
+    exists Ly. reflexivity.
+  Qed.
+
+  (** [_ ∘ Lx ] is essentially proper. *)
+  Instance sublens_comp'
+           {Y} {Ly: Lens X Y}
+           {Z} (Lz: Lens X Z)
+           (Syz: (Ly | Lz)) : (Ly ∘ Lx | Lz ∘ Lx).
+  Proof.
+    destruct Syz as [Lzy Hyz].
+    exists Lzy.
+    rewrite compositeLens_associative.
+    apply (compositeLens_proper Hyz lens_refl).
+  Qed.
+
+  Arguments proj {_ _} _ _.
+  Arguments update {_ _} _ _ _.
+
+  Context {Y} {Ly: Lens A Y} (Sxy: (Lx | Ly))
+          {Z} {Lz: Lens A Z} (Syz: (Ly | Lz)).
+
+  Instance sublens_trans : (Lx | Lz).
+  Proof.
+    destruct Sxy as [Lyx Hx].
+    destruct Syz as [Lzy Hy].
+    exists (Lyx ∘ Lzy)%lens.
+    rewrite Hx.
+    (* This hangs for some reason: rewrite Hy. *)
+    rewrite <- compositeLens_associative.
+    apply compositeLens_proper.
+    - reflexivity.
+    - exact Hy.
+  Qed.
+
+End sublens_ordering_section.
+
+Arguments sublens_trans {_ _ Lx _ _} Sxy {_ _} Syz.
 
 
 (** ** Products and projections *)
@@ -289,7 +390,7 @@ Section projection_section.
 
   Program Instance independent_projs : Independent lens_fst lens_snd.
 
-  Context {A} (LX: Lens A X) (LY: Lens A Y) {IXY: Independent LX LY}.
+  Context {A} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly}.
 
   #[refine]
   Instance prodLens : Lens A (X * Y) :=
@@ -301,34 +402,34 @@ Section projection_section.
     all: idestructs; repeat (lens_rewrite || simpl).
   Defined.
 
-  (* TODO: Can we do these two propositions? *)
+  (* TODO: Can we manage without these two propositions? *)
   Proposition prod_proj_spec (a: A) : proj a = (proj a, proj a).
   Proof. reflexivity. Qed.
 
   Proposition prod_update_spec (a: A) (xy: X * Y) : update a xy = update (update a (fst xy)) (snd xy).
   Proof. reflexivity. Qed.
 
-  #[refine] Global Instance prod_cover1 : Cover prodLens LX := { cover := lens_fst; }.
+  Global Instance prod_sublens1 : (Lx | prodLens).
   Proof.
-    intros a x. cbn. lens_rewrite.
+    exists lens_fst. intros a x. cbn. lens_rewrite.
   Qed.
 
-  #[refine] Global Instance prod_cover2 : Cover prodLens LY := { cover := lens_snd; }.
+  Global Instance prod_sublens2 : (Ly | prodLens).
   Proof.
-    intros a y. cbn. lens_rewrite.
+    exists lens_snd. intros a y. cbn. lens_rewrite.
   Qed.
-
-  Context {X'} (LX': Lens A X') {HC: Cover LX LX'}.
 
   (** A loop-safe corollary. *)
-  Global Instance prod_cover1' : Cover prodLens LX'.
+  Global Instance prod_sublens1'
+         {X'} (Lx': Lens A X') {Sx: (Lx' | Lx)} : (Lx' | prodLens).
   Proof.
-    apply (compositeCover prod_cover1 HC).
+    apply (sublens_trans Sx prod_sublens1).
   Qed.
 
-  Context Z (LZ: Lens A Z) (IXZ: Independent LX LZ) (IYZ: Independent LY LZ).
-
-  Global Instance independent_prod : Independent prodLens LZ.
+  Global Instance independent_prod
+         {Z} {Lz: Lens A Z}
+         (Ixz: Independent Lx Lz)
+         (Iyz: Independent Ly Lz) : Independent prodLens Lz.
   Proof.
     intros s [x y] z. simpl. lens_rewrite.
   Qed.
@@ -350,7 +451,7 @@ Section restriction_section.
 
   Definition restr u : Type := forall (a: A), a ∈ u -> F a.
 
-  #[refine] Instance unrestrLens : Lens (forall a, F a) (restr Ω) :=
+  #[refine] Instance fullLens : Lens (forall a, F a) (restr Ω) :=
   {
     proj f a _ := f a;
     update _ g a := g a I;
@@ -391,23 +492,18 @@ Section restriction_section.
   Defined.
 
   Instance restrLens u : Lens (forall a, F a) (restr u) :=
-    subsetLens univ_terminal ∘ unrestrLens.
+    subsetLens full_terminal ∘ fullLens.
 
   (** By construction *)
-  #[refine] Instance unrestr_cover u : Cover unrestrLens (restrLens u) :=
-  {
-    cover := subsetLens univ_terminal;
-  }.
+  Instance full_sublens u : (restrLens u | fullLens).
   Proof.
-    reflexivity.
+    apply sublens_comp.
   Qed.
 
-  #[refine] Instance subset_cover {u v} (Huv: u ⊆ v) :
-    Cover (restrLens v) (restrLens u) :=
-  {
-    cover := subsetLens Huv;
-  }.
+  (** [restrLens] is essentially "proper", i.e. respects [⊆]. *)
+  Instance subsetSublens {u v} (Huv: u ⊆ v) : (restrLens u | restrLens v).
   Proof.
+    exists (subsetLens Huv).
     intros f g. extensionality a. cbn.
     destruct (decide (a ∈ u)) as [Hu|Hu];
       destruct (decide (a ∈ v)) as [Hv|Hv];
@@ -415,8 +511,6 @@ Section restriction_section.
     exfalso.
     apply Hv, Huv, Hu.
   Qed.
-
-  (** I.e. [subsetLength] respects the transitivity of [⊆]. *)
 
   Instance separate_independent u v (Huv: u # v) :
     Independent (restrLens u) (restrLens v).
@@ -435,7 +529,9 @@ Section restriction_section.
 End restriction_section.
 
 
-(** ** Point lenses *)
+(** ** Point lenses
+
+[restrLens {a}] can be simplified. *)
 
 Section point_section.
 
@@ -464,7 +560,6 @@ Section point_section.
         destruct (decide (a = a')) as [H|H];
         [ subst a; cbn; f_equal; apply is_true_unique
         | reflexivity ].
-
     - abstract (intros f x x';
                 extensionality a';
                 extensionality Hu;
@@ -472,14 +567,11 @@ Section point_section.
                 reflexivity).
   Defined.
 
-  Instance pointLens : Lens (forall a', F a') (F a) :=
-    pointLens' univ_spec ∘ unrestrLens.
+  Instance pointLens : Lens (forall a', F a') (F a) := pointLens' full_spec ∘ fullLens.
 
-  #[refine] Instance pointLens_cover {u} (Ha: a ∈ u) : Cover (restrLens u) pointLens :=
-  {
-    cover := pointLens' Ha
-  }.
+  Instance pointLens_sublens {u} (Ha: a ∈ u) : (pointLens | restrLens u).
   Proof.
+    exists (pointLens' Ha).
     intros f x. extensionality a'. cbn.
     destruct (decide (a = a')) as [H|H].
     - subst a. decided Ha. reflexivity.
