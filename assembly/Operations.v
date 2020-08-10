@@ -277,7 +277,7 @@ Module Core (MP: MachineParameters).
         end.
 
 
-  (** *** Decidable subsets of the address space *)
+  (** *** Decidable subsets of the memory *)
 
   Instance MEM' u : Lens State (restr u) :=
     (restrLens u) ∘ MEM.
@@ -298,13 +298,19 @@ Module Core (MP: MachineParameters).
   Proof.
     unfold MEM'', MEM'.
     apply sublens_comp'.
-    eset (H:=pointLens_sublens a Hau).
-    (* For some reason, [apply H] does not work. *)
-    destruct H as [L H]. exists L. exact H.
+    refine (pointLens_sublens Hau).
   Qed.
 
   Global Instance point_mem'' {a} : (MEM'' a | MEM' !{a}) :=
     point_mem' DSet.refl.
+
+  Global Instance point_independent {a a'} (H:a<>a') :
+    Independent (MEM'' a) (MEM'' a').
+  Proof.
+    unfold MEM''.
+    apply composite_independent.
+    refine (pointLens_independent H).
+  Qed.
 
 
   (** *** Extract the boxed element from an [option] type or fail. *)
@@ -327,95 +333,68 @@ Module Core (MP: MachineParameters).
 
   (** ** [load] and [store] *)
 
-  Definition load0 (a: Addr): M (option Cell) :=
+  (** *** [load] *)
+
+  Definition load (a: Addr): M Cell :=
     assert* available a as Ha in
-    let* mem := get' MEM in
-    ret (mem a Ha).
+    let* c := get' (MEM'' a) in
+    extr (c Ha).
 
-  Definition load0_spec := unfolded_eq load0.
+  Definition load_spec'' := unfolded_eq load.
 
-  Definition load0_spec' a u (Hau: a ∈ u):
-    load0 a = assert* available a as Ha in
-              let* mem := get' (MEM' u) in
-              ret (mem a Hau Ha).
+  Proposition load_spec a :
+    load a = assert* available a as Ha in
+             let* mem := get' MEM in
+             extr (mem a Ha).
   Proof.
-    unfold load0. destruct (decide (available a)) as [Ha|_]; [ | reflexivity ].
-    setoid_rewrite get_spec.
+    unfold load.
+    destruct (decide (available a)) as [Ha|_];
+      [ | reflexivity ].
+    repeat rewrite get_spec.
     smon_rewrite.
   Qed.
 
-  Proposition load0_spec'' a :
-    load0 a = assert* available a as Ha in
-              let* c := get' (MEM'' a) in
-              ret (c Ha).
-  Proof.
-    unfold load0. destruct (decide (available a)) as [Ha|_]; [ | reflexivity ].
-    setoid_rewrite get_spec.
-    smon_rewrite.
-  Qed.
-
-  Global Opaque load0.
-
-  Global Instance confined_load0 {a} : Confined (MEM'' a) (load0 a).
-  Proof.
-    rewrite load0_spec''.
-    typeclasses eauto.
-  Qed.
-
-  Definition load (a: Addr): M Cell := load0 a >>= extr.
-  Definition load_spec := unfolded_eq load.
   Global Instance confined_load {a} : Confined (MEM'' a) (load a).
   Proof.
     typeclasses eauto.
   Qed.
-  Global Opaque load.
 
-  Definition store0 (a: Addr) (ox: option Cell) : M unit :=
+  Opaque load.
+
+
+  (** *** [store] *)
+
+  Definition store (a: Addr) (x: Cell) : M unit :=
     assert* available a in
-    put' (MEM'' a) (fun _ => ox).
+    put' (MEM'' a) (fun _ => Some x).
 
-  Definition store0_spec'' := unfolded_eq store0.
+  Definition store_spec'' := unfolded_eq store.
 
-  Global Instance confined_store0 {a ox} : Confined (MEM'' a) (store0 a ox).
+  Proposition store_spec a x :
+    store a x = assert* available a in
+                let* s := get' MEM in
+                let s' a' H := if decide (a = a') then Some x else s a' H in
+                put' MEM s'.
   Proof.
-    typeclasses eauto.
-  Qed.
-
-  Proposition store0_spec a ox :
-    store0 a ox = assert* available a in
-                  let* s := get' MEM in
-                  let s' a' H := if decide (a = a') then ox else s a' H in
-                  put' MEM s'.
-  Proof.
-    (* TODO: Simplify *)
-    unfold store0.
+    unfold store.
     repeat rewrite get_spec.
     repeat rewrite put_spec.
-    cbn.
-    unfold compose.
     destruct (decide (available a)) as [Ha|_];
       [ | reflexivity ].
     smon_rewrite.
     apply bind_extensional. intro s.
-    f_equal.
-    f_equal.
+    f_equal. cbn. unfold compose. f_equal.
     extensionality a'.
     destruct (decide (a = a')) as [[]|_];
       reflexivity.
   Qed.
 
-  Opaque store0.
+  Opaque store.
 
-  Definition store (a: Addr) (x: Cell) : M unit := store0 a (Some x).
-  Definition store_spec := unfolded_eq store.
+  (* TODO: [unfold compose] is annoying. Switch to notation? *)
 
-  Global Instance confined_store a x : Confined MEM (store a x).
-  Proof.
-    typeclasses eauto.
-  Qed.
 
-  Global Opaque store.
-
+  (** *** Reordering load and store operations *)
 
   Lemma store_load a x {Y} (f: unit -> Cell -> M Y) : let* u := store a x in
                                                  let* x' := load a in
@@ -423,13 +402,15 @@ Module Core (MP: MachineParameters).
                                                           f tt x.
   Proof.
     rewrite
-      store_spec, load_spec,
-      load0_spec'', store0_spec'',
+      store_spec'', load_spec'',
       extr_spec.
     smon_rewrite.
-    destruct (decide (available a)) as [Ha|_]; smon_rewrite.
-    decided Ha. smon_rewrite.
+    destruct (decide (available a)) as [Ha|_];
+      smon_rewrite;
+      smon_rewrite. (* TODO: This should not be necessary! *)
   Qed.
+
+  Existing Instance pointLens_independent.
 
   Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
     let* u := store a x in
@@ -438,26 +419,46 @@ Module Core (MP: MachineParameters).
             let* u := store a x in
             f u v.
   Proof.
-    rewrite store_spec, store0_spec''.
-    smon_rewrite.
+    rewrite store_spec''.
     destruct (decide (available a)) as [Ha|_];
       destruct (decide (available a')) as [Ha'|_];
       smon_rewrite.
-
-    apply bind_extensional. intros mem.
-    f_equal.
-    f_equal.
-    extensionality a''.
-    extensionality Ha''.
-    destruct (decide (a=a'')) as [HH|HH];
-      destruct (decide (a'=a'')) as [HH'|HH'];
-      congruence.
+    rewrite <- flip_put_put.
+    - reflexivity.
+    - apply (point_independent H).
   Qed.
 
 
   (** ** [loadMany] and [next] *)
 
   Open Scope vector.
+
+  Definition nAAfter (n: nat) (a: Addr) : DSet Addr
+    := def (fun a' => exists i, (i<n)%nat /\ offset i a = a').
+
+  Proposition nAAfter_zero n a : a ∈ nAAfter (S n) a.
+  Proof.
+    apply def_spec. exists 0. split.
+    - lia.
+    - apply Z_action_zero.
+  Qed.
+
+  Proposition nAAfter_succ n a : nAAfter n (offset 1 a) ⊆ nAAfter (S n) a.
+  Proof.
+    unfold subset.
+    intros a'.
+    unfold nAAfter.
+    setoid_rewrite def_spec.
+    intros [i [Hi Ho]].
+    exists (S i).
+    split.
+    - lia.
+    - lia_rewrite (S i = 1 + i :> Z).
+      rewrite Z_action_add.
+      exact Ho.
+  Qed.
+
+  Definition nABefore n a := nAAfter n (offset (-n) a).
 
   (* TODO: noind is used to circumvent what appears to be an Equation bug. *)
   Equations(noind) loadMany (n: nat) (_: Addr): M (Cells n) :=
@@ -467,17 +468,30 @@ Module Core (MP: MachineParameters).
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
 
-  Global Instance confined_loadMany n a : Confined MEM (loadMany n a).
+  Global Instance confined_loadMany n a : Confined (MEM' (nAAfter n a)) (loadMany n a).
   Proof.
+    (* TODO: automate! *)
     revert a.
     induction n;
       intros a;
-      simp loadMany;
-      typeclasses eauto.
+      simp loadMany.
+    - typeclasses eauto.
+    - specialize (IHn (offset 1 a)).
+      apply confined_bind.
+      + unshelve eapply confined_sublens, confined_load.
+        apply sublens_comp'.
+        refine (pointLens_sublens (nAAfter_zero n a)).
+      + intros x.
+        apply confined_bind.
+        * eapply confined_sublens.
+          apply IHn.
+          Unshelve.
+          apply sublens_comp', subsetSublens, nAAfter_succ.
+        * typeclasses eauto.
   Qed.
 
-  (** [simp] does not work,
-      and [setoid_rewrite] requires unneccessary Addr argument. *)
+  (** [simp] does not work under binders (yet), and (for some reason)
+      [setoid_rewrite] requires an unneccessary Addr argument. *)
   Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
 
   Equations(noind) next (n: nat) : M (Cells n) :=
@@ -488,6 +502,8 @@ Module Core (MP: MachineParameters).
       put' PC (offset 1 pc);;
       let* r := next n in
       ret (x :: r).
+
+(* TODO: Continue rewrite from here *)
 
   Proposition offset_inc (n: nat) a : offset n (offset 1 a) = offset (S n) a.
   Proof.

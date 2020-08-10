@@ -537,10 +537,9 @@ Section point_section.
 
   Context {A : Type}
           {F : A -> Type}
-          {H_eqdec: EqDec A}
-          (a: A).
+          {H_eqdec: EqDec A}.
 
-  #[refine] Instance pointLens' {u} (Ha: a ∈ u) : Lens (restr u) (F a) :=
+  #[refine] Instance pointLens' {a u} (Ha: a ∈ u) : Lens (restr u) (F a) :=
   {
     proj f := f a Ha;
     update f x a' Hu := match decide (a = a') with
@@ -567,15 +566,25 @@ Section point_section.
                 reflexivity).
   Defined.
 
-  Instance pointLens : Lens (forall a', F a') (F a) := pointLens' full_spec ∘ fullLens.
+  Instance pointLens a : Lens (forall a', F a') (F a) := pointLens' full_spec ∘ fullLens.
 
-  Instance pointLens_sublens {u} (Ha: a ∈ u) : (pointLens | restrLens u).
+  Instance pointLens_sublens {a u} (Ha: a ∈ u) : (pointLens a | restrLens u).
   Proof.
     exists (pointLens' Ha).
     intros f x. extensionality a'. cbn.
     destruct (decide (a = a')) as [H|H].
     - subst a. decided Ha. reflexivity.
     - destruct (decide _); reflexivity.
+  Qed.
+
+  Instance pointLens_independent {a a'} (Ha: a <> a') :
+    Independent (pointLens a) (pointLens a').
+  Proof.
+    intros f x x'. cbn.
+    extensionality a''.
+    destruct (decide (a' = a'')) as [He'|He'];
+      destruct (decide (a = a'')) as [He|He];
+      congruence.
   Qed.
 
 End point_section.

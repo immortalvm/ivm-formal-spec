@@ -269,9 +269,9 @@ Derive NoConfusion EqDec for comparison.
 
 (** It follows that the comparison operators are decidable for [Z] and [N]. *)
 
-Instance bounded_all_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
-  Decidable (forall x, x < n -> P x).
-Proof. (* TODO: simplify? *)
+Lemma bounded_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+  {forall x, x < n -> P x} + {exists x, x < n /\ ~ P x}.
+Proof.
   induction n as [|n IH].
   - left. lia.
   - destruct IH as [IH|IH].
@@ -282,17 +282,46 @@ Proof. (* TODO: simplify? *)
            destruct H'' as [H''|H''].
            ++ exact (IH x H'').
            ++ subst x. exact H.
-      * right. contradict H. apply H. lia.
-    + right. contradict IH. intros x H. apply IH. lia.
+      * right. exists n. split; [lia | exact H].
+    + right. destruct IH as [x [Hx Hp]]. exists x. split; [lia | exact Hp].
 Defined.
 
-(** Clearly, [N] has the same property. *)
+Instance bounded_all_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+  Decidable (forall x, x < n -> P x).
+Proof.
+  destruct (bounded_decidable0 P n) as [H|H].
+  - left. exact H.
+  - right. intro H'. destruct H as [x [Hx Hp]].
+    exact (Hp (H' x Hx)).
+Qed.
+
+(* TODO: Move up *)
+Proposition decidable_raa {P: Prop} {DP: Decidable P} : ~ ~ P <-> P.
+Proof.
+  split.
+  - destruct (decide P) as [H|H]; tauto.
+  - tauto.
+Qed.
+
+Instance bounded_ex_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+  Decidable (exists x, x < n /\ P x).
+Proof.
+  destruct (bounded_decidable0 (fun x => ~ P x) n) as [H|H].
+  - right. intros [x [Hx Hp]]. exact (H x Hx Hp).
+  - left.
+    setoid_rewrite decidable_raa in H.
+    exact H.
+Qed.
+
+
+(** Clearly, [N] has the same properties. *)
 
 Local Open Scope N.
 
 Instance bounded_all_decidable0' (P: forall (x:N), Prop) {DP: forall x, Decidable (P x)} (n: N) :
   Decidable (forall x, x < n -> P x).
 Proof.
+  (* TODO: Derive from results above instead. *)
   destruct (decide (forall y, (y < N.to_nat n)%nat -> P (N.of_nat y))) as [H|H]; [left|right].
   - intros x Hx. specialize (H (N.to_nat x)).
     rewrite Nnat.N2Nat.id in H.
