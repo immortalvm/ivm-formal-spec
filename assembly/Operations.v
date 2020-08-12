@@ -308,7 +308,7 @@ Module Core (MP: MachineParameters).
     Independent (MEM'' a) (MEM'' a').
   Proof.
     unfold MEM''.
-    apply composite_independent.
+    apply composite_independent_r.
     refine (pointLens_independent H).
   Qed.
 
@@ -322,13 +322,14 @@ Module Core (MP: MachineParameters).
     | None => err
     end.
   Definition extr_spec := unfolded_eq (@extr).
-  Global Opaque extr.
 
   Global Instance confined_extr
          {X} (ox: option X) : Confined' (extr ox).
   Proof.
-    rewrite extr_spec. split. typeclasses eauto.
+    split; typeclasses eauto.
   Qed.
+
+  Global Opaque extr.
 
 
   (** ** [load] and [store] *)
@@ -389,9 +390,14 @@ Module Core (MP: MachineParameters).
       reflexivity.
   Qed.
 
+  Global Instance confined_store a x : Confined (MEM'' a) (store a x).
+  Proof.
+    typeclasses eauto.
+  Qed.
+
   Opaque store.
 
-  (* TODO: [unfold compose] is annoying. Switch to notation? *)
+  (* TODO: [unfold compose] is annoying. Use notation instead? *)
 
 
   (** *** Reordering load and store operations *)
@@ -409,8 +415,6 @@ Module Core (MP: MachineParameters).
       smon_rewrite;
       smon_rewrite. (* TODO: This should not be necessary! *)
   Qed.
-
-  Existing Instance pointLens_independent.
 
   Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
     let* u := store a x in
@@ -433,32 +437,36 @@ Module Core (MP: MachineParameters).
 
   Open Scope vector.
 
-  Definition nAAfter (n: nat) (a: Addr) : DSet Addr
+  Proposition offset_inc (n: nat) a : offset n (offset 1 a) = offset (S n) a.
+  Proof.
+    setoid_rewrite <- Z_action_add.
+    f_equal. lia.
+  Qed.
+
+  Definition nAfter (n: nat) (a: Addr) : DSet Addr
     := def (fun a' => exists i, (i<n)%nat /\ offset i a = a').
 
-  Proposition nAAfter_zero n a : a ∈ nAAfter (S n) a.
+  Proposition nAfter_zero n a : a ∈ nAfter (S n) a.
   Proof.
     apply def_spec. exists 0. split.
     - lia.
     - apply Z_action_zero.
   Qed.
 
-  Proposition nAAfter_succ n a : nAAfter n (offset 1 a) ⊆ nAAfter (S n) a.
+  Proposition nAfter_succ n a : nAfter n (offset 1 a) ⊆ nAfter (S n) a.
   Proof.
     unfold subset.
     intros a'.
-    unfold nAAfter.
+    unfold nAfter.
     setoid_rewrite def_spec.
     intros [i [Hi Ho]].
     exists (S i).
     split.
     - lia.
-    - lia_rewrite (S i = 1 + i :> Z).
-      rewrite Z_action_add.
-      exact Ho.
+    - rewrite <- offset_inc. exact Ho.
   Qed.
 
-  Definition nABefore n a := nAAfter n (offset (-n) a).
+  Definition nBefore n a := nAfter n (offset (-n) a).
 
   (* TODO: noind is used to circumvent what appears to be an Equation bug. *)
   Equations(noind) loadMany (n: nat) (_: Addr): M (Cells n) :=
@@ -468,7 +476,7 @@ Module Core (MP: MachineParameters).
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
 
-  Global Instance confined_loadMany n a : Confined (MEM' (nAAfter n a)) (loadMany n a).
+  Global Instance confined_loadMany n a : Confined (MEM' (nAfter n a)) (loadMany n a).
   Proof.
     (* TODO: automate! *)
     revert a.
@@ -480,13 +488,13 @@ Module Core (MP: MachineParameters).
       apply confined_bind.
       + unshelve eapply confined_sublens, confined_load.
         apply sublens_comp'.
-        refine (pointLens_sublens (nAAfter_zero n a)).
+        refine (pointLens_sublens (nAfter_zero n a)).
       + intros x.
         apply confined_bind.
         * eapply confined_sublens.
           apply IHn.
           Unshelve.
-          apply sublens_comp', subsetSublens, nAAfter_succ.
+          apply sublens_comp', subsetSublens, nAfter_succ.
         * typeclasses eauto.
   Qed.
 
@@ -503,18 +511,9 @@ Module Core (MP: MachineParameters).
       let* r := next n in
       ret (x :: r).
 
-(* TODO: Continue rewrite from here *)
-
-  Proposition offset_inc (n: nat) a : offset n (offset 1 a) = offset (S n) a.
-  Proof.
-    setoid_rewrite <- Z_action_add.
-    f_equal.
-    lia.
-  Qed.
-
-  Lemma next_alt n : next n = let* pc := get' PC in
-                              put' PC (offset n pc);;
-                              loadMany n pc.
+  Lemma next_spec n : next n = let* pc := get' PC in
+                               put' PC (offset n pc);;
+                               loadMany n pc.
   Proof.
     induction n; simp next.
     - simpl (offset _ _).
@@ -524,38 +523,54 @@ Module Core (MP: MachineParameters).
     - rewrite IHn. clear IHn.
       simp_loadMany.
       smon_rewrite.
-      assert (forall x, Neutral MEM (put' PC (offset 1 x))) as H.
-      + typeclasses eauto.
-      + setoid_rewrite offset_inc.
-        setoid_rewrite (confined_load _).
-        reflexivity.
+      setoid_rewrite offset_inc.
+      setoid_rewrite (confined_load _ _ _ _).
+      reflexivity.
   Qed.
 
   Global Instance confined_next n : Confined (MEM * PC) (next n).
   Proof.
-    rewrite next_alt.
+    rewrite next_spec.
+    typeclasses eauto.
+  Qed.
+
+  (* TODO: Does this have a useful form? *)
+  Global Instance confined_next' a n :
+    Confined (MEM' (nAfter n a) * PC)
+             (put' PC a;; next n).
+  Proof.
+    rewrite next_spec.
+    smon_rewrite.
     typeclasses eauto.
   Qed.
 
 
   (** *** POP *)
 
-  (** Pop a single cell. Later we will always pop multiple cells at once. *)
+  (** Pop a single cell. Later we will always pop multiple cells at once.
+      Instead of marking the freed stack as undefined here, we will
+      express this later in the corresponding [Cert]s. *)
   Definition pop : M Cell :=
     let* sp := get' SP in
     put' SP (offset 1 sp);;
     load sp.
   Definition pop_spec := unfolded_eq (pop).
-  Global Opaque pop.
 
   Global Instance confined_pop : Confined (MEM * SP) pop.
   Proof.
-    rewrite pop_spec.
     typeclasses eauto.
   Qed.
 
-  (** Instead of marking the freed stack as undefined here,
-      we will express this later in the corresponding [Cert]s. *)
+  Global Instance confined_pop' sp :
+    Confined (MEM'' sp * SP) (put' SP sp;;
+                              pop).
+  Proof.
+    smon_rewrite.
+    typeclasses eauto.
+  Qed.
+
+  Global Opaque pop.
+
   Equations(noind) popMany (n: nat): M (Cells n) :=
     popMany 0 := ret [];
     popMany (S n) := let* x := pop in
@@ -575,10 +590,9 @@ Module Core (MP: MachineParameters).
       smon_rewrite.
   Qed.
 
-  Lemma popMany_alt n : popMany n = let* sp := get' SP in
-                                     let* res := loadMany n sp in
+  Lemma popMany_spec n : popMany n = let* sp := get' SP in
                                      put' SP (offset n sp);;
-                                     ret res.
+                                     loadMany n sp.
   Proof.
     induction n; simp popMany; simp_loadMany.
     - smon_rewrite.
@@ -587,16 +601,24 @@ Module Core (MP: MachineParameters).
     - rewrite IHn. clear IHn.
       rewrite pop_spec.
       smon_rewrite.
-      setoid_rewrite (confined_load _).
+      setoid_rewrite (confined_load _ _ _ _).
       smon_rewrite.
       setoid_rewrite offset_inc.
-      setoid_rewrite <- (confined_loadMany _ _).
       smon_rewrite.
   Qed.
 
   Global Instance confined_popMany n : Confined (MEM * SP) (popMany n).
   Proof.
-    rewrite popMany_alt.
+    rewrite popMany_spec.
+    typeclasses eauto.
+  Qed.
+
+  Global Instance confined_popMany' sp n :
+    Confined (MEM' (nAfter n sp) * SP) (put' SP sp;;
+                                        popMany n).
+  Proof.
+    rewrite popMany_spec.
+    smon_rewrite.
     typeclasses eauto.
   Qed.
 
@@ -619,8 +641,9 @@ Module Core (MP: MachineParameters).
     simp storeMany. smon_rewrite.
   Qed.
 
-  Lemma storeMany_action a u v : storeMany a (u ++ v) =
-                                 storeMany a u;; storeMany (offset (length u) a) v.
+  Lemma storeMany_action a u v :
+    storeMany a (u ++ v) = storeMany a u;;
+                           storeMany (offset (length u) a) v.
   Proof.
     revert a.
     induction u as [|x u IH]; intros a.
@@ -635,13 +658,26 @@ Module Core (MP: MachineParameters).
       reflexivity.
   Qed.
 
-  Global Instance confined_storeMany a u : Confined MEM (storeMany a u).
+  Global Instance confined_storeMany a u :
+    Confined (MEM' (nAfter (length u) a))
+             (storeMany a u).
   Proof.
+    (* TODO: Very similar to the proof of [confined_loadMany].*)
     revert a.
     induction u as [|x u IH];
       intros a;
-      simp storeMany;
-      typeclasses eauto.
+      simp storeMany.
+    - typeclasses eauto.
+    - simpl length.
+      apply confined_bind.
+      + unshelve eapply confined_sublens, confined_store.
+        apply sublens_comp'.
+        refine (pointLens_sublens (nAfter_zero (length u) a)).
+      + intros [].
+        eapply confined_sublens.
+        apply IH.
+        Unshelve.
+        apply sublens_comp', subsetSublens, nAfter_succ.
   Qed.
 
   Lemma storeMany_rev a x u :
@@ -735,6 +771,7 @@ Module Core (MP: MachineParameters).
       smon_rewrite.
   Qed.
 
+  (* TODO: Prove this directly (and skip the lemma). *)
   Corollary storeMany_loadMany' a n (u: Cells n) {Y} (f: unit -> Cells n -> M Y) :
     addressable n -> let* x := storeMany a (to_list u) in
                     let* v := loadMany n a in
@@ -759,6 +796,20 @@ Module Core (MP: MachineParameters).
     put' SP a;;
     store a x.
   Definition push_spec := unfolded_eq (push).
+
+  Global Instance confined_push x : Confined (MEM * SP) (push x).
+  Proof.
+    typeclasses eauto.
+  Qed.
+
+  Global Instance confined_push' sp x :
+    Confined (MEM'' (offset (-1) sp) * SP) (put' SP sp;;
+                                            push x).
+  Proof.
+    smon_rewrite.
+    typeclasses eauto.
+  Qed.
+
   Global Opaque push.
 
   (** NB: Stores the elements in reversed order. *)
@@ -766,6 +817,186 @@ Module Core (MP: MachineParameters).
     pushManyR [] := ret tt;
     pushManyR (x :: u) := push x;;
                          pushManyR u.
+
+  Global Instance confined_pushManyR u :
+    Confined (MEM * SP) (pushManyR u).
+  Proof.
+    induction u;
+      simp pushManyR;
+      typeclasses eauto.
+  Qed.
+
+  Proposition nBefore_zero n a : offset (-1) a ∈ nBefore (S n) a.
+  Proof.
+    unfold nBefore, nAfter.
+    rewrite def_spec, bounded_ex_succ.
+    left. setoid_rewrite <- Z_action_add.
+    f_equal. lia.
+  Qed.
+
+  Proposition nBefore_succ n a : nBefore n (offset (-1) a) ⊆ nBefore (S n) a.
+  Proof.
+    unfold nBefore, nAfter.
+    intros a'.
+    repeat rewrite def_spec.
+    repeat setoid_rewrite <- Z_action_add.
+    rewrite bounded_ex_succ.
+    lia_rewrite (forall i, -1 + (- n + i) = - S n + i).
+    intros H. right. exact H.
+  Qed.
+
+  (* TODO: Move *)
+  Lemma prodLens_proper {A X Y}
+        {LX LX' : Lens A X} (Hx: LX ≅ LX')
+        {LY LY' : Lens A Y} (Hy: LY ≅ LY')
+        (Hi: Independent LX LY) :
+    LX * LY ≅ prodLens _ _ (Hi:=proj1 (independent_proper _ _ Hx _ _ Hy) Hi).
+  Proof.
+    intros a [x y]. cbn.
+    rewrite Hx, Hy. reflexivity.
+  Qed.
+
+  (* TODO: Move -------------------------------*)
+
+  Existing Instance independent_projs.
+
+  (* TODO: Move *)
+  Instance comp_prod
+           {X Y X' Y'} (Lx': Lens X X') (Ly': Lens Y Y') : Lens (X * Y) (X' * Y')
+    :=  (Lx' ∘ lens_fst) * (Ly' ∘ lens_snd) .
+
+  Class Lens' A :=
+  {
+    target : Type;
+    lens: Lens A target;
+  }.
+
+  Instance Lens_to_Lens' {A X} (Lx: Lens A X) : Lens' A :=
+  {
+    target := X;
+    lens := Lx;
+  }.
+
+  Arguments target {_} _.
+  Arguments lens {_} _.
+
+  Definition Sublens' {A} (L1 L2: Lens' A) : Prop := Sublens (@lens _ L1) (@lens _ L2).
+
+  Instance sublens_reflexive {A} : Reflexive (@Sublens' A).
+  Proof.
+    intros L.
+    exists idLens.
+    rewrite idLens_composite.
+    reflexivity.
+  Qed.
+
+  Instance sublens_transitive {A} : Transitive (@Sublens' A).
+  Proof.
+    intros Lx Ly Lz Sxy Syz.
+    destruct Sxy as [Lyx Hx].
+    destruct Syz as [Lzy Hy].
+    unfold Sublens'.
+    rewrite Hx.
+    (* Hangs: rewrite Hy. *)
+    exists (Lyx ∘ Lzy)%lens.
+    intros a x.
+    cbn.
+    rewrite Hy.
+    reflexivity.
+  Qed.
+
+  (***************)
+
+  (* TODO: Move *)
+  Global Instance sublens_prod_r
+         {A X Y Z} (Lx: Lens A X) (Ly: Lens A Y) (Lz: Lens A Z)
+         (Sxy: (Lx | Ly))
+         (Ixz: Independent Lx Lz)
+         (Iyz: Independent Ly Lz) : (Lx * Lz | Ly * Lz).
+  Proof.
+    destruct Sxy as [Lyx Hx].
+    unshelve rewrite (prodLens_proper Hx).
+    - reflexivity.
+    - set (HH := prodLens_proper (@lens_refl _ _ (Lyx ∘ Ly)) (idLens_composite Lz) ).
+      setoid_rewrite <- HH.
+
+rewrite <- (idLens_composite Lz).
+
+
+      apply prod_sublens1'.
+
+
+typeclasses eauto.
+
+
+rewrite <- (compositeLens_associative Lz Ly Lyx).
+    exact Lx.
+
+    apply sublens_proper.
+    rewrite Hx.
+    intros xz.
+
+  Global Instance confined_pushManyR' sp u :
+    Confined (MEM' (nBefore (length u) sp) * SP) (put' SP sp;;
+                                                  pushManyR u).
+  Proof.
+    revert sp.
+    induction u as [|x r IH];
+      simp pushManyR;
+      [ typeclasses eauto | ].
+    intros sp. simpl length. rewrite push_spec. smon_rewrite.
+    setoid_rewrite (confined_store _ _ _ _ _).
+    apply confined_bind.
+    - apply confined_sublens.
+      eapply confined_sublens.
+      apply confined_store.
+      Unshelve.
+      apply sublens_comp'.
+      refine (pointLens_sublens (nBefore_zero _ sp)).
+    - intros [].
+      assert ( MEM' (nBefore (length r) sp) * SP
+             | MEM' (nBefore (S (length r)) sp) * SP ) as H.
+      +
+
+
+
+
+      eapply (confined_sublens.
+      apply IH.
+      Unshelve.
+      apply sublens_comp', subsetSublens, nAfter_succ.
+
+
+      Opaque Confined.
+      unfold MEM'.
+      eapply (confined_sublens (Sab:=pointLens_sublens _)).
+
+
+      typeclasses eauto.
+
+
+
+typeclasses eauto.
+
+    assert (put' SP sp;;
+            push a;;
+            pushManyR u = put' SP sp;;
+                          push a;;
+                          put' SP sp;;
+                          pushManyR u).
+      - setoid_rewrite <- (confined_push).
+
+
+        smon_rewrite | ].
+
+
+
+    rewrite nBefore_succ.
+
+
+
+
+    typeclasses eauto.
 
  Lemma pushManyR_action u v : pushManyR (u ++ v) = pushManyR u;; pushManyR v.
   Proof.

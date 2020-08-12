@@ -149,7 +149,7 @@ Ltac decided H :=
 
 Section decidable_connectives.
 
-  Context P `(DP: Decidable P).
+  Context {P} {DP: Decidable P}.
 
   Global Instance not_decidable : Decidable (not P) :=
     match DP with
@@ -157,16 +157,23 @@ Section decidable_connectives.
     | right H => left H
     end.
 
-  Context Q `(DQ: Decidable Q).
+  Proposition decidable_raa : ~ ~ P <-> P.
+  Proof.
+    split.
+    - destruct (decide P) as [H|H]; tauto.
+    - tauto.
+  Qed.
 
-  Local Ltac cases := destruct DP; destruct DQ; constructor; tauto.
+  Context {Q} {DQ: Decidable Q}.
 
-  Global Instance and_decidable : Decidable (P /\ Q). cases. Defined.
-  Global Instance or_decidable : Decidable (P \/ Q). cases. Defined.
-  Global Instance impl_decidable : Decidable (P -> Q). cases. Defined.
+  Notation cases := ltac:(destruct DP; destruct DQ; constructor; tauto)
+                           (only parsing).
+
+  Global Instance and_decidable : Decidable (P /\ Q) := cases.
+  Global Instance or_decidable : Decidable (P \/ Q) := cases.
+  Global Instance impl_decidable : Decidable (P -> Q) := cases.
 
 End decidable_connectives.
-
 
 (** ** Options *)
 
@@ -269,7 +276,7 @@ Derive NoConfusion EqDec for comparison.
 
 (** It follows that the comparison operators are decidable for [Z] and [N]. *)
 
-Lemma bounded_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+Lemma bounded_decidable0 (P: nat -> Prop) {DP: forall x, Decidable (P x)} (n: nat) :
   {forall x, x < n -> P x} + {exists x, x < n /\ ~ P x}.
 Proof.
   induction n as [|n IH].
@@ -286,7 +293,7 @@ Proof.
     + right. destruct IH as [x [Hx Hp]]. exists x. split; [lia | exact Hp].
 Defined.
 
-Instance bounded_all_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+Instance bounded_all_decidable0 (P: nat -> Prop) {DP: forall x, Decidable (P x)} (n: nat) :
   Decidable (forall x, x < n -> P x).
 Proof.
   destruct (bounded_decidable0 P n) as [H|H].
@@ -295,15 +302,7 @@ Proof.
     exact (Hp (H' x Hx)).
 Qed.
 
-(* TODO: Move up *)
-Proposition decidable_raa {P: Prop} {DP: Decidable P} : ~ ~ P <-> P.
-Proof.
-  split.
-  - destruct (decide P) as [H|H]; tauto.
-  - tauto.
-Qed.
-
-Instance bounded_ex_decidable0 (P: forall (x: nat), Prop) {DP: forall x, Decidable (P x)} (n: nat) :
+Instance bounded_ex_decidable0 (P: nat -> Prop) {DP: forall x, Decidable (P x)} (n: nat) :
   Decidable (exists x, x < n /\ P x).
 Proof.
   destruct (bounded_decidable0 (fun x => ~ P x) n) as [H|H].
@@ -313,6 +312,23 @@ Proof.
     exact H.
 Qed.
 
+Lemma bounded_ex_succ (P: nat -> Prop) n :
+  (exists i, i < S n /\ P i) <-> P n \/ (exists i, i < n /\ P i).
+Proof.
+  split.
+  - intros [i [Hi Hp]].
+    by_lia (i = n \/ i < n) as H.
+    destruct H.
+    + destruct H. left. exact Hp.
+    + right. exists i. split; assumption.
+  - intros [H | [i [Hi Hp]]].
+    + exists n. split.
+      * lia.
+      * exact H.
+    + exists i. split.
+      * lia.
+      * exact Hp.
+Qed.
 
 (** Clearly, [N] has the same properties. *)
 

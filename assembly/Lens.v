@@ -274,14 +274,21 @@ Section category_facts_section.
 
   (** Independent lenses are stable under prefixing. *)
 
-  Context (Ly: Lens X Y) {Y'}
-          (Ly': Lens X Y') {Hi: Independent Ly Ly'}.
-
-  Instance composite_independent : Independent (Ly ∘ Lx) (Ly' ∘ Lx).
+  Global Instance composite_independent_r
+           (Ly: Lens X Y) {Y'} (Ly': Lens X Y')
+           {Hi: Independent Ly Ly'} : Independent (Ly ∘ Lx) (Ly' ∘ Lx).
   Proof.
     intros a y y'. cbn.
     unfold compose. cbn.
     lens_rewrite.
+  Qed.
+
+  Global Instance composite_independent_l
+         (Ly: Lens A Y) {Hi: Independent Lx Ly}
+         {Z} (Lz: Lens X Z) : Independent (Lz ∘ Lx) Ly.
+  Proof.
+    intros a z y. cbn.
+    unfold compose. lens_rewrite.
   Qed.
 
 End category_facts_section.

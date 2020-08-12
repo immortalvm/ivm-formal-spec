@@ -821,3 +821,19 @@ Section Inv_lens.
   Qed.
 
 End Inv_lens.
+
+
+(** ** Various *)
+
+Instance sublens_independent
+         {A X Y}
+         {Lx Lx': Lens A X} {Hx: (Lx | Lx')}
+         {Ly Ly': Lens A Y} {Hy: (Ly | Ly')}
+         {Hxy: Independent Lx' Ly'} : Independent Lx Ly.
+Proof.
+  destruct Hx as [Lxx Hxx].
+  destruct Hy as [Lyy Hyy].
+  rewrite Hxx.
+  rewrite Hyy.
+  typeclasses eauto.
+Qed.
