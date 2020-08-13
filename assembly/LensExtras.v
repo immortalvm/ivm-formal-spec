@@ -52,6 +52,11 @@ Section elementary_section.
 
   Program Instance independent_unit {A X} {Lx: Lens A X} : Independent unitLens Lx.
 
+  Instance unitSublens {A X} (Lx: Lens A X) : (Lx | idLens).
+  Proof.
+    exists Lx. symmetry. apply idLens_composite.
+  Qed.
+
   #[refine] Instance falseLens {X} : Lens False X :=
   {
     proj a := False_rect X a;
@@ -87,6 +92,19 @@ Section elementary_section.
     rewrite update_proj.
     reflexivity.
   Qed.
+
+  Context {Y} (Ly: Lens A Y) {Hi: Independent Lx Ly}.
+
+  Arguments proj {_ _} _ _.
+  Arguments update {_ _} _ _ _.
+
+  (* TODO: Can we manage without these two propositions? *)
+  Proposition prod_proj_spec (a: A) : proj (Lx * Ly) a = (proj Lx a, proj Ly a).
+  Proof. reflexivity. Qed.
+
+  Proposition prod_update_spec (a: A) (xy: X * Y) :
+    update (Lx * Ly) a xy = update Ly (update Lx a (fst xy)) (snd xy).
+  Proof. reflexivity. Qed.
 
 End elementary_section.
 

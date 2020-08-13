@@ -296,23 +296,69 @@ End category_facts_section.
 Arguments compositeLens_proper {_ _ _ _ _} Hlx {_ _} Hly.
 
 
+(** ** Implicit targets *)
+
+Class Lens' A :=
+{
+  target: Type;
+  lens: Lens A target;
+}.
+
+Arguments target {_} _.
+Arguments lens {_} _.
+
+Instance Lens2Lens' {A X} (Lx: Lens A X) : Lens' A :=
+{
+  target := X;
+  lens := Lx;
+}.
+
+Coercion Lens2Lens' : Lens >-> Lens'.
+
+Bind Scope lens_scope with Lens'.
+
+
 (** ** Sublenses *)
 
 Section sublens_section.
 
-  Context {A X Y : Type}.
+  Context {A : Type}.
 
   (** This is analogous to [Z.divide], but beware that information is lost
-  here, since [Lyx] is not in general unique. *)
+  here, since [L21] is not unique. *)
 
-  Class Sublens (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
-    sublens : exists (Lyx: Lens Y X), Lx ≅ Lyx ∘ Ly.
+  Class Sublens (L1 L2: Lens' A) : Prop :=
+    sublens : exists (L21: Lens (target L2) (target L1)),
+              lens L1 ≅ lens L21 ∘ lens L2.
 
-  Global Instance sublens_proper : Proper (lensEq ==> lensEq ==> iff) Sublens.
+  Global Instance sublens_reflexive : Reflexive Sublens.
+  Proof.
+    intros L. exists idLens.
+    rewrite idLens_composite. reflexivity.
+  Qed.
+
+  Arguments proj {_ _} _ _.
+  Arguments update {_ _} _ _ _.
+
+  Global Instance sublens_transitive : Transitive Sublens.
+  Proof.
+    intros Lx Ly Lz Sxy Syz.
+    destruct Sxy as [Lyx Hx].
+    destruct Syz as [Lzy Hy].
+    exists (Lyx ∘ Lzy)%lens.
+    intros a x.
+    cbn. rewrite Hx.
+    cbn. rewrite Hy.
+    reflexivity.
+  Qed.
+
+  Global Instance sublens_proper {X} :
+    Proper (lensEq ==> lensEq ==> iff)
+           (fun (L1 L2 : Lens A X) => Sublens L1 L2).
   Proof.
     intros Lx Lx' Hlx
            Ly Ly' Hly.
-    unfold Sublens.
+    unfold Sublens. cbn.
     setoid_rewrite Hlx.
     (* Hangs for some reason: setoid_rewrite Hly. *)
     setoid_rewrite (compositeLens_proper lens_refl Hly).
@@ -321,67 +367,47 @@ Section sublens_section.
 
 End sublens_section.
 
-Arguments sublens {_ _ _ _ _} _.
-
 Notation "( Lx | Ly )" := (Sublens Lx Ly) : type_scope.
 
 Section sublens_ordering_section.
 
   Context {A X} (Lx: Lens A X).
 
-  (* TODO: Move to LensExtras.v? *)
-  Instance unitSublens : (Lx | idLens ).
-  Proof.
-    exists Lx. symmetry. apply idLens_composite.
-  Qed.
-
-  (* By definition *)
   Global Instance sublens_comp {Y} (Ly: Lens X Y) : (Ly ∘ Lx | Lx).
   Proof.
     exists Ly. reflexivity.
   Qed.
 
   (** [_ ∘ Lx ] is essentially proper. *)
-  Instance sublens_comp'
-           {Y} {Ly: Lens X Y}
-           {Z} (Lz: Lens X Z)
-           (Syz: (Ly | Lz)) : (Ly ∘ Lx | Lz ∘ Lx).
+  Global Instance sublens_comp'
+         {Y} {Ly: Lens X Y}
+         {Z} {Lz: Lens X Z}
+         (Syz: (Ly | Lz)) : (Ly ∘ Lx | Lz ∘ Lx).
   Proof.
     destruct Syz as [Lzy Hyz].
-    exists Lzy.
+    exists Lzy. cbn in *.
     rewrite compositeLens_associative.
     apply (compositeLens_proper Hyz lens_refl).
   Qed.
 
-  Arguments proj {_ _} _ _.
-  Arguments update {_ _} _ _ _.
-
-  Context {Y} {Ly: Lens A Y} (Sxy: (Lx | Ly))
-          {Z} {Lz: Lens A Z} (Syz: (Ly | Lz)).
-
-  Instance sublens_trans : (Lx | Lz).
+  (* TODO: Useful? *)
+  Global Instance sublens_comp'' :
+    Proper (@Sublens X ==> @Sublens A) (fun L => lens L ∘ Lx)%lens.
   Proof.
-    destruct Sxy as [Lyx Hx].
-    destruct Syz as [Lzy Hy].
-    exists (Lyx ∘ Lzy)%lens.
-    rewrite Hx.
-    (* This hangs for some reason: rewrite Hy. *)
-    rewrite <- compositeLens_associative.
-    apply compositeLens_proper.
-    - reflexivity.
-    - exact Hy.
+    intros L1 L2 [L21 H1].
+    exists L21. cbn in *.
+    rewrite compositeLens_associative.
+    apply (compositeLens_proper H1 lens_refl).
   Qed.
 
 End sublens_ordering_section.
-
-Arguments sublens_trans {_ _ Lx _ _} Sxy {_ _} Syz.
 
 
 (** ** Products and projections *)
 
 Section projection_section.
 
-  Context {X Y: Type}.
+  Context {A X Y: Type}.
 
   Program Instance lens_fst : Lens (X * Y) X :=
   {
@@ -395,9 +421,9 @@ Section projection_section.
     update s y := (fst s, y);
   }.
 
-  Program Instance independent_projs : Independent lens_fst lens_snd.
+  Global Program Instance independent_projs : Independent lens_fst lens_snd.
 
-  Context {A} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly}.
+  Context (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly}.
 
   #[refine]
   Instance prodLens : Lens A (X * Y) :=
@@ -409,13 +435,6 @@ Section projection_section.
     all: idestructs; repeat (lens_rewrite || simpl).
   Defined.
 
-  (* TODO: Can we manage without these two propositions? *)
-  Proposition prod_proj_spec (a: A) : proj a = (proj a, proj a).
-  Proof. reflexivity. Qed.
-
-  Proposition prod_update_spec (a: A) (xy: X * Y) : update a xy = update (update a (fst xy)) (snd xy).
-  Proof. reflexivity. Qed.
-
   Global Instance prod_sublens1 : (Lx | prodLens).
   Proof.
     exists lens_fst. intros a x. cbn. lens_rewrite.
@@ -426,11 +445,14 @@ Section projection_section.
     exists lens_snd. intros a y. cbn. lens_rewrite.
   Qed.
 
-  (** A loop-safe corollary. *)
+  (** Loop-safe corollary
+      TODO: Still needed? *)
   Global Instance prod_sublens1'
-         {X'} (Lx': Lens A X') {Sx: (Lx' | Lx)} : (Lx' | prodLens).
+         (Lx': Lens' A) {Sx: (Lx' | Lx)} : (Lx' | prodLens).
   Proof.
-    apply (sublens_trans Sx prod_sublens1).
+    transitivity Lx.
+    - exact Sx.
+    - exact prod_sublens1.
   Qed.
 
   Global Instance independent_prod
@@ -446,6 +468,59 @@ End projection_section.
 (** The projections from a record type have the same property, cf. MachineExtras.v. *)
 
 Infix "*" := prodLens : lens_scope.
+
+Section flip_section.
+
+  Context {A X Y} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly}.
+
+  (** TODO: Will this cause loops? *)
+  Global Instance prod_sublens_symm : (Lx * Ly | Ly * Lx).
+  Proof.
+    exists (prodLens lens_snd lens_fst).
+    intros a (x, y).
+    cbn. lens_rewrite.
+  Qed.
+
+  Context {X'} (Lx': Lens A X') {Sx: (Lx'|Lx)}.
+
+  Global Instance independent_sublens1 : Independent Lx' Ly.
+  Proof.
+    intros a x' y.
+    destruct Sx as [L H].
+    rewrite H.
+    lens_rewrite.
+  Qed.
+
+  (* TODO: Think of a better name (similarly for the symmetric case below. *)
+  Global Instance prod_sublens11 : (Lx' * Ly | Lx * Ly).
+  Proof.
+    destruct Sx as [L H].
+    cbn in L.
+    exists ((L∘lens_fst) * lens_snd)%lens.
+    intros a xy'.
+    cbn. rewrite H. lens_rewrite.
+  Qed.
+
+  Context {Y'} (Ly': Lens A Y') {Sy: (Ly'|Ly)}.
+
+  Global Instance independent_sublens2 : Independent Lx Ly'.
+  Proof.
+    intros a x y'.
+    destruct Sy as [L H].
+    rewrite H.
+    lens_rewrite.
+  Qed.
+
+  Global Instance prod_sublens22 : (Lx * Ly' | Lx * Ly).
+  Proof.
+    destruct Sy as [L H].
+    cbn in L.
+    exists (lens_fst * (L∘lens_snd))%lens.
+    intros a xy'.
+    cbn. rewrite H. lens_rewrite.
+  Qed.
+
+End flip_section.
 
 
 (** *** Restriction lenses *)

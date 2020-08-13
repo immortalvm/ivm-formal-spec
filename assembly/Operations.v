@@ -845,6 +845,8 @@ Module Core (MP: MachineParameters).
     intros H. right. exact H.
   Qed.
 
+  (* TODO: Move -------------------------------*)
+
   (* TODO: Move *)
   Lemma prodLens_proper {A X Y}
         {LX LX' : Lens A X} (Hx: LX ≅ LX')
@@ -856,54 +858,10 @@ Module Core (MP: MachineParameters).
     rewrite Hx, Hy. reflexivity.
   Qed.
 
-  (* TODO: Move -------------------------------*)
-
-  Existing Instance independent_projs.
-
-  (* TODO: Move *)
   Instance comp_prod
            {X Y X' Y'} (Lx': Lens X X') (Ly': Lens Y Y') : Lens (X * Y) (X' * Y')
     :=  (Lx' ∘ lens_fst) * (Ly' ∘ lens_snd) .
 
-  Class Lens' A :=
-  {
-    target : Type;
-    lens: Lens A target;
-  }.
-
-  Instance Lens_to_Lens' {A X} (Lx: Lens A X) : Lens' A :=
-  {
-    target := X;
-    lens := Lx;
-  }.
-
-  Arguments target {_} _.
-  Arguments lens {_} _.
-
-  Definition Sublens' {A} (L1 L2: Lens' A) : Prop := Sublens (@lens _ L1) (@lens _ L2).
-
-  Instance sublens_reflexive {A} : Reflexive (@Sublens' A).
-  Proof.
-    intros L.
-    exists idLens.
-    rewrite idLens_composite.
-    reflexivity.
-  Qed.
-
-  Instance sublens_transitive {A} : Transitive (@Sublens' A).
-  Proof.
-    intros Lx Ly Lz Sxy Syz.
-    destruct Sxy as [Lyx Hx].
-    destruct Syz as [Lzy Hy].
-    unfold Sublens'.
-    rewrite Hx.
-    (* Hangs: rewrite Hy. *)
-    exists (Lyx ∘ Lzy)%lens.
-    intros a x.
-    cbn.
-    rewrite Hy.
-    reflexivity.
-  Qed.
 
   (***************)
 
