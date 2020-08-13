@@ -289,12 +289,12 @@ Module Core (MP: MachineParameters).
   Instance MEM'' a : Lens State (available a -> option Cell) :=
     (pointLens a) ∘ MEM.
 
-  Global Instance point_mem {a} : (MEM'' a | MEM).
+  Instance point_mem {a} : (MEM'' a | MEM).
   Proof.
     typeclasses eauto.
   Qed.
 
-  Instance point_mem' {a u} (Hau: a ∈ u) : (MEM'' a | MEM' u).
+  Global Instance point_mem' {a u} (Hau: a ∈ u) : (MEM'' a | MEM' u).
   Proof.
     unfold MEM'', MEM'.
     apply sublens_comp'.
@@ -528,10 +528,14 @@ Module Core (MP: MachineParameters).
       reflexivity.
   Qed.
 
+  (* Remove Hints point_mem point_mem' point_mem'' sublens_comp subset_mem : typeclass_instances. *)
+
   Global Instance confined_next n : Confined (MEM * PC) (next n).
   Proof.
     rewrite next_spec.
     typeclasses eauto.
+
+    (* TODO: Leaves shelved goals of type Addr. *)
   Qed.
 
   (* TODO: Does this have a useful form? *)
@@ -844,23 +848,6 @@ Module Core (MP: MachineParameters).
     lia_rewrite (forall i, -1 + (- n + i) = - S n + i).
     intros H. right. exact H.
   Qed.
-
-  (* TODO: Move -------------------------------*)
-
-  (* TODO: Move *)
-  Lemma prodLens_proper {A X Y}
-        {LX LX' : Lens A X} (Hx: LX ≅ LX')
-        {LY LY' : Lens A Y} (Hy: LY ≅ LY')
-        (Hi: Independent LX LY) :
-    LX * LY ≅ prodLens _ _ (Hi:=proj1 (independent_proper _ _ Hx _ _ Hy) Hi).
-  Proof.
-    intros a [x y]. cbn.
-    rewrite Hx, Hy. reflexivity.
-  Qed.
-
-  Instance comp_prod
-           {X Y X' Y'} (Lx': Lens X X') (Ly': Lens Y Y') : Lens (X * Y) (X' * Y')
-    :=  (Lx' ∘ lens_fst) * (Ly' ∘ lens_snd) .
 
 
   (***************)

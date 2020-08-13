@@ -474,7 +474,7 @@ Section flip_section.
   Context {A X Y} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly}.
 
   (** TODO: Will this cause loops? *)
-  Global Instance prod_sublens_symm : (Lx * Ly | Ly * Lx).
+  Instance prod_sublens_symm : (Lx * Ly | Ly * Lx).
   Proof.
     exists (prodLens lens_snd lens_fst).
     intros a (x, y).
@@ -483,7 +483,8 @@ Section flip_section.
 
   Context {X'} (Lx': Lens A X') {Sx: (Lx'|Lx)}.
 
-  Global Instance independent_sublens1 : Independent Lx' Ly.
+  (* Beware: This may cause loops. *)
+  Instance independent_sublens1 : Independent Lx' Ly.
   Proof.
     intros a x' y.
     destruct Sx as [L H].
@@ -503,7 +504,8 @@ Section flip_section.
 
   Context {Y'} (Ly': Lens A Y') {Sy: (Ly'|Ly)}.
 
-  Global Instance independent_sublens2 : Independent Lx Ly'.
+  (* Beware: This may cause loops. *)
+  Instance independent_sublens2 : Independent Lx Ly'.
   Proof.
     intros a x y'.
     destruct Sy as [L H].
@@ -521,6 +523,17 @@ Section flip_section.
   Qed.
 
 End flip_section.
+
+(* TODO: Are there more elegant ways to do this? *)
+Lemma prodLens_proper {A X Y}
+      {LX LX' : Lens A X} (Hx: LX ≅ LX')
+      {LY LY' : Lens A Y} (Hy: LY ≅ LY')
+      {Hi: Independent LX LY} :
+  LX * LY ≅ prodLens _ _ (Hi:=proj1 (independent_proper _ _ Hx _ _ Hy) Hi).
+Proof.
+  intros a [x y]. cbn.
+  rewrite Hx, Hy. reflexivity.
+Qed.
 
 
 (** *** Restriction lenses *)
