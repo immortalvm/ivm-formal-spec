@@ -296,108 +296,134 @@ End category_facts_section.
 Arguments compositeLens_proper {_ _ _ _ _} Hlx {_ _} Hly.
 
 
-(** ** Implicit targets *)
+(** ** Lenses without projections *)
 
 Class Lens' A :=
 {
-  target: Type;
-  lens: Lens A target;
+  merge: A -> A -> A;
+  merge_id a : merge a a = a;
+  merge_left a b c : merge (merge a b) c = merge a c;
+  merge_right a b c : merge a (merge b c) = merge a c;
 }.
 
-Arguments target {_} _.
-Arguments lens {_} _.
+Hint Rewrite @merge_id : lens.
+Hint Rewrite @merge_left : lens.
+Hint Rewrite @merge_right : lens.
 
-Instance Lens2Lens' {A X} (Lx: Lens A X) : Lens' A :=
+Arguments merge {_} _ _ _.
+
+Definition lensEq' {A} (L L': Lens' A) : Prop :=
+  forall a b, merge L a b = merge L' a b.
+
+#[refine] Instance Lens2Lens' {A X} (Lx: Lens A X) : Lens' A :=
 {
-  target := X;
-  lens := Lx;
+  merge a b := update a (proj b);
 }.
+Proof.
+  all: lens_rewrite.
+Defined.
+
+Instance Lens2Lens'_proper {A X} :
+  Proper (@lensEq A X ==> @lensEq' A) (@Lens2Lens' A X).
+Proof.
+  intros L1 L2 H a a'. cbn.
+  setoid_rewrite H. reflexivity.
+Qed.
 
 Coercion Lens2Lens' : Lens >-> Lens'.
-
 Bind Scope lens_scope with Lens'.
 
-
-(** ** Sublenses *)
-
-Section sublens_section.
-
-  Context {A : Type}.
-
-  (** This is analogous to [Z.divide], but beware that information is lost
-  here, since [L21] is not unique. *)
-
-  Class Sublens (L1 L2: Lens' A) : Prop :=
-    sublens : exists (L21: Lens (target L2) (target L1)),
-              lens L1 ≅ lens L21 ∘ lens L2.
-
-  Global Instance sublens_reflexive : Reflexive Sublens.
-  Proof.
-    intros L. exists idLens.
-    rewrite idLens_composite. reflexivity.
-  Qed.
-
-  Arguments proj {_ _} _ _.
-  Arguments update {_ _} _ _ _.
-
-  Global Instance sublens_transitive : Transitive Sublens.
-  Proof.
-    intros Lx Ly Lz Sxy Syz.
-    destruct Sxy as [Lyx Hx].
-    destruct Syz as [Lzy Hy].
-    exists (Lyx ∘ Lzy)%lens.
-    intros a x.
-    cbn. rewrite Hx.
-    cbn. rewrite Hy.
-    reflexivity.
-  Qed.
-
-  Global Instance sublens_proper {X} :
-    Proper (lensEq ==> lensEq ==> iff)
-           (fun (L1 L2 : Lens A X) => Sublens L1 L2).
-  Proof.
-    intros Lx Lx' Hlx
-           Ly Ly' Hly.
-    unfold Sublens. cbn.
-    setoid_rewrite Hlx.
-    (* Hangs for some reason: setoid_rewrite Hly. *)
-    setoid_rewrite (compositeLens_proper lens_refl Hly).
-    reflexivity.
-  Qed.
-
-End sublens_section.
+Class Sublens {A} (L1 L2: Lens' A) : Prop :=
+  sublens : forall a b, merge L2 (merge L1 a b) b = merge L2 a b.
 
 Notation "( Lx | Ly )" := (Sublens Lx Ly) : type_scope.
+
+Proposition sublens' {A} {L1 L2: Lens' A} (S12: (L1|L2)) a b c :
+  merge L2 (merge L1 a b) c = merge L2 a c.
+Proof.
+  transitivity (merge L2 (merge L2 (merge L1 a b) b) c).
+  - rewrite merge_left. reflexivity.
+  - rewrite S12. rewrite merge_left. reflexivity.
+Qed.
+
+Instance sublens_reflexive {A} : Reflexive (@Sublens A).
+Proof.
+  intros L a b.
+  apply merge_left.
+Qed.
+
+Instance sublens_transitive {A} : Transitive (@Sublens A).
+Proof.
+  intros Lx Ly Lz Hxy Hyz a b.
+  unfold Sublens in *.
+  rewrite <- Hyz, Hxy, Hyz.
+  reflexivity.
+Qed.
+
+Instance sublens_proper {A} :
+  Proper (@lensEq' A ==> @lensEq' A ==> iff) Sublens.
+Proof.
+  intros L1 L1' H1 L2 L2' H2.
+  unfold lensEq', Sublens in *.
+  split; intros H a b.
+  - rewrite <- H1. repeat rewrite <- H2. apply H.
+  - rewrite H1. repeat rewrite H2. apply H.
+Qed.
+
+#[refine] Instance prefix {A X} (Lab: Lens A X) (L: Lens' X) : Lens' A :=
+{
+  merge a a' := update a (merge L (proj a) (proj a'));
+}.
+Proof.
+  all: lens_rewrite.
+Defined.
+
+Proposition composite_prefix {A X} (Lx: Lens A X) {Y} (Ly: Lens X Y) :
+  lensEq' (Ly ∘ Lx) (prefix Lx Ly).
+Proof.
+  intros a a'.
+  lens_rewrite.
+Qed.
+
+Instance proper_prefix {A X} :
+  Proper (@lensEq A X ==> @lensEq' X ==> @lensEq' A) prefix.
+Proof.
+  intros L1 L1' H1
+         L2 L2' H2
+         a a'.
+  cbn. rewrite H1, H2. reflexivity.
+Qed.
+
+Instance proper_prefix' {A X} :
+  Proper (@lensEq A X ==> @Sublens X ==> @Sublens A) prefix.
+Proof.
+  intros L1 L1' H1
+         L2 L2' H2
+         a a'.
+  cbn. rewrite H1. lens_rewrite.
+  rewrite H2. reflexivity.
+Qed.
 
 Section sublens_ordering_section.
 
   Context {A X} (Lx: Lens A X).
 
-  Global Instance sublens_comp {Y} (Ly: Lens X Y) : (Ly ∘ Lx | Lx).
+  Instance sublens_comp {Y} (Ly: Lens X Y) : (Ly ∘ Lx | Lx).
   Proof.
-    exists Ly. reflexivity.
+    intros a b. cbn.
+    unfold compose.
+    lens_rewrite.
   Qed.
 
-  (** [_ ∘ Lx ] is essentially proper. *)
   Global Instance sublens_comp'
          {Y} {Ly: Lens X Y}
          {Z} {Lz: Lens X Z}
          (Syz: (Ly | Lz)) : (Ly ∘ Lx | Lz ∘ Lx).
   Proof.
-    destruct Syz as [Lzy Hyz].
-    exists Lzy. cbn in *.
-    rewrite compositeLens_associative.
-    apply (compositeLens_proper Hyz lens_refl).
-  Qed.
-
-  (* TODO: Useful? *)
-  Global Instance sublens_comp'' :
-    Proper (@Sublens X ==> @Sublens A) (fun L => lens L ∘ Lx)%lens.
-  Proof.
-    intros L1 L2 [L21 H1].
-    exists L21. cbn in *.
-    rewrite compositeLens_associative.
-    apply (compositeLens_proper H1 lens_refl).
+    setoid_rewrite composite_prefix.
+    apply proper_prefix'.
+    - reflexivity.
+    - exact Syz.
   Qed.
 
 End sublens_ordering_section.
@@ -437,12 +463,12 @@ Section projection_section.
 
   Global Instance prod_sublens1 : (Lx | prodLens).
   Proof.
-    exists lens_fst. intros a x. cbn. lens_rewrite.
+    intros a b. cbn. lens_rewrite.
   Qed.
 
   Global Instance prod_sublens2 : (Ly | prodLens).
   Proof.
-    exists lens_snd. intros a y. cbn. lens_rewrite.
+    intros a b. cbn. lens_rewrite.
   Qed.
 
   (** Loop-safe corollary
@@ -476,9 +502,7 @@ Section flip_section.
   (** TODO: Will this cause loops? *)
   Instance prod_sublens_symm : (Lx * Ly | Ly * Lx).
   Proof.
-    exists (prodLens lens_snd lens_fst).
-    intros a (x, y).
-    cbn. lens_rewrite.
+    intros a b. cbn. lens_rewrite.
   Qed.
 
   Context {X'} (Lx': Lens A X') {Sx: (Lx'|Lx)}.
