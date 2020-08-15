@@ -10,7 +10,10 @@ Tactic Notation "lens_rewrite0" "in" hyp(H) :=
   rewrite_strat (repeat (outermost (hints lens))) in H.
 
 
-(** * Pseudo-lenses *)
+(** * Pseudo-lenses
+
+[Lens'] represents lenses with the target type abstracted away.
+I don't know if this has an established name. *)
 
 Class Lens' A :=
 {
@@ -73,75 +76,85 @@ Notation "L ≃ L'" := (lensEq' L L') (at level 70, no associativity) : type_sco
 Set Typeclasses Unique Instances.
 
 Class Sublens {A} (L L': Lens' A) : Prop :=
-{
-  sublens_left a b : mix L' (mix L a b) b = mix L' a b;
-  sublens_right a b : mix L a (mix L' a b) = mix L a b;
-}.
-
-(* TODO: Is it safe to add [sublens_left] and [sublens_right] as rewrite hints? *)
+  sublens a b c : mix L (mix L' a b) c = mix L' a (mix L b c).
 
 Unset Typeclasses Unique Instances.
 
 Notation "( L | L' )" := (Sublens L L') : type_scope.
 
-Proposition sublens_left' {A} {L1 L2: Lens' A} {S12: (L1|L2)} a b c :
-  mix L2 (mix L1 a b) c = mix L2 a c.
-Proof.
-  transitivity (mix L2 (mix L2 (mix L1 a b) b) c).
-  - rewrite mix_left. reflexivity.
-  - rewrite sublens_left.
-    rewrite mix_left. reflexivity.
-Qed.
+(* TODO: Is it safe to add [sublens] as a rewrite hint? *)
 
-Proposition sublens_right' {A} {L1 L2: Lens' A} {S12: (L1|L2)} a b c :
-  mix L1 a (mix L2 b c) = mix L1 a c.
+Instance sublens_proper {A} :
+  Proper (@lensEq' A ==> @lensEq' A ==> iff) Sublens.
 Proof.
-  transitivity (mix L1 a (mix L1 b (mix L2 b c))).
-  - rewrite mix_right. reflexivity.
-  - rewrite sublens_right.
-    rewrite mix_right. reflexivity.
+  intros L1 L1' H1 L2 L2' H2.
+  split; intros H a b c.
+  - repeat rewrite <- H1. repeat rewrite <- H2. rewrite sublens. reflexivity.
+  - repeat rewrite H1. repeat rewrite H2. rewrite sublens. reflexivity.
 Qed.
 
 Instance sublens_reflexive {A} : Reflexive (@Sublens A).
 Proof.
-  intros L. split; intros a b.
-  - apply mix_left.
-  - apply mix_right.
+  intros L a b c.
+  rewrite mix_left, mix_right.
+  reflexivity.
 Qed.
 
-Section with_args_section.
+Proposition sublens_left {A} {L L': Lens' A} {Hs: (L|L')} a b c :
+  mix L' (mix L a b) c = mix L' a c.
+Proof.
+  transitivity (mix L' (mix L' a (mix L a b)) c).
+  - rewrite <- sublens, mix_id. reflexivity.
+  - rewrite mix_left. reflexivity.
+Qed.
 
-  Arguments sublens_left {_ _ _} _ _ _.
-  Arguments sublens_right {_ _ _} _ _ _.
+Corollary sublens_left' {A} {L L': Lens' A} {Hs: (L|L')} a b :
+  mix L' (mix L a b) a = a.
+Proof.
+  rewrite sublens_left. apply mix_id.
+Qed.
 
-  Instance sublens_transitive {A} : Transitive (@Sublens A).
-  Proof.
-    intros Lx Ly Lz Hxy Hyz.
-    split; intros a b.
-    - rewrite <- (sublens_left Hyz), (sublens_left Hxy), (sublens_left Hyz). reflexivity.
-    - rewrite <- (sublens_right Hxy), (sublens_right Hyz), (sublens_right Hxy). reflexivity.
-  Qed.
+Proposition sublens_right {A} {L L': Lens' A} {Hs: (L|L')} a b c :
+  mix L a (mix L' b c) = mix L a c.
+Proof.
+  transitivity (mix L a (mix L (mix L' b c) c)).
+  - rewrite sublens, mix_id. reflexivity.
+  - rewrite mix_right. reflexivity.
+Qed.
 
-End with_args_section.
+Corollary sublens_right' {A} {L L': Lens' A} {Hs: (L|L')} a b :
+  mix L a (mix L' b a) = a.
+Proof.
+  rewrite sublens_right.
+  apply mix_id.
+Qed.
 
 Lemma sublens_antisymm {A} {L L': Lens' A} (S: (L|L')) (S': (L'|L)) : L ≃ L'.
 Proof.
   intros a a'.
   transitivity (mix L' (mix L a a') (mix L a a')).
   - rewrite mix_id; reflexivity.
-  - rewrite sublens_left', sublens_right.
+  - rewrite sublens_left, sublens_right. reflexivity.
+Qed.
+
+Instance sublens_transitive {A} : Transitive (@Sublens A).
+Proof.
+  intros Lx Ly Lz Hxy Hyz a b c.
+  transitivity (mix Lx (mix Ly (mix Lz a b) (mix Lz a b)) c).
+  - rewrite mix_id. reflexivity.
+  - rewrite Hxy.
+    rewrite Hyz.
+    rewrite <- Hxy.
+    rewrite sublens_right'.
     reflexivity.
 Qed.
 
-Instance sublens_proper {A} :
-  Proper (@lensEq' A ==> @lensEq' A ==> iff) Sublens.
+(* TODO: Is this useful? *)
+Instance eq_sublens_subrelation {A} : subrelation (@lensEq' A) (@Sublens A).
 Proof.
-  intros L1 L1' H1 L2 L2' H2.
-  split; intros H; split; intros a b.
-  - rewrite <- H1. repeat rewrite <- H2. apply sublens_left.
-  - repeat rewrite <- H1. rewrite <- H2. apply sublens_right.
-  - rewrite H1. repeat rewrite H2. apply sublens_left.
-  - repeat rewrite H1. rewrite H2. apply sublens_right.
+  intros L L' H.
+  rewrite H.
+  reflexivity.
 Qed.
 
 
@@ -155,106 +168,19 @@ Class Independent {A} (L1 L2: Lens' A) : Prop :=
 
 Unset Typeclasses Unique Instances.
 
-Instance independent_proper' {A} :
-  Proper (@lensEq' A ==> @lensEq' A ==> iff) (@Independent A).
-Proof.
-  intros L1 L1' H1
-         L2 L2' H2.
-  split; intros H a a1 a2.
-  - repeat rewrite <- H1.
-    repeat rewrite <- H2.
-    apply H.
-  - repeat rewrite H1.
-    repeat rewrite H2.
-    apply H.
-Qed.
-
-Proposition sublens_right2 {A} {L L': Lens' A} (H:(L|L')) a b:
-  mix L' a (mix L a b) = mix L a b.
-Proof.
-  rewrite <- sublens_left.
-  lens_rewrite0.
-  reflexivity.
-Qed.
-
-Proposition sublens_left2 {A} {L L': Lens' A} (H:(L|L')) a b:
-  mix L (mix L' a b) b = mix L' a b.
-Proof.
-  rewrite <- sublens_right.
-  lens_rewrite0.
-  reflexivity.
-Qed.
-
-Proposition itest {A} {L L': Lens' A} (H: (L|L')) a b c:
-  mix L' a (mix L b c) = mix L (mix L' a b) c.
-Proof.
-
-
-
-
-Instance independent_proper_sub {A} :
-  Proper (@Sublens A ==> @Sublens A ==> flip impl) (@Independent A).
-Proof.
-  intros L1 L1' H1
-         L2 L2' H2
-         H a a1 a2.
-  setoid_rewrite <- (sublens_right2 H2) at 1.
-  setoid_rewrite <- (sublens_right2 H1) at 1.
-  rewrite H.
-  rewrite (sublens_right2 H2).
-
-  f_equal.
-  - rewrite (sublens_right2 H1).
-
-f_equal.
-    rewrite (sublens_right2 H1).
-
-
-  setoid_rewrite (sublens_left2 H1).
-  setoid_rewrite (sublens_left2 H2).
-
-
-
-
-
-  setoid_rewrite (sublens' H1).
-  setoid_rewrite (sublens' H2).
-  rewrite <- H.
-  f_equal.
-  rewrite (sublens'' H1).
-  rewrite (sublens'' H2).
-  rewrite (sublens22 H1).
-
-
-  lens_rewrite0.
-
-  - rewrite H1.
-
-  rewrite H.
-  setoid_rewrite (sublens22 H1).
-
-
-  rewrite_strat (repeat (outermost (hints lens))).
-
-
-  setoid_rewrite (sublens' H2).
-
-
-  unfold Sublens in *.
-  specialize (H a a1 a2).
-  unfold Independent in H.
-*)
-
 (** Not declared an instance to avoid loops. *)
-Proposition independent_symm
-            {A} (L1 L2: Lens' A)
-            (Hi: Independent L1 L2) : Independent L2 L1.
+Proposition independent_symm {A} (L L': Lens' A) : Independent L L' <-> Independent L' L.
 Proof.
-  intros a a1 a2. symmetry. apply Hi.
+  split; intros H a a1 a2; symmetry; apply H.
 Qed.
 
 
-(** *** Add [independent_symm] hint without loops. *)
+(** *** Add symmetry hint while avoiding loops. *)
+
+Local Corollary independent_symm_imp {A} (L L': Lens' A) : Independent L L' -> Independent L' L.
+Proof.
+  apply independent_symm.
+Qed.
 
 CoInductive _independent_type1 {A} (L: Lens' A) (L': Lens' A) : Prop :=
   _independent_ctor1.
@@ -268,10 +194,22 @@ Ltac independent_symm_guard L L' :=
 
 Global Hint Extern 20 (Independent ?L ?L') =>
   independent_symm_guard L L';
-  apply independent_symm : typeclass_instances.
+  apply independent_symm_imp : typeclass_instances.
+
+(** **** Tests *)
+
+Goal forall {A} (L L': Lens' A) (H: Independent L L'), Independent L' L.
+  (* Symmetry found *)
+  typeclasses eauto.
+Qed.
+
+Goal forall {A} (L L': Lens' A), Independent L L'.
+  (* Loop avoided. *)
+  assert_fails (typeclasses eauto).
+Abort.
 
 
-(** *** Use [independent'] rewrite except for [independent_symm] instances *)
+(** *** Use [independent'] rewrite in one direction only *)
 
 Inductive _independent_type2 {A} (L: Lens' A) (L': Lens' A) : Prop :=
   _independent_ctor2 (Hi: Independent L L') :
@@ -282,11 +220,11 @@ Arguments _independent_ctor2 {_} _ _ {_}.
 (* TODO: Not very elegant (see also [rewrite_independent] below) *)
 Ltac rewrite_independent' :=
   match goal with
-    |- context [ @mix _ _ ?L' (@mix _ _ ?L _ _) _ ] =>
+    |- context [ @mix _ ?L' (@mix _ ?L _ _) _ ] =>
     let indeq := fresh "indeq" in
     assert (indeq:=@eq_refl _ (_independent_ctor2 L L'));
     lazymatch goal with
-    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @independent_symm _ _ _ _)) = _ |- _ ] =>
+    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @independent_symm_imp _ _ _ _)) = _ |- _ ] =>
       fail
     | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
       clear indeq;
@@ -294,8 +232,65 @@ Ltac rewrite_independent' :=
     end
   end.
 
+(** [Rewrite_independent'] only works if the lenses are not bound variables.
+    This restriction can probably be avoided, but it does not matter to us. *)
 
-(** * Lenses *)
+(** **** Test *)
+
+Goal forall {A} (L L': Lens' A) (H: Independent L L') a x y, mix L (mix L' a y) x = mix L' (mix L a x) y.
+  intros.
+  (* Rewrites once, but not twice (back to the original). *)
+  progress rewrite_independent'.
+  assert_fails (progress rewrite_independent').
+  reflexivity.
+Qed.
+
+
+(** ** [Independent] is proper *)
+
+Section scope_section.
+
+  (* TODO: Is this a good idea in general? *)
+  Coercion mix : Lens' >-> Funclass.
+
+  Instance independent_proper_sub0 {A} {f: Lens' A} :
+    Proper (@Sublens A ==> flip impl) (Independent f).
+  Proof.
+    intros g g' Hg
+           H a x y.
+    rewrite <- (mix_id (Lens':=g') a) at 2.
+    rewrite Hg.
+    rewrite <- H.
+    rewrite <- Hg.
+    rewrite H.
+    rewrite mix_id.
+    reflexivity.
+  Qed.
+
+  Global Instance independent_proper_sub {A} :
+    Proper (@Sublens A ==> @Sublens A ==> flip impl) (@Independent A).
+  Proof.
+    intros f f' Hf
+           g g' Hg.
+    rewrite Hg. setoid_rewrite independent_symm.
+    rewrite Hf. reflexivity.
+  Qed.
+
+End scope_section.
+
+Instance independent_proper' {A} :
+  Proper (@lensEq' A ==> @lensEq' A ==> iff) (@Independent A).
+Proof.
+  (* The direct proof is much longer. *)
+  intros L1 L1' H1
+         L2 L2' H2.
+  split; intro H.
+  - rewrite <- H1, <- H2. exact H.
+  - rewrite H1, H2. exact H.
+Qed.
+
+
+(** * Acutal lenses *)
 
 Class Lens (A: Type) (X: Type) :=
 {
@@ -385,21 +380,16 @@ Qed.
 
 Coercion Lens2Lens' : Lens >-> Lens'.
 
-Section proper_section.
 
-  Context {A X Y : Type}.
+(** ** Independent lenses *)
 
-  Global Instance independent_proper :
-    Proper (@lensEq A X ==> @lensEq A Y ==> iff) (fun Lx Ly => Independent Lx Ly).
-  Proof.
-    intros ? ? Hx ? ? Hy.
-    (* This uses [independent_proper']. *)
-    rewrite (lens2lens_proper _ _ Hx).
-    rewrite (lens2lens_proper _ _ Hy).
-    reflexivity.
-  Qed.
-
-End proper_section.
+Instance independent_proper {A X Y : Type} :
+  Proper (@lensEq A X ==> @lensEq A Y ==> iff) (fun Lx Ly => Independent Lx Ly).
+Proof.
+  intros ? ? Hx ? ? Hy.
+  rewrite Hx, Hy.
+  reflexivity.
+Qed.
 
 Section independence_section.
 
@@ -420,7 +410,7 @@ Section independence_section.
     update (update a x) y = update (update a y) x.
   Proof.
     specialize (Hi a (update a x) (update a y)).
-    cbn in Hi. rewrite_strat (repeat (outermost (hints lens))) in Hi.
+    cbn in Hi. lens_rewrite0  in Hi.
     exact Hi.
   Qed.
 
@@ -447,7 +437,7 @@ Hint Rewrite @proj2_update1 using (typeclasses eauto) : lens.
 Hint Rewrite @proj1_update2 using (typeclasses eauto) : lens.
 
 
-(** *** Use [independent] rewrite except for [independent_symm] instances *)
+(** *** Use [independent] in one direction only, cf. [rewrite_independent'] *)
 
 Ltac rewrite_independent :=
   match goal with
@@ -455,7 +445,7 @@ Ltac rewrite_independent :=
     let indeq := fresh "indeq" in
     assert (indeq:=@eq_refl _ (_independent_ctor2 Lx Ly));
     lazymatch goal with
-    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @independent_symm _ _ _ _)) = _ |- _ ] =>
+    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @independent_symm_imp _ _ _ _)) = _ |- _ ] =>
       fail
     | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
       clear indeq;
@@ -463,13 +453,26 @@ Ltac rewrite_independent :=
     end
   end.
 
+(** **** Test *)
+
+Goal forall {A X Y} (L: Lens A X) (L':Lens A Y) (H: Independent L L')
+       a (x:X) (y:Y), update (update a x) y = update (update a y) x.
+  intros.
+  (* Rewrites once, but not twice (back to the original). *)
+  progress rewrite_independent.
+  assert_fails (progress rewrite_independent).
+  reflexivity.
+Qed.
+
 
 (** *** Rewrite tactics *)
 
-Ltac lens_rewrite1 := lens_rewrite0
+Ltac lens_rewrite1 := unfold compose;
+                      lens_rewrite0
                       || rewrite_independent
                       || rewrite_independent'.
-Ltac lens_rewrite := repeat lens_rewrite1; try reflexivity.
+Ltac lens_rewrite := repeat lens_rewrite1;
+                     try reflexivity.
 
 
 (** ** Lens category *)
@@ -504,7 +507,7 @@ Section category_section.
     update a := update a ∘ update (proj a);
   }.
   Proof.
-    all: abstract (unfold compose; intros; lens_rewrite).
+    all: abstract (intros; lens_rewrite).
   Defined.
 
 End category_section.
@@ -540,11 +543,13 @@ Section category_facts_section.
 
   Context (Lx: Lens A X).
 
+  (* TODO: Useful? *)
   Proposition idLens_composite : idLens ∘ Lx ≅ Lx.
   Proof.
     intros a x. reflexivity.
   Qed.
 
+  (* TODO: Useful? *)
   Proposition composite_idLens: Lx ∘ idLens ≅ Lx.
   Proof.
     intros a x. reflexivity.
@@ -556,17 +561,14 @@ Section category_facts_section.
            (Ly: Lens X Y) {Y'} (Ly': Lens X Y')
            {Hi: Independent Ly Ly'} : Independent (Ly ∘ Lx) (Ly' ∘ Lx).
   Proof.
-    intros a y y'. cbn.
-    unfold compose. cbn.
-    lens_rewrite.
+    intros a y y'. cbn. lens_rewrite.
   Qed.
 
   Global Instance composite_independent_l
          (Ly: Lens A Y) {Hi: Independent Lx Ly}
          {Z} (Lz: Lens X Z) : Independent (Lz ∘ Lx) Ly.
   Proof.
-    intros a z y. cbn.
-    unfold compose. lens_rewrite.
+    intros a z y. cbn. lens_rewrite.
   Qed.
 
 End category_facts_section.
@@ -574,10 +576,9 @@ End category_facts_section.
 Arguments compositeLens_proper {_ _ _ _ _} Hlx {_ _} Hly.
 
 
-(** ** More sublenses *)
+(** ** Pseudo-lens composition *)
 
-
-#[refine] Instance prefix {A X} (Lab: Lens A X) (L: Lens' X) : Lens' A :=
+#[refine] Instance compositeLens' {X A} (L: Lens' X) (Lab: Lens A X) : Lens' A :=
 {
   mix a a' := update a (mix L (proj a) (proj a'));
 }.
@@ -585,15 +586,15 @@ Proof.
   all: lens_rewrite.
 Defined.
 
-Proposition composite_prefix {A X} (Lx: Lens A X) {Y} (Ly: Lens X Y) :
-  lensEq' (Ly ∘ Lx) (prefix Lx Ly).
+Proposition composite_compositeLens' {X Y} (Ly: Lens X Y) {A} (Lx: Lens A X) :
+  Ly ∘ Lx ≃ compositeLens' Ly Lx.
 Proof.
   intros a a'.
   lens_rewrite.
 Qed.
 
-Instance proper_prefix {A X} :
-  Proper (@lensEq A X ==> @lensEq' X ==> @lensEq' A) prefix.
+Instance proper_compositeLens' {A X} :
+  Proper (@lensEq' X ==> @lensEq A X ==> @lensEq' A) compositeLens'.
 Proof.
   intros L1 L1' H1
          L2 L2' H2
@@ -601,39 +602,23 @@ Proof.
   cbn. rewrite H1, H2. reflexivity.
 Qed.
 
-Instance proper_prefix' {A X} :
-  Proper (@lensEq A X ==> @Sublens X ==> @Sublens A) prefix.
+Instance proper_compositeLens'_sub {A X} :
+  Proper (@Sublens X ==> @lensEq A X ==> @Sublens A) compositeLens'.
 Proof.
   intros L1 L1' H1
          L2 L2' H2
-         a a'.
-  cbn. rewrite H1. lens_rewrite.
-  rewrite H2. reflexivity.
+         a a1 a2.
+  cbn. rewrite H2. lens_rewrite.
+  rewrite H1. reflexivity.
 Qed.
-
-
 
 Section sublens_ordering_section.
 
   Context {A X} (Lx: Lens A X).
 
-
-  Instance sublens_compX {Y} (Ly: Lens X Y) : SublensX (Ly ∘ Lx) Lx.
-  Proof.
-    intros a b. cbn.
-    unfold compose.
-    lens_rewrite.
-  Qed.
-
-
-
-
-
   Instance sublens_comp {Y} (Ly: Lens X Y) : (Ly ∘ Lx | Lx).
   Proof.
-    intros a b. cbn.
-    unfold compose.
-    lens_rewrite.
+    intros a b c. cbn. lens_rewrite.
   Qed.
 
   Global Instance sublens_comp'
@@ -641,10 +626,10 @@ Section sublens_ordering_section.
          {Z} {Lz: Lens X Z}
          (Syz: (Ly | Lz)) : (Ly ∘ Lx | Lz ∘ Lx).
   Proof.
-    setoid_rewrite composite_prefix.
-    apply proper_prefix'.
-    - reflexivity.
+    setoid_rewrite composite_compositeLens'.
+    apply proper_compositeLens'_sub.
     - exact Syz.
+    - reflexivity.
   Qed.
 
 End sublens_ordering_section.
@@ -707,7 +692,7 @@ Section projection_section.
          (Ixz: Independent Lx Lz)
          (Iyz: Independent Ly Lz) : Independent prodLens Lz.
   Proof.
-    intros s [x y] z. simpl. lens_rewrite.
+    intros a b c. cbn. lens_rewrite.
   Qed.
 
 End projection_section.
@@ -728,14 +713,16 @@ Section flip_section.
 
   Context {X'} (Lx': Lens A X') {Sx: (Lx'|Lx)}.
 
+  (* TODO: Still needed? *)
   (* Beware: This may cause loops. *)
   Instance independent_sublens1 : Independent Lx' Ly.
   Proof.
-    intros a x' y.
-    destruct Sx as [L H].
-    rewrite H.
-    lens_rewrite.
+    rewrite Sx. exact Hi.
   Qed.
+
+
+(************** Continue from here ***************)
+
 
   (* TODO: Think of a better name (similarly for the symmetric case below. *)
   Global Instance prod_sublens11 : (Lx' * Ly | Lx * Ly).
