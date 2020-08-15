@@ -2,8 +2,300 @@ From Assembly Require Import Init DSet.
 
 Unset Suggest Proof Using.
 
+Declare Scope lens_scope.
+Delimit Scope lens_scope with lens.
 
-(** ** Lenses *)
+Ltac lens_rewrite0 := rewrite_strat (repeat (outermost (hints lens))).
+Tactic Notation "lens_rewrite0" "in" hyp(H) :=
+  rewrite_strat (repeat (outermost (hints lens))) in H.
+
+
+(** * Pseudo-lenses *)
+
+Class Lens' A :=
+{
+  mix: A -> A -> A;
+  mix_id a : mix a a = a;
+  mix_left a b c : mix (mix a b) c = mix a c;
+  mix_right a b c : mix a (mix b c) = mix a c;
+}.
+
+Hint Rewrite @mix_id : lens.
+Hint Rewrite @mix_left : lens.
+Hint Rewrite @mix_right : lens.
+
+Bind Scope lens_scope with Lens'.
+Arguments mix {_} _ _ _.
+
+
+(** ** Preudo-lens equality *)
+
+Section equality_section.
+
+  Context {A : Type}.
+
+  (** Equivalent to "L = L'" if we assume extensionality and proof irrelevance. *)
+  Definition lensEq' (L L': Lens' A) : Prop :=
+    forall a b, mix L a b = mix L' a b.
+
+  (** Useful to have as separate fact. *)
+  Proposition lens_refl' {L: Lens' A} : lensEq' L L.
+  Proof.
+    intros a x. reflexivity.
+  Qed.
+
+  Global Instance lensEq_equivalence' : Equivalence lensEq'.
+  Proof.
+    split.
+    - intro L1. exact lens_refl'.
+    - intros L1 L2 H12 a x. rewrite H12. reflexivity.
+    - intros L1 L2 L3 H12 H23 a a'.
+      transitivity (mix L2 a a').
+      + apply H12.
+      + apply H23.
+  Qed.
+
+  Instance mix_proper :
+    Proper (lensEq' ==> eq ==> eq ==> eq) (@mix A).
+  Proof.
+    repeat intro.
+    repeat subst.
+    intuition.
+  Qed.
+
+End equality_section.
+
+Notation "L ≃ L'" := (lensEq' L L') (at level 70, no associativity) : type_scope.
+
+
+(** ** Sub(pseudo)lenses *)
+
+Set Typeclasses Unique Instances.
+
+Class Sublens {A} (L L': Lens' A) : Prop :=
+{
+  sublens_left a b : mix L' (mix L a b) b = mix L' a b;
+  sublens_right a b : mix L a (mix L' a b) = mix L a b;
+}.
+
+(* TODO: Is it safe to add [sublens_left] and [sublens_right] as rewrite hints? *)
+
+Unset Typeclasses Unique Instances.
+
+Notation "( L | L' )" := (Sublens L L') : type_scope.
+
+Proposition sublens_left' {A} {L1 L2: Lens' A} {S12: (L1|L2)} a b c :
+  mix L2 (mix L1 a b) c = mix L2 a c.
+Proof.
+  transitivity (mix L2 (mix L2 (mix L1 a b) b) c).
+  - rewrite mix_left. reflexivity.
+  - rewrite sublens_left.
+    rewrite mix_left. reflexivity.
+Qed.
+
+Proposition sublens_right' {A} {L1 L2: Lens' A} {S12: (L1|L2)} a b c :
+  mix L1 a (mix L2 b c) = mix L1 a c.
+Proof.
+  transitivity (mix L1 a (mix L1 b (mix L2 b c))).
+  - rewrite mix_right. reflexivity.
+  - rewrite sublens_right.
+    rewrite mix_right. reflexivity.
+Qed.
+
+Instance sublens_reflexive {A} : Reflexive (@Sublens A).
+Proof.
+  intros L. split; intros a b.
+  - apply mix_left.
+  - apply mix_right.
+Qed.
+
+Section with_args_section.
+
+  Arguments sublens_left {_ _ _} _ _ _.
+  Arguments sublens_right {_ _ _} _ _ _.
+
+  Instance sublens_transitive {A} : Transitive (@Sublens A).
+  Proof.
+    intros Lx Ly Lz Hxy Hyz.
+    split; intros a b.
+    - rewrite <- (sublens_left Hyz), (sublens_left Hxy), (sublens_left Hyz). reflexivity.
+    - rewrite <- (sublens_right Hxy), (sublens_right Hyz), (sublens_right Hxy). reflexivity.
+  Qed.
+
+End with_args_section.
+
+Lemma sublens_antisymm {A} {L L': Lens' A} (S: (L|L')) (S': (L'|L)) : L ≃ L'.
+Proof.
+  intros a a'.
+  transitivity (mix L' (mix L a a') (mix L a a')).
+  - rewrite mix_id; reflexivity.
+  - rewrite sublens_left', sublens_right.
+    reflexivity.
+Qed.
+
+Instance sublens_proper {A} :
+  Proper (@lensEq' A ==> @lensEq' A ==> iff) Sublens.
+Proof.
+  intros L1 L1' H1 L2 L2' H2.
+  split; intros H; split; intros a b.
+  - rewrite <- H1. repeat rewrite <- H2. apply sublens_left.
+  - repeat rewrite <- H1. rewrite <- H2. apply sublens_right.
+  - rewrite H1. repeat rewrite H2. apply sublens_left.
+  - repeat rewrite H1. rewrite H2. apply sublens_right.
+Qed.
+
+
+(** ** Independent pseudo-lenses *)
+
+Set Typeclasses Unique Instances.
+
+Class Independent {A} (L1 L2: Lens' A) : Prop :=
+  independent' a a1 a2 : mix L2 (mix L1 a a1) a2 =
+                         mix L1 (mix L2 a a2) a1.
+
+Unset Typeclasses Unique Instances.
+
+Instance independent_proper' {A} :
+  Proper (@lensEq' A ==> @lensEq' A ==> iff) (@Independent A).
+Proof.
+  intros L1 L1' H1
+         L2 L2' H2.
+  split; intros H a a1 a2.
+  - repeat rewrite <- H1.
+    repeat rewrite <- H2.
+    apply H.
+  - repeat rewrite H1.
+    repeat rewrite H2.
+    apply H.
+Qed.
+
+Proposition sublens_right2 {A} {L L': Lens' A} (H:(L|L')) a b:
+  mix L' a (mix L a b) = mix L a b.
+Proof.
+  rewrite <- sublens_left.
+  lens_rewrite0.
+  reflexivity.
+Qed.
+
+Proposition sublens_left2 {A} {L L': Lens' A} (H:(L|L')) a b:
+  mix L (mix L' a b) b = mix L' a b.
+Proof.
+  rewrite <- sublens_right.
+  lens_rewrite0.
+  reflexivity.
+Qed.
+
+Proposition itest {A} {L L': Lens' A} (H: (L|L')) a b c:
+  mix L' a (mix L b c) = mix L (mix L' a b) c.
+Proof.
+
+
+
+
+Instance independent_proper_sub {A} :
+  Proper (@Sublens A ==> @Sublens A ==> flip impl) (@Independent A).
+Proof.
+  intros L1 L1' H1
+         L2 L2' H2
+         H a a1 a2.
+  setoid_rewrite <- (sublens_right2 H2) at 1.
+  setoid_rewrite <- (sublens_right2 H1) at 1.
+  rewrite H.
+  rewrite (sublens_right2 H2).
+
+  f_equal.
+  - rewrite (sublens_right2 H1).
+
+f_equal.
+    rewrite (sublens_right2 H1).
+
+
+  setoid_rewrite (sublens_left2 H1).
+  setoid_rewrite (sublens_left2 H2).
+
+
+
+
+
+  setoid_rewrite (sublens' H1).
+  setoid_rewrite (sublens' H2).
+  rewrite <- H.
+  f_equal.
+  rewrite (sublens'' H1).
+  rewrite (sublens'' H2).
+  rewrite (sublens22 H1).
+
+
+  lens_rewrite0.
+
+  - rewrite H1.
+
+  rewrite H.
+  setoid_rewrite (sublens22 H1).
+
+
+  rewrite_strat (repeat (outermost (hints lens))).
+
+
+  setoid_rewrite (sublens' H2).
+
+
+  unfold Sublens in *.
+  specialize (H a a1 a2).
+  unfold Independent in H.
+*)
+
+(** Not declared an instance to avoid loops. *)
+Proposition independent_symm
+            {A} (L1 L2: Lens' A)
+            (Hi: Independent L1 L2) : Independent L2 L1.
+Proof.
+  intros a a1 a2. symmetry. apply Hi.
+Qed.
+
+
+(** *** Add [independent_symm] hint without loops. *)
+
+CoInductive _independent_type1 {A} (L: Lens' A) (L': Lens' A) : Prop :=
+  _independent_ctor1.
+
+Ltac independent_symm_guard L L' :=
+  lazymatch goal with
+  | [ _ : _independent_type1 L L' |- _ ] => fail
+  | _ => let iltt := fresh "iltt" in
+        assert (iltt:=_independent_ctor1 L L')
+  end.
+
+Global Hint Extern 20 (Independent ?L ?L') =>
+  independent_symm_guard L L';
+  apply independent_symm : typeclass_instances.
+
+
+(** *** Use [independent'] rewrite except for [independent_symm] instances *)
+
+Inductive _independent_type2 {A} (L: Lens' A) (L': Lens' A) : Prop :=
+  _independent_ctor2 (Hi: Independent L L') :
+    _independent_type2 L L'.
+
+Arguments _independent_ctor2 {_} _ _ {_}.
+
+(* TODO: Not very elegant (see also [rewrite_independent] below) *)
+Ltac rewrite_independent' :=
+  match goal with
+    |- context [ @mix _ _ ?L' (@mix _ _ ?L _ _) _ ] =>
+    let indeq := fresh "indeq" in
+    assert (indeq:=@eq_refl _ (_independent_ctor2 L L'));
+    lazymatch goal with
+    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @independent_symm _ _ _ _)) = _ |- _ ] =>
+      fail
+    | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
+      clear indeq;
+      setoid_rewrite (@independent' _ L L' Hi)
+    end
+  end.
+
+
+(** * Lenses *)
 
 Class Lens (A: Type) (X: Type) :=
 {
@@ -18,100 +310,7 @@ Hint Rewrite @proj_update : lens.
 Hint Rewrite @update_proj : lens.
 Hint Rewrite @update_update : lens.
 
-Declare Scope lens_scope.
 Bind Scope lens_scope with Lens.
-Delimit Scope lens_scope with lens.
-
-(** This applies to the remaining class declarations in this file,
-    i.e. [Independent] and [Sublens]. *)
-Set Typeclasses Unique Instances.
-
-
-(** ** Independent lenses *)
-
-Class Independent {A X Y: Type}
-      (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
-  independent (a: A) (x: X) (y: Y) :
-    update (update a x) y = update (update a y) x.
-
-Section independence_section.
-
-  Context {A X Y : Type}
-          {Lx: Lens A X} {Ly: Lens A Y}
-          (Hi: Independent Lx Ly).
-
-  Proposition proj2_update1 (a: A) (x: X) : proj (update a x) = proj a :> Y.
-  Proof.
-    rewrite <- (@update_proj _ _ Ly a) at 1.
-    rewrite <- independent.
-    apply proj_update.
-  Qed.
-
-  Proposition proj1_update2 (a: A) (y: Y) : proj (update a y) = proj a :> X.
-  Proof.
-    rewrite <- (@update_proj _ _ Lx a) at 1.
-    rewrite independent.
-    apply proj_update.
-  Qed.
-
-  (** Beware: This may cause loops. *)
-  Instance independent_symm : Independent Ly Lx.
-  Proof. intros a y x. symmetry. apply independent. Qed.
-
-End independence_section.
-
-Arguments proj2_update1 {_ _ _ _ _ Hi}.
-Arguments proj1_update2 {_ _ _ _ _ Hi}.
-
-Hint Rewrite @proj2_update1 using (typeclasses eauto) : lens.
-Hint Rewrite @proj1_update2 using (typeclasses eauto) : lens.
-
-
-(** *** Add [independent_symm] hint without loops. *)
-
-CoInductive _independent_type1 {A X Y} (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
-  _independent_ctor1.
-
-Ltac independent_symm_guard Lx Ly :=
-  lazymatch goal with
-  | [ _ : _independent_type1 Lx Ly |- _ ] => fail
-  | _ => let iltt := fresh "iltt" in
-        assert (iltt:=_independent_ctor1 Lx Ly)
-  end.
-
-Global Hint Extern 20 (Independent ?Lx ?Ly) =>
-  independent_symm_guard Lx Ly;
-  apply independent_symm : typeclass_instances.
-
-
-(** *** Use [independent] rewrite except for [independent_symm] instances *)
-
-Inductive _independent_type2 {A X Y} (Lx: Lens A X) (Ly: Lens A Y) : Prop :=
-  _independent_ctor2 (Hi: Independent Lx Ly) :
-    _independent_type2 Lx Ly.
-
-Arguments _independent_ctor2 {_ _ _} _ _ {_}.
-
-Ltac rewrite_independent :=
-  match goal with
-    |- context [ @update _ _ ?Ly (@update _ _ ?Lx _ _) _ ] =>
-    let indeq := fresh "indeq" in
-    assert (indeq:=@eq_refl _ (_independent_ctor2 Lx Ly));
-    lazymatch goal with
-    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in independent_symm _)) = _ |- _ ] =>
-      fail
-    | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
-      clear indeq;
-      setoid_rewrite (@independent _ _ _ Lx Ly Hi)
-    end
-  end.
-
-
-(** *** Rewrite tactics *)
-
-Ltac lens_rewrite1 := rewrite_strat (outermost (hints lens))
-                      || rewrite_independent.
-Ltac lens_rewrite := repeat lens_rewrite1; try reflexivity.
 
 
 (** ** Lens equality *)
@@ -123,18 +322,12 @@ Section equality_section.
 
   Context {A X : Type}.
 
-  Section eq_section.
-
-    Context (L1: Lens A X) (L2: Lens A X).
-
-    (** This is equivalent to "L1 = L2" if/when we assume extensionality,
-        see LensExtras.v. *)
-    Definition lensEq : Prop := forall a x, update L1 a x = update L2 a x.
-
-  End eq_section.
+  (** Equivalent to "L = L'" if we assume extensionality and proof irrelevance. *)
+  Definition lensEq (L L': Lens A X) :=
+    forall a (x: X), update L a x = update L' a x.
 
   (** Useful to have as separate fact. *)
-  Proposition lens_refl {Lx} : lensEq Lx Lx.
+  Proposition lens_refl {Lx: Lens A X} : lensEq Lx Lx.
   Proof.
     intros a x. reflexivity.
   Qed.
@@ -150,15 +343,6 @@ Section equality_section.
       + apply H23.
   Qed.
 
-End equality_section.
-
-(* TODO: Define notation scope. *)
-Notation "L1 ≅ L2" := (lensEq L1 L2) (at level 70, no associativity) : type_scope. (* ! *)
-
-Section proper_section.
-
-  Context {A X Y : Type}.
-
   Global Instance update_proper :
     Proper (lensEq ==> eq ==> eq ==> eq) (@update A X).
   Proof.
@@ -168,30 +352,124 @@ Section proper_section.
   Global Instance proj_proper :
     Proper (lensEq ==> eq ==> eq) (@proj A X).
   Proof.
-    intros Lx Lx' Hlx.
+    intros L L' Hl.
     repeat intro. subst.
-    setoid_rewrite <- (update_proj (Lens:=Lx')) at 1.
-    rewrite <- Hlx.
+    setoid_rewrite <- (update_proj (Lens:=L')) at 1.
+    rewrite <- Hl.
     apply proj_update.
   Qed.
 
+End equality_section.
+
+Notation "L ≅ L'" := (lensEq L L') (at level 70, no associativity) : type_scope.
+
+
+(** ** Lenses to pseudo-lenses *)
+
+#[refine] Instance Lens2Lens' {A X} (Lx: Lens A X) : Lens' A :=
+{
+  mix a b := update a (proj b);
+}.
+Proof.
+  all:
+    (rewrite_strat (repeat (outermost (hints lens))));
+    reflexivity.
+Defined.
+
+Instance lens2lens_proper {A X} :
+  Proper (lensEq ==> lensEq') (@Lens2Lens' A X).
+Proof.
+  intros L L' Hl a a'.
+  cbn. rewrite Hl. reflexivity.
+Qed.
+
+Coercion Lens2Lens' : Lens >-> Lens'.
+
+Section proper_section.
+
+  Context {A X Y : Type}.
+
   Global Instance independent_proper :
-    Proper (lensEq ==> lensEq ==> iff) (@Independent A X Y).
+    Proper (@lensEq A X ==> @lensEq A Y ==> iff) (fun Lx Ly => Independent Lx Ly).
   Proof.
-    (* Not sure why [setoid_rewrite] works with [Hx]
-       and [rewrite] with [Hy], but not vice versa. *)
-    intros Lx Lx' Hx
-           Ly Ly' Hy.
-    split; intros H a x y.
-    - setoid_rewrite <- Hx.
-      do 2 rewrite <- Hy.
-      apply H.
-    - setoid_rewrite Hx.
-      do 2 rewrite Hy.
-      apply H.
+    intros ? ? Hx ? ? Hy.
+    (* This uses [independent_proper']. *)
+    rewrite (lens2lens_proper _ _ Hx).
+    rewrite (lens2lens_proper _ _ Hy).
+    reflexivity.
   Qed.
 
 End proper_section.
+
+Section independence_section.
+
+  Context {A X Y : Type}
+          {Lx: Lens A X}
+          {Ly: Lens A Y}.
+
+  Instance independent_update
+           (H: forall a (x: X) (y: Y), update (update a x) y = update (update a y) x) :
+    Independent Lx Ly.
+  Proof.
+    intros a ax ay. cbn. rewrite H. reflexivity.
+  Qed.
+
+  Context (Hi: Independent Lx Ly).
+
+  Proposition independent a (x: X) (y: Y):
+    update (update a x) y = update (update a y) x.
+  Proof.
+    specialize (Hi a (update a x) (update a y)).
+    cbn in Hi. rewrite_strat (repeat (outermost (hints lens))) in Hi.
+    exact Hi.
+  Qed.
+
+  Proposition proj2_update1 (a: A) (x: X) : proj (update a x) = proj a :> Y.
+  Proof.
+    rewrite <- (@update_proj _ _ Ly a) at 1.
+    rewrite <- independent.
+    apply proj_update.
+  Qed.
+
+  Proposition proj1_update2 (a: A) (y: Y) : proj (update a y) = proj a :> X.
+  Proof.
+    rewrite <- (@update_proj _ _ Lx a) at 1.
+    rewrite independent.
+    apply proj_update.
+  Qed.
+
+End independence_section.
+
+Arguments proj2_update1 {_ _ _ _ _ Hi}.
+Arguments proj1_update2 {_ _ _ _ _ Hi}.
+
+Hint Rewrite @proj2_update1 using (typeclasses eauto) : lens.
+Hint Rewrite @proj1_update2 using (typeclasses eauto) : lens.
+
+
+(** *** Use [independent] rewrite except for [independent_symm] instances *)
+
+Ltac rewrite_independent :=
+  match goal with
+    |- context [ @update _ _ ?Ly (@update _ _ ?Lx _ _) _ ] =>
+    let indeq := fresh "indeq" in
+    assert (indeq:=@eq_refl _ (_independent_ctor2 Lx Ly));
+    lazymatch goal with
+    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @independent_symm _ _ _ _)) = _ |- _ ] =>
+      fail
+    | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
+      clear indeq;
+      setoid_rewrite (@independent _ _ _ Lx Ly Hi)
+    end
+  end.
+
+
+(** *** Rewrite tactics *)
+
+Ltac lens_rewrite1 := lens_rewrite0
+                      || rewrite_independent
+                      || rewrite_independent'.
+Ltac lens_rewrite := repeat lens_rewrite1; try reflexivity.
 
 
 (** ** Lens category *)
@@ -296,83 +574,12 @@ End category_facts_section.
 Arguments compositeLens_proper {_ _ _ _ _} Hlx {_ _} Hly.
 
 
-(** ** Lenses without projections *)
+(** ** More sublenses *)
 
-Class Lens' A :=
-{
-  merge: A -> A -> A;
-  merge_id a : merge a a = a;
-  merge_left a b c : merge (merge a b) c = merge a c;
-  merge_right a b c : merge a (merge b c) = merge a c;
-}.
-
-Hint Rewrite @merge_id : lens.
-Hint Rewrite @merge_left : lens.
-Hint Rewrite @merge_right : lens.
-
-Arguments merge {_} _ _ _.
-
-Definition lensEq' {A} (L L': Lens' A) : Prop :=
-  forall a b, merge L a b = merge L' a b.
-
-#[refine] Instance Lens2Lens' {A X} (Lx: Lens A X) : Lens' A :=
-{
-  merge a b := update a (proj b);
-}.
-Proof.
-  all: lens_rewrite.
-Defined.
-
-Instance Lens2Lens'_proper {A X} :
-  Proper (@lensEq A X ==> @lensEq' A) (@Lens2Lens' A X).
-Proof.
-  intros L1 L2 H a a'. cbn.
-  setoid_rewrite H. reflexivity.
-Qed.
-
-Coercion Lens2Lens' : Lens >-> Lens'.
-Bind Scope lens_scope with Lens'.
-
-Class Sublens {A} (L1 L2: Lens' A) : Prop :=
-  sublens : forall a b, merge L2 (merge L1 a b) b = merge L2 a b.
-
-Notation "( Lx | Ly )" := (Sublens Lx Ly) : type_scope.
-
-Proposition sublens' {A} {L1 L2: Lens' A} (S12: (L1|L2)) a b c :
-  merge L2 (merge L1 a b) c = merge L2 a c.
-Proof.
-  transitivity (merge L2 (merge L2 (merge L1 a b) b) c).
-  - rewrite merge_left. reflexivity.
-  - rewrite S12. rewrite merge_left. reflexivity.
-Qed.
-
-Instance sublens_reflexive {A} : Reflexive (@Sublens A).
-Proof.
-  intros L a b.
-  apply merge_left.
-Qed.
-
-Instance sublens_transitive {A} : Transitive (@Sublens A).
-Proof.
-  intros Lx Ly Lz Hxy Hyz a b.
-  unfold Sublens in *.
-  rewrite <- Hyz, Hxy, Hyz.
-  reflexivity.
-Qed.
-
-Instance sublens_proper {A} :
-  Proper (@lensEq' A ==> @lensEq' A ==> iff) Sublens.
-Proof.
-  intros L1 L1' H1 L2 L2' H2.
-  unfold lensEq', Sublens in *.
-  split; intros H a b.
-  - rewrite <- H1. repeat rewrite <- H2. apply H.
-  - rewrite H1. repeat rewrite H2. apply H.
-Qed.
 
 #[refine] Instance prefix {A X} (Lab: Lens A X) (L: Lens' X) : Lens' A :=
 {
-  merge a a' := update a (merge L (proj a) (proj a'));
+  mix a a' := update a (mix L (proj a) (proj a'));
 }.
 Proof.
   all: lens_rewrite.
@@ -404,9 +611,23 @@ Proof.
   rewrite H2. reflexivity.
 Qed.
 
+
+
 Section sublens_ordering_section.
 
   Context {A X} (Lx: Lens A X).
+
+
+  Instance sublens_compX {Y} (Ly: Lens X Y) : SublensX (Ly ∘ Lx) Lx.
+  Proof.
+    intros a b. cbn.
+    unfold compose.
+    lens_rewrite.
+  Qed.
+
+
+
+
 
   Instance sublens_comp {Y} (Ly: Lens X Y) : (Ly ∘ Lx | Lx).
   Proof.
