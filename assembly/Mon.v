@@ -1,4 +1,4 @@
-From Assembly Require Import Init DSet Lens.
+From Assembly Require Export Lens.
 
 Unset Suggest Proof Using.
 
@@ -570,6 +570,22 @@ Section sub_and_prop_section.
     setoid_rewrite Hla.
     reflexivity.
   Qed.
+
+  Proposition neutral_submixer
+              {A} (La: Lens S A)
+              {B} (Lb: Lens S B)
+              (Hab: (La | Lb))
+              {X} (mx: M X) (Hmx: Neutral Lb mx) : Neutral La mx.
+  Proof.
+
+
+
+
+  Global Instance neutral_proper_sub {A X} :
+    Proper (irel (@lens2mixer S A) Submixer ==> @eq (M X) ==> flip impl) Neutral.
+  Proof.
+
+
 
   Instance neutral_composite
            {A} {La: Lens S A}

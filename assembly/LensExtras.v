@@ -33,7 +33,21 @@ Section char_section.
     f_equal; apply proof_irrelevance.
    Qed.
 
+  (** Since "unit" shorter than "terminal". *)
+  #[refine] Instance unitLens : Lens A unit :=
+  {
+    proj _ := tt;
+    update a _ := a;
+  }.
+  Proof.
+    1: intros _ [].
+    all: reflexivity.
+  Defined.
+
 End char_section.
+
+
+
 
 
 (** ** Elementary *)
@@ -795,7 +809,7 @@ Arguments lens_vector' {_} _ _.
 (** ** Every lens is a product lens
 
 Assuming functional extensionality and proof irrelevance, we have a
-converse of [lens_fst]: If [Lens S X], then [S ≅ X * S'] for some S'. *)
+converse of [fstLens]: If [Lens S X], then [S ≅ X * S'] for some S'. *)
 
 Section Inv_lens.
 

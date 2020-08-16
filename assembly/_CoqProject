@@ -2,8 +2,10 @@
 -Q ../coq-record-update/src RecordUpdate
 Init.v
 DSet.v
+Mixer.v
 Lens.v
 LensExtras.v
+Restr.v
 Mon.v
 MonExtras.v
 Binary.v

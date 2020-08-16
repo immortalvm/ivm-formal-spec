@@ -1,4 +1,4 @@
-From Assembly Require Import Init DSet Lens Mon.
+From Assembly Require Import Restr Mon.
 Import DSetNotations.
 
 Unset Suggest Proof Using.
@@ -297,7 +297,7 @@ Module Core (MP: MachineParameters).
   Global Instance point_mem' {a u} (Hau: a ∈ u) : (MEM'' a | MEM' u).
   Proof.
     unfold MEM'', MEM'.
-    apply sublens_comp'.
+    apply sublens_comp.
     refine (pointLens_sublens Hau).
   Qed.
 
@@ -487,14 +487,14 @@ Module Core (MP: MachineParameters).
     - specialize (IHn (offset 1 a)).
       apply confined_bind.
       + unshelve eapply confined_sublens, confined_load.
-        apply sublens_comp'.
+        apply sublens_comp.
         refine (pointLens_sublens (nAfter_zero n a)).
       + intros x.
         apply confined_bind.
         * eapply confined_sublens.
           apply IHn.
           Unshelve.
-          apply sublens_comp', subsetSublens, nAfter_succ.
+          apply sublens_comp, subsetSublens, nAfter_succ.
         * typeclasses eauto.
   Qed.
 
@@ -675,13 +675,13 @@ Module Core (MP: MachineParameters).
     - simpl length.
       apply confined_bind.
       + unshelve eapply confined_sublens, confined_store.
-        apply sublens_comp'.
+        apply sublens_comp.
         refine (pointLens_sublens (nAfter_zero (length u) a)).
       + intros [].
         eapply confined_sublens.
         apply IH.
         Unshelve.
-        apply sublens_comp', subsetSublens, nAfter_succ.
+        apply sublens_comp, subsetSublens, nAfter_succ.
   Qed.
 
   Lemma storeMany_rev a x u :
@@ -868,7 +868,7 @@ Module Core (MP: MachineParameters).
 rewrite <- (idLens_composite Lz).
 
 
-      apply prod_sublens1'.
+      apply prodSublens1'.
 
 
 typeclasses eauto.
@@ -896,7 +896,7 @@ rewrite <- (compositeLens_associative Lz Ly Lyx).
       eapply confined_sublens.
       apply confined_store.
       Unshelve.
-      apply sublens_comp'.
+      apply sublens_comp.
       refine (pointLens_sublens (nBefore_zero _ sp)).
     - intros [].
       assert ( MEM' (nBefore (length r) sp) * SP
@@ -909,7 +909,7 @@ rewrite <- (compositeLens_associative Lz Ly Lyx).
       eapply (confined_sublens.
       apply IH.
       Unshelve.
-      apply sublens_comp', subsetSublens, nAfter_succ.
+      apply sublens_comp, subsetSublens, nAfter_succ.
 
 
       Opaque Confined.
