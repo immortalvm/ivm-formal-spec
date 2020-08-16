@@ -133,6 +133,10 @@ Instance unitCover_confined'
          {M: Type -> Type} `{SM: SMonad S M}
          {X} (mx: M X)
          {Hmx: Confined unitLens mx} : Confined' mx.
-Proof. split. typeclasses eauto. Qed.
+Proof.
+  split.
+  intros B Lb.
+  apply (confined_proper_sub _ _ _ _ _ eq_refl Hmx).
+Qed.
 
 (** The converse is trivial. *)
