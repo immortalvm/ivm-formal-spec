@@ -212,8 +212,9 @@ Qed.
 
 Ltac lens_rewrite1 := unfold compose;
                       lens_rewrite0
-                      || rewrite_independent.
-Ltac lens_rewrite := repeat (lens_rewrite1 || mixer_rewrite1);
+                      || rewrite_independent
+                      || mixer_rewrite1.
+Ltac lens_rewrite := repeat lens_rewrite1;
                      try reflexivity.
 
 

@@ -274,19 +274,16 @@ Section lensmonad_section.
   Defined.
 
   Definition get' : M A := get.
-  Proposition get_spec : get' = get.
-  Proof. reflexivity. Qed.
+  Definition get_spec := unfolded_eq (@get').
   Global Opaque get'.
 
   Definition put' : A -> M unit := put.
-  Proposition put_spec : put' = put.
-  Proof. reflexivity. Qed.
-  Global Opaque put'.
-
+  Definition put_spec := unfolded_eq (@put').
   (** For some reason, we sometimes have to use this variant with
   [setoid_rewrite]. *)
   Proposition put_spec' (a: A) : put' a = put a.
-  Proof. rewrite put_spec. reflexivity. Qed.
+  Proof. reflexivity. Qed.
+  Global Opaque put'.
 
   (** The definitions above are arguably too strict since they mean that
   the machine cannot have additional state such as logging. One might
@@ -294,7 +291,7 @@ Section lensmonad_section.
   work up to the equivalence relation [s⊑s' /\ s'⊑s], see Mono.v. The
   current approach essentially corresponds to using the quotient type. *)
 
-  Proposition bind_spec: @bind _ _ SM = @bind _ _ lensmonad.
+  Proposition bind_spec: @bind _ _ lensmonad = @bind _ _ SM.
   Proof. reflexivity. Qed.
 
 
@@ -303,7 +300,7 @@ Section lensmonad_section.
   Ltac lens_transfer :=
     try setoid_rewrite get_spec;
     try setoid_rewrite put_spec';
-    repeat rewrite bind_spec;
+    repeat rewrite <- bind_spec;
     smon_rewrite.
 
   Proposition lens_put_put a a' Y (f: unit -> unit -> M Y) :
@@ -348,6 +345,28 @@ Section lensmonad_section.
 
 End lensmonad_section.
 
+Section mixer_section.
+
+  Context {S: Type}
+          {M: Type -> Type} `{SM: SMonad S M}.
+
+  Definition putM (m: Mixer S) (s: S) : M unit :=
+    let* s' := get in
+    put (m s' s).
+
+  Definition putM_spec := unfolded_eq (@putM).
+  Definition putM_spec' {m} a := unfolded_eq (@putM m a).
+
+  Proposition putM_specL {A} (L: Lens S A) (s: S) :
+    putM L s = put' L (proj s).
+  Proof.
+    reflexivity.
+  Qed.
+
+  Global Opaque putM.
+
+End mixer_section.
+
 Ltac smon_ext' La a := apply (smonad_ext' La); intros a.
 
 Ltac smon_rewrite1_lens :=
@@ -367,25 +386,45 @@ Set Typeclasses Unique Instances. (* ! *)
 
 (** ** Neutral and confined computations *)
 
-Section neutral_section.
+Section defs_section.
 
   Arguments get' {_ _ _ _ _}.
   Arguments put' {_ _ _ _ _}.
 
-  Context {S: Type}
-          {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type}.
+  Context {S M} {SM: SMonad S M}.
 
-  Class Neutral {X} (La: Lens S A) (mx: M X) : Prop :=
-    neutral : forall aa, mx = let* a := get' in
-                         put' aa;;
+  Class Neutral {X} (m: Mixer S) (mx: M X) : Prop :=
+    neutral : forall ss, mx = let* s := get in
+                         putM m ss;;
                          let* x := mx in
-                         put' a;;
+                         putM m s;;
                          ret x.
 
   Arguments Neutral {_ _}.
 
-  Context (La: Lens S A).
+  Class Confined {X} (m: Mixer S) (mx: M X) : Prop :=
+    confined : forall {Y} (my: M Y) (Hmy: Neutral my)
+                 {Z} (f: X -> Y -> M Z),
+      let* y := my in
+      let* x := mx in
+      f x y = let* x := mx in
+              let* y := my in
+              f x y.
+
+End defs_section.
+
+
+Section neutral_section.
+
+  Arguments get' {_ _ _ _ _}.
+  Arguments put' {_ _ _ _ _}.
+  Arguments Neutral {_ _ _ _ _}.
+  Arguments Confined {_ _ _ _ _}.
+
+  Context {S: Type}
+          {M: Type -> Type}
+          {SM: SMonad S M}
+          (m: Mixer S).
 
   Global Instance neutral_if (b: bool) {X} (mx mx': M X)
          {Hmx: Neutral mx}
@@ -420,8 +459,7 @@ Section neutral_section.
 
   Global Instance neutral_ret {X} (x: X) : Neutral (ret x).
   Proof.
-    intros aa.
-    smon_rewrite.
+    intros aa. rewrite putM_spec. smon_rewrite'.
   Qed.
 
   Global Instance neutral_bind
@@ -431,7 +469,8 @@ Section neutral_section.
   Proof.
     unfold Neutral in *. intros aa.
     setoid_rewrite (Hmx aa). smon_rewrite.
-    setoid_rewrite (Hf _ aa). smon_rewrite.
+    setoid_rewrite (Hf _ aa).
+    rewrite putM_spec. smon_rewrite'.
   Qed.
 
   Global Instance neutral_err {X} : Neutral (err : M X).
@@ -441,14 +480,6 @@ Section neutral_section.
 
 
   (** *** Confined **)
-
-  Class Confined {X} (mx: M X) : Prop :=
-    confined : forall {Y} (my: M Y) (Hmy: Neutral my)
-                 {Z} (f: X -> Y -> M Z), let* y := my in
-                                       let* x := mx in
-                                       f x y = let* x := mx in
-                                               let* y := my in
-                                               f x y.
 
   Global Instance confined_if (b: bool) {X} (mx mx': M X)
          {Hmx: Confined mx}
@@ -494,7 +525,7 @@ Section neutral_section.
     unfold Confined in *.
     intros C mc Hmc D g.
     smon_rewrite.
-    rewrite (Hmx  C mc Hmc D). clear Hmx.
+    rewrite (Hmx C mc Hmc D). clear Hmx.
     apply bind_extensional. intros x.
     rewrite Hf.
     - reflexivity.
@@ -506,21 +537,58 @@ Section neutral_section.
     unfold Confined. intros. smon_rewrite.
   Qed.
 
-  Global Instance confined_get : Confined get'.
+  Global Instance confined_putM s : Confined (putM m s).
   Proof.
-    unfold Confined. intros. smon_ext s.
-    setoid_rewrite (Hmy (proj s)).
-    smon_rewrite.
-  Qed.
-
-  Global Instance confined_put a : Confined (put' a).
-  Proof.
-    unfold Confined. intros. smon_ext s.
-    setoid_rewrite (Hmy (proj s)).
-    smon_rewrite.
+    unfold Confined. intros. smon_rewrite.
+    setoid_rewrite (Hmy s). rewrite putM_spec.
+    smon_rewrite'.
   Qed.
 
 End neutral_section.
+
+Section lens_section.
+
+  Arguments get' {_ _ _ _ _}.
+  Arguments put' {_ _ _ _ _}.
+
+  Context {S} {M: Type -> Type} {SM: SMonad S M}
+          {A} (La: Lens S A).
+
+  Lemma lensNeutral {X} (mx: M X) :
+    Neutral La mx <-> (forall a, mx = let* a' := get' in
+                               put' a;;
+                               let* x := mx in
+                               put' a';;
+                               ret x).
+  Proof.
+    unfold Neutral.
+    rewrite get_spec, put_spec, putM_spec. split.
+    - intros H a.
+      smon_ext s.
+      setoid_rewrite (H (update s a)).
+      smon_rewrite. cbn. lens_rewrite.
+    - intros H s.
+      setoid_rewrite (H (proj s)).
+      smon_rewrite. cbn. lens_rewrite.
+  Qed.
+
+  Global Instance confined_get : Confined La get'.
+  Proof.
+    unfold Confined. intros. smon_ext s.
+    rewrite lensNeutral in Hmy.
+    setoid_rewrite (Hmy (proj s)).
+    smon_rewrite.
+  Qed.
+
+  Global Instance confined_put a : Confined La (put' a).
+  Proof.
+    unfold Confined. intros. smon_ext s.
+    rewrite lensNeutral in Hmy.
+    setoid_rewrite (Hmy (proj s)).
+    smon_rewrite.
+  Qed.
+
+End lens_section.
 
 (** This is equivalent to [Confined unitLens], which is more elegant,
     but leads to loops, cf. MonExtras. *)
@@ -535,7 +603,7 @@ Class Confined'
 
 (** ** Sublenses and propriety *)
 
-Section sub_and_prop_section.
+Section sublens_section.
 
   Context {S M} {SM: SMonad S M}.
 
@@ -559,76 +627,85 @@ Section sub_and_prop_section.
     reflexivity.
   Qed.
 
-  Global Instance neutral_proper {A X} :
-    Proper (@lensEq S A ==> @eq (M X) ==> iff) Neutral.
+  (* TODO: Move to Mixer.v! *)
+  Proposition submixer_expand {A} {f g: Mixer A} (Hs: (f|g)) x y :
+    f x y = g x (f x y).
   Proof.
-    (* TODO: Why doesn't [typeclasses eauto] solve this? *)
-    intros La La' Hla
-           mx mx' Hmx.
+    transitivity (f (g x x) y).
+    - mixer_rewrite0. reflexivity.
+    - apply Hs.
+  Qed.
+
+
+  (** *** Neutral *)
+
+  Global Instance neutral_proper_sub {X} :
+    Proper (@Submixer S ==> @eq (M X) ==> flip impl) Neutral.
+  Proof.
+    intros m m' Hm
+           mx mx' Hmx
+           H s.
     destruct Hmx.
-    unfold Neutral.
-    setoid_rewrite Hla.
+    setoid_rewrite (H s). rewrite putM_spec.
+    smon_rewrite'. setoid_rewrite submixer_left.
     reflexivity.
   Qed.
 
-  Proposition neutral_submixer
-              {A} (La: Lens S A)
-              {B} (Lb: Lens S B)
-              (Hab: (La | Lb))
-              {X} (mx: M X) (Hmx: Neutral Lb mx) : Neutral La mx.
+  Global Instance neutral_proper {X} :
+    Proper (@mixerEq S ==> @eq (M X) ==> iff) Neutral.
   Proof.
+    intros m m' Hm
+           mx mx' Hmx.
+    destruct Hmx.
+    split;
+      intro H;
+      refine (neutral_proper_sub _ _ _ _ _ eq_refl H);
+      rewrite Hm;
+      reflexivity.
+  Qed.
 
-
-
-
-  Global Instance neutral_proper_sub {A X} :
-    Proper (irel (@lens2mixer S A) Submixer ==> @eq (M X) ==> flip impl) Neutral.
+  (* TODO: Useful? *)
+  Global Instance neutral_proper' {A X} :
+    Proper (@lensEq S A ==> @eq (M X) ==> iff) Neutral.
   Proof.
+    intros La La' Hla
+           mx mx' Hmx.
+    rewrite Hla, Hmx.
+    reflexivity.
+  Qed.
 
-
-
+  (* TODO: Useful? *)
   Instance neutral_composite
            {A} {La: Lens S A}
            {B} {Lb: Lens A B}
            {X} (mx: M X) {Hmx: Neutral La mx} : Neutral (Lb ∘ La) mx.
   Proof.
-    unfold Neutral.
-    intros bb.
-    smon_ext' La a.
-    setoid_rewrite (Hmx a).
-    repeat rewrite get_spec, put_spec.
-    cbn.
-    unfold compose.
-    smon_rewrite.
-    lens_rewrite.
+    rewrite sublens_comp'. exact Hmx.
   Qed.
 
-  Context {A} {La: Lens S A}
-          {B} {Lb: Lens S B} {Sab: (La | Lb)}.
 
-  Global Instance neutral_sublens
-         {X} (mx: M X) {Hmx: Neutral Lb mx} : Neutral La mx.
+  (** *** Confined *)
+
+  Global Instance confined_proper_sub {X} :
+    Proper (@Submixer S ==> @eq (M X) ==> impl) Confined.
   Proof.
-    destruct Sab as [Lba Ha].
-    rewrite (neutral_proper _ _ Ha _ _ eq_refl).
-    apply neutral_composite.
-    exact Hmx.
+    intros m m' Hm
+           mx mx' Hmx Hc
+           Y my Hmy
+           Z f.
+    destruct Hmx.
+    (* Does not work: [rewrite Hm in Hmy.] *)
+    assert (Neutral m my) as H.
+    - rewrite Hm. exact Hmy.
+    - apply Hc. exact H.
   Qed.
 
-  Global Instance confined_sublens
-         {X} (mx: M X) {Hmx: Confined La mx} : Confined Lb mx.
-  Proof.
-    unfold Confined in *. intros.
-    apply Hmx, neutral_sublens.
-    assumption.
-  Qed.
-
-End sub_and_prop_section.
+End sublens_section.
 
 (* TODO: How useful is this? *)
 Arguments lens_get_proper {_ _ _ _ _ _} _.
 Arguments lens_put_proper {_ _ _ _ _ _} _ {_ _} _.
-Arguments neutral_proper {_ _ _ _ _ _ _} _ {_ _} _.
+Arguments neutral_proper {_ _ _ _ _ _} _ {_ _} _.
 
 
 (** ** Independence *)
@@ -685,7 +762,7 @@ End independence_section1.
 
 Ltac smon_rewrite1_independent :=
   match goal with
-  | Hi: Independent ?La ?Lb |- _ =>
+  | Hi: Independent (lens2mixer ?La) (lens2mixer ?Lb) |- _ =>
     setoid_rewrite (flip_get_get' La Lb (Hi:=Hi))
     || setoid_rewrite (flip_put_get La Lb (Hi:=Hi))
     || setoid_rewrite <- (flip_put_get La Lb (Hi:=Hi))
@@ -698,29 +775,69 @@ Ltac2 Set smon_rewrite1 := fun _ =>
 
 Section independence_section2.
 
-  Context {S: Type}
-          {M: Type -> Type} `{SM: SMonad S M}
-          {A: Type} (La: Lens S A)
-          {B: Type} (Lb: Lens S B).
-
-  Context {Hi: Independent La Lb}.
+  Context {S M} {SM: SMonad S M}
+          {A} (La: Lens S A)
+          {B} (Lb: Lens S B)
+          {Hi: Independent La Lb}.
 
   Global Instance neutral_get : Neutral La (get' Lb).
   Proof.
-    intros aa. smon_rewrite.
+    apply lensNeutral. intros aa. smon_rewrite.
   Qed.
 
   Global Instance neutral_put b : Neutral La (put' Lb b).
   Proof.
-    intros aa. smon_rewrite.
-  Qed.
-
-  Global Instance confined_neutral {X} (mx: M X) {Hmx: Confined La mx} : Neutral Lb mx.
-  Proof.
-    intros bb.
-    setoid_rewrite Hmx; [ | typeclasses eauto ].
-    setoid_rewrite Hmx; [ | typeclasses eauto ].
-    smon_rewrite.
+    apply lensNeutral. intros aa. smon_rewrite.
   Qed.
 
 End independence_section2.
+
+Section independence_section3.
+
+  Context {S M} {SM: SMonad S M}
+          {m m': Mixer S}
+          {Hm: Independent m m'}.
+
+  Global Instance neutral_putM s : Neutral m (putM m' s).
+  Proof.
+    intros t.
+    rewrite putM_spec.
+    smon_rewrite.
+    setoid_rewrite <- Mixer.independent.
+    mixer_rewrite.
+  Qed.
+
+  (* TODO: Move *)
+  Proposition putM_putM s s' {X} (f: unit -> unit -> M X) :
+    let* x := putM m' s in
+    let* y := putM m' s' in
+    f x y = putM m' s';;
+            f tt tt.
+  Proof.
+    rewrite putM_spec.
+    smon_rewrite'.
+  Qed.
+
+  Global Instance confined_neutral
+         {X} (mx: M X) {Hmx: Confined m mx} : Neutral m' mx.
+  Proof.
+    set (keeper := let* s0 := get in
+                   ret (let* s1 := get in
+                        put (m' s1 s0))).
+    assert (Neutral m keeper) as Hk.
+    - intros ss. subst keeper. rewrite putM_spec. smon_rewrite'.
+    - intros ss. transitivity (let* closure := keeper in
+                               putM m' ss;;
+                               let* x := mx in
+                               closure;;
+                               ret x).
+      + setoid_rewrite Hmx; [ | typeclasses eauto ].
+        setoid_rewrite Hmx; [ | typeclasses eauto ].
+        subst keeper. rewrite putM_spec. smon_rewrite'.
+      + subst keeper. rewrite putM_spec. smon_rewrite. smon_rewrite.
+  Qed.
+
+  (** This proof above is an indication how [get'] and [put'] can be
+  generalized from lenses to mixers using function types. *)
+
+End independence_section3.
