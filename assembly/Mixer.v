@@ -36,10 +36,29 @@ Proof.
   intros. mixer_rewrite0. reflexivity.
 Qed.
 
+Program Instance fstMixer {A} : Mixer A :=
+{
+  mixer x _ := x;
+}.
+
 Program Instance sndMixer {A} : Mixer A :=
 {
   mixer _ y := y;
 }.
+
+Section hide_instance_section.
+
+  (** This too easily *)
+
+  #[refine] Instance oppMixer {A} (f: Mixer A) : Mixer A :=
+  {
+    mixer x y := f y x;
+  }.
+  Proof.
+    all: intros; mixer_rewrite0; reflexivity.
+  Defined.
+
+End hide_instance_section.
 
 
 (** ** Equality *)
@@ -81,6 +100,16 @@ End equality_section.
 (* "\simeq" : Same level and associativity as "=". *)
 Notation "f ≃ g" := (mixerEq f g) (at level 70, no associativity) : type_scope.
 
+Proposition opp_fstMixer {A} : oppMixer fstMixer ≃ @sndMixer A.
+Proof.
+  intros x y. reflexivity.
+Qed.
+
+Proposition opp_oppMixer {A} (f: Mixer A) : oppMixer (oppMixer f) ≃ f.
+Proof.
+  intros x y. reflexivity.
+Qed.
+
 
 (** ** Submixers *)
 
@@ -112,8 +141,12 @@ Proof.
     reflexivity.
 Qed.
 
+Section hide_instance_section.
+
 Instance submixer_refl {A} {f: Mixer A} : (f | f).
 Proof. repeat intro. apply mixer_assoc. Qed.
+
+End hide_instance_section.
 
 Instance submixer_reflexive {A} : Reflexive (@Submixer A).
 Proof.
@@ -128,11 +161,13 @@ Proof.
   - rewrite mixer_left. reflexivity.
 Qed.
 
+(*
 Corollary submixer_left' {A} {f g: Mixer A} {Hs: (f|g)} x y :
   g (f x y) x = x.
 Proof.
   rewrite submixer_left. apply mixer_id.
 Qed.
+*)
 
 Proposition submixer_right {A} {f g: Mixer A} {Hs: (f|g)} x y z :
   f x (g y z) = f x z.
@@ -142,12 +177,14 @@ Proof.
   - rewrite mixer_right. reflexivity.
 Qed.
 
+(*
 Corollary submixer_right' {A} {f g: Mixer A} {Hs: (f|g)} x y :
   f x (g y x) = x.
 Proof.
   rewrite submixer_right.
   apply mixer_id.
 Qed.
+*)
 
 Lemma submixer_antisymm {A} {f g: Mixer A} (Hs: (f|g)) (Hs': (g|f)) : f ≃ g.
 Proof.
@@ -157,17 +194,24 @@ Proof.
   - rewrite submixer_left, submixer_right. reflexivity.
 Qed.
 
-Instance submixer_transitive {A} : Transitive (@Submixer A).
+(** Avoid [Instance] to control proof search. *)
+Lemma submixer_trans {A} {f g h : Mixer A} : (f | g) -> (g | h) -> (f | h).
 Proof.
-  intros f g h Hfg Hgh x y z.
+  intros Hfg Hgh x y z.
   transitivity (f (g (h x y) (h x y)) z).
   - rewrite mixer_id.
     reflexivity.
   - rewrite Hfg.
     rewrite Hgh.
     rewrite <- Hfg.
-    rewrite submixer_right'.
+    rewrite (@submixer_right A g h _).
+    rewrite mixer_id.
     reflexivity.
+Qed.
+
+Instance submixer_transitive {A} : Transitive (@Submixer A).
+Proof.
+  intros f g h. apply submixer_trans.
 Qed.
 
 Instance eq_submixer_subrelation {A} : subrelation (@mixerEq A) (@Submixer A).
@@ -176,20 +220,244 @@ Proof.
 Qed.
 
 
+
+
+Ltac mixer_rewrite1 :=
+  let H := fresh in
+  match goal with
+  | [ |- context [ @mixer _ ?f _ (@mixer _ ?g _ _)] ] =>
+    assert (f | g) as H;
+    [ typeclasses eauto
+    | setoid_rewrite (@submixer_right _ f g H) ]
+
+  | [ |- context [ @mixer _ ?f (@mixer _ ?g _ _) _] ] =>
+    first
+      [ assert (g | f) as H;
+        [ typeclasses eauto
+        | setoid_rewrite (@submixer_left _ g f H) ]
+      | assert (f | g) as H;
+        [ typeclasses eauto
+        | setoid_rewrite H ] ]
+  end.
+
+
+
+(*
+From Ltac2 Require Import Ltac2 Bool List.
+
+
+Set Default Proof Mode "Classic".
+*)
+
+Context A (f g h : Mixer A).
+
+Goal (f|g) -> (f | g).
+Proof.
+  intros.
+
+  typeclasses eauto.
+
+  refine (submixer_trans _ _); [ typeclasses eauto | ].
+
+Typeclasses eauto := debug.
+
+
+
+  ; [typeclasses eauto |].
+  eassert (f | ?[h]).
+
+
+  prove_submixer ().
+
+  intros.
+  match! goal with
+  | [ |- (?f | ?g) ] =>
+    match Constr.equal f g with
+    | true => reflexivity
+    | false => ()
+    end
+  end.
+
+
+
+Ltac mixer_rewrite1 :=
+  match goal with
+  |
+
+
+
+
+
+
+Ltac mixer_rewrite1 := mixer_rewrite0
+                       ||  match goal with
+                          | H : @Submixer ?A ?f ?g |- _ =>
+                            setoid_rewrite (@submixer_left A f g H)
+                            || setoid_rewrite (submixer_right A f g H)
+                            || setoid_rewrite (@submixer A f g H)
+                          end.
+Ltac mixer_rewrite := repeat mixer_rewrite1;
+                      try reflexivity.
+
+
+
+(** ** Rewriting *)
+
+(* TODO: Move or remove *)
+Ltac2 bool2str (b: bool) := match b with
+                         | true => "true"
+                         | false => "false"
+                         end.
+
+(* TODO: Move or remove *)
+Ltac2 of_oconstr oc :=
+  match oc with
+  | Some c => Message.concat (Message.of_string "Some ") (Message.of_constr c)
+  | None => Message.of_string "None"
+  end.
+
+Context {A} (f g h: Mixer A).
+
+CoInductive _give_up {A} (f: Mixer A) (g: Mixer A) : Prop :=
+  _independent_ctor1.
+
+Ltac2 mlLookup (f: constr) (g: constr) :=
+  match! goal with
+  | [ sub: (?f' | ?g') |- _ ] =>
+    match and (Constr.equal f f') (Constr.equal g g') with
+    | true => Some (Control.hyp sub)
+    | false => Control.zero Match_failure
+    end
+  | [ _: _give_up ?f' ?g' |- _ ] =>
+    match and (Constr.equal f f') (Constr.equal g g') with
+    | true => None
+    | false => Control.zero Match_failure
+    end
+  (*   | [ |- _ ] => let sub := Fresh.in_goal @sub in *)
+  (*               set ($sub := ltac2:(typeclasses_eauto) : ($f | $g)); *)
+  (* Some (Control.hyp sub) *)
+  | [ |- _ ] => None
+  end.
+
+Context (Hfg : (f | g)).
+Goal forall (Hfh: (f | h)), False.
+  intros.
+
+Ltac2 Eval mlLookup 'f 'g.
+
+
+
+
+Ltac2 Type mlList := ((constr * constr * constr option) list).
+
+(** Inspired by Ltac2.Pattern.v *)
+Ltac2 rec mlCheck0 (ml: mlList) (f: constr) (g: constr) :=
+  match ml with
+  | [] => None
+  | entry :: ml' =>
+    match entry with
+    | (f', g', fact) =>
+      match and (Constr.equal f f') (Constr.equal g g') with
+      | true => Some fact
+      | false => mlCheck0 ml' f g
+      end
+    end
+  end.
+
+Ltac2 mlCheck (ml: mlList) (f: constr) (g: constr) :=
+  match mlCheck0 ml f g with
+  | Some x => ml, x
+  | None =>
+    let p := fun _ => let h := Fresh.in_goal @hyp in
+                   set ($h := ltac2:(typeclasses_eauto) : ($f | $g));
+                   Some (Control.hyp h) in
+    let next := fun _ => None in
+    let hy := Control.plus p next in
+    (f, g, hy) :: ml, hy
+end.
+
+
+Ltac2 Eval mlCheck (('f, 'g, Some 'id) :: []) 'f 'g.
+
+Ltac2 Eval mlCheck [] 'f 'g.
+
+Goal forall (Hfg : (f | g)), False.
+  intros.
+
+  Ltac2 Eval mlCheck [] 'f 'g.
+
+  Ltac2 Eval match mlCheck [] 'f 'g with
+             | (_, oc) => Message.print (of_oconstr oc)
+             end.
+
+  set (H := ltac2:(match mlCheck [] 'f 'g with
+                   | (_, h) => match h with
+                              | Some hh => exact $hh (* (@eq_refl bool) (* hh *) *)
+                              | _ => exact (@eq_refl unit)
+                              end
+                   end)).
+
+
+
+  let h := ltac1:(exact I) in
+  Message.print (Message.of_string "abc").
+
+ | ];
+    Some (Control.hyp h) in
+
+
+
+
+
+  intros.
+
+Ltac2 Eval mlCheck [] 'f 'g.
+
+
+
+
+Ltac2 Eval
+match! goal with
+| [hyp: (?f'|?g') |- _] => match and (Constr.equal 'f f') (Constr.equal 'g g') with
+                         | true => Message.print (Message.of_ident hyp)
+                         | false => Message.print (Message.of_string "A'")
+                         end
+| [|- _] => Message.print (Message.of_string "B")
+end.
+
+
+
+Ltac2 Eval
+match! goal with
+| [hypo: (?f'|?g') |- _] => Some (Control.hyp hyp)
+| [|- _] => None
+end.
+
+
+
+
+Set Default Proof Mode "Classic". (***********)
+
+
+
 (** ** Independence *)
 
-Set Typeclasses Unique Instances.
+(* TODO: Is it better to use a parse-only notation? *)
+Definition Independent {A} (f g: Mixer A) := (f | oppMixer g).
 
-Class Independent {A} (f g: Mixer A) : Prop :=
-  independent x y z : g (f x y) z = f (g x z) y.
-
-Unset Typeclasses Unique Instances.
-
-(** Not declared an instance to avoid loops. *)
 Proposition independent_symm {A} (f g: Mixer A) : Independent f g <-> Independent g f.
 Proof.
   split; intros H x y z; symmetry; apply H.
 Qed.
+
+Proposition independent
+            {A} {f g: Mixer A}
+            {Hi: Independent f g}
+            {x y z} : f (g x z) y = g (f x y) z.
+Proof. apply Hi. Qed.
+
+
+
 
 
 (** *** Add symmetry hint while avoiding loops. *)
