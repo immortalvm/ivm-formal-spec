@@ -219,85 +219,77 @@ Proof.
   intros f g H. rewrite H. reflexivity.
 Qed.
 
+(* TODO: Rename? *)
+Proposition submixer_right2 {A} {f g: Mixer A} {Hs: (f|g)} x y :
+  g x (f x y) = f x y.
+Proof.
+  now rewrite <- Hs, mixer_id.
+Qed.
 
 
+From Ltac2 Require Import Ltac2 Fresh Std Control.
 
-Ltac mixer_rewrite1 :=
-  let H := fresh in
-  match goal with
+(** Why isn't this built-in? *)
+Ltac2 setoid_rewrite' (c : constr) :=
+  ltac1:(c |- setoid_rewrite c) (Ltac1.of_constr c).
+
+Ltac2 mixer_rewrite1 () :=
+  let h := Fresh.in_goal @hyp in
+  match! goal with
+
   | [ |- context [ @mixer _ ?f _ (@mixer _ ?g _ _)] ] =>
-    assert (f | g) as H;
-    [ typeclasses eauto
-    | setoid_rewrite (@submixer_right _ f g H) ]
+    first
+      [ assert ($f | $g) as $h >
+        [ ltac1:(typeclasses eauto)
+        | let hc := Control.hyp h in
+          setoid_rewrite' '(@submixer_right _ $f $g $hc) ]
+      | assert ($g | $f) as $h >
+        [ ltac1:(typeclasses eauto)
+        | let hc := Control.hyp h in
+          setoid_rewrite' '(@submixer_right2 _ $g $f $hc) ] ]
 
   | [ |- context [ @mixer _ ?f (@mixer _ ?g _ _) _] ] =>
     first
-      [ assert (g | f) as H;
-        [ typeclasses eauto
-        | setoid_rewrite (@submixer_left _ g f H) ]
-      | assert (f | g) as H;
-        [ typeclasses eauto
-        | setoid_rewrite H ] ]
+      [ assert ($g | $f) as $h >
+        [ ltac1:(typeclasses eauto)
+        | let hc := Control.hyp h in
+          setoid_rewrite' '(@submixer_left _ $g $f $hc) ]
+      | assert ($f | $g) as $h >
+        [ ltac1:(typeclasses eauto)
+        | let hc := Control.hyp h in
+          setoid_rewrite' '($hc _ _ _)] ]
+
+  | [ |- context [ @mixer _ ?f _ _ ] ] =>
+    ltac1:(setoid_rewrite mixer_id)
   end.
 
-
-
-(*
-From Ltac2 Require Import Ltac2 Bool List.
-
+Goal forall A (f g h : Mixer A) `((f|g)) `((g|h)), (f | h).
+Proof.
+  intros. intros x y z.
+  transitivity open_constr:(f (g (h x y) (h x y)) z).
+  - now ltac1:(mixer_rewrite0).
+  - now repeat (mixer_rewrite1 ()).
+Qed.
 
 Set Default Proof Mode "Classic".
-*)
+
+Ltac mixer_rewrite := repeat ltac2:(mixer_rewrite1 ());
+                      try reflexivity.
 
 Context A (f g h : Mixer A).
 
-Goal (f|g) -> (f | g).
+Goal (f|g) ->  (g|h) -> (f | h).
 Proof.
   intros.
-
-  typeclasses eauto.
-
-  refine (submixer_trans _ _); [ typeclasses eauto | ].
-
-Typeclasses eauto := debug.
-
-
-
-  ; [typeclasses eauto |].
-  eassert (f | ?[h]).
-
-
-  prove_submixer ().
-
-  intros.
-  match! goal with
-  | [ |- (?f | ?g) ] =>
-    match Constr.equal f g with
-    | true => reflexivity
-    | false => ()
-    end
-  end.
-
-
-
-Ltac mixer_rewrite1 :=
-  match goal with
-  |
+  intros x y z.
+  transitivity (f (g (h x y) (h x y)) z).
+  - now mixer_rewrite0.
+  - mixer_rewrite.
+Qed.
 
 
 
 
-
-
-Ltac mixer_rewrite1 := mixer_rewrite0
-                       ||  match goal with
-                          | H : @Submixer ?A ?f ?g |- _ =>
-                            setoid_rewrite (@submixer_left A f g H)
-                            || setoid_rewrite (submixer_right A f g H)
-                            || setoid_rewrite (@submixer A f g H)
-                          end.
-Ltac mixer_rewrite := repeat mixer_rewrite1;
-                      try reflexivity.
 
 
 
