@@ -153,6 +153,13 @@ Proof.
   intro. apply submixer_refl.
 Qed.
 
+Instance eq_submixer_subrelation {A} : subrelation (@mixerEq A) (@Submixer A).
+Proof.
+  intros f g H. rewrite H. reflexivity.
+Qed.
+
+(** *** Rewriting *)
+
 Proposition submixer_left {A} {f g: Mixer A} {Hs: (f|g)} x y z :
   g (f x y) z = g x z.
 Proof.
@@ -186,39 +193,6 @@ Proof.
 Qed.
 *)
 
-Lemma submixer_antisymm {A} {f g: Mixer A} (Hs: (f|g)) (Hs': (g|f)) : f ≃ g.
-Proof.
-  intros a a'.
-  transitivity (g (f a a') (f a a')).
-  - rewrite mixer_id; reflexivity.
-  - rewrite submixer_left, submixer_right. reflexivity.
-Qed.
-
-(** Avoid [Instance] to control proof search. *)
-Lemma submixer_trans {A} {f g h : Mixer A} : (f | g) -> (g | h) -> (f | h).
-Proof.
-  intros Hfg Hgh x y z.
-  transitivity (f (g (h x y) (h x y)) z).
-  - rewrite mixer_id.
-    reflexivity.
-  - rewrite Hfg.
-    rewrite Hgh.
-    rewrite <- Hfg.
-    rewrite (@submixer_right A g h _).
-    rewrite mixer_id.
-    reflexivity.
-Qed.
-
-Instance submixer_transitive {A} : Transitive (@Submixer A).
-Proof.
-  intros f g h. apply submixer_trans.
-Qed.
-
-Instance eq_submixer_subrelation {A} : subrelation (@mixerEq A) (@Submixer A).
-Proof.
-  intros f g H. rewrite H. reflexivity.
-Qed.
-
 (* TODO: Rename? *)
 Proposition submixer_right2 {A} {f g: Mixer A} {Hs: (f|g)} x y :
   g x (f x y) = f x y.
@@ -226,67 +200,63 @@ Proof.
   now rewrite <- Hs, mixer_id.
 Qed.
 
-
-From Ltac2 Require Import Ltac2 Fresh Std Control.
-
-(** Why isn't this built-in? *)
-Ltac2 setoid_rewrite' (c : constr) :=
-  ltac1:(c |- setoid_rewrite c) (Ltac1.of_constr c).
-
-Ltac2 mixer_rewrite1 () :=
-  let h := Fresh.in_goal @hyp in
-  match! goal with
+Ltac mixer_rewrite1 :=
+  let H := fresh in
+  match goal with
 
   | [ |- context [ @mixer _ ?f _ (@mixer _ ?g _ _)] ] =>
     first
-      [ assert ($f | $g) as $h >
-        [ ltac1:(typeclasses eauto)
-        | let hc := Control.hyp h in
-          setoid_rewrite' '(@submixer_right _ $f $g $hc) ]
-      | assert ($g | $f) as $h >
-        [ ltac1:(typeclasses eauto)
-        | let hc := Control.hyp h in
-          setoid_rewrite' '(@submixer_right2 _ $g $f $hc) ] ]
+      [ assert (f | g) as H;
+        (* f x (g y z)  ~>  f x z *)
+        [ typeclasses eauto
+        | setoid_rewrite (@submixer_right _ f g H) ]
+
+      | assert (g | f) as H;
+        (* f x (g x y)  ~>  g x y *)
+        [ typeclasses eauto
+        | setoid_rewrite (@submixer_right2 _ g f H) ] ]
 
   | [ |- context [ @mixer _ ?f (@mixer _ ?g _ _) _] ] =>
     first
-      [ assert ($g | $f) as $h >
-        [ ltac1:(typeclasses eauto)
-        | let hc := Control.hyp h in
-          setoid_rewrite' '(@submixer_left _ $g $f $hc) ]
-      | assert ($f | $g) as $h >
-        [ ltac1:(typeclasses eauto)
-        | let hc := Control.hyp h in
-          setoid_rewrite' '($hc _ _ _)] ]
+      [ assert (g | f) as H;
+        (* f (g x y) z  ~>  f x z *)
+        [ typeclasses eauto
+        | setoid_rewrite (@submixer_left _ g f H) ]
+
+      | assert (f | g) as H;
+        (* f (g x y) z  ~>  g x (f y z) *)
+        [ typeclasses eauto
+        | setoid_rewrite (H _ _ _) ] ]
 
   | [ |- context [ @mixer _ ?f _ _ ] ] =>
-    ltac1:(setoid_rewrite mixer_id)
+    (* f x x  ~>  x *)
+    setoid_rewrite mixer_id
   end.
 
-Goal forall A (f g h : Mixer A) `((f|g)) `((g|h)), (f | h).
-Proof.
-  intros. intros x y z.
-  transitivity open_constr:(f (g (h x y) (h x y)) z).
-  - now ltac1:(mixer_rewrite0).
-  - now repeat (mixer_rewrite1 ()).
-Qed.
-
-Set Default Proof Mode "Classic".
-
-Ltac mixer_rewrite := repeat ltac2:(mixer_rewrite1 ());
+Ltac mixer_rewrite := repeat mixer_rewrite1;
                       try reflexivity.
 
-Context A (f g h : Mixer A).
-
-Goal (f|g) ->  (g|h) -> (f | h).
+Lemma submixer_antisymm {A} {f g: Mixer A} (Hs: (f|g)) (Hs': (g|f)) : f ≃ g.
 Proof.
-  intros.
-  intros x y z.
+  intros a a'.
+  transitivity (g (f a a') (f a a')).
+  - now mixer_rewrite0.
+  - mixer_rewrite.
+Qed.
+
+(** Avoid [Instance] to control proof search. *)
+Lemma submixer_trans {A} {f g h : Mixer A} : (f | g) -> (g | h) -> (f | h).
+Proof.
+  intros Hfg Hgh x y z.
   transitivity (f (g (h x y) (h x y)) z).
   - now mixer_rewrite0.
   - mixer_rewrite.
 Qed.
 
+Instance submixer_transitive {A} : Transitive (@Submixer A).
+Proof.
+  intros f g h. apply submixer_trans.
+Qed.
 
 
 
