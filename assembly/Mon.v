@@ -518,7 +518,7 @@ Section neutral_section.
   Qed.
 
   Global Instance confined_bind
-         {X Y} (mx: M X) (f: X -> M Y)
+         {X Y} {mx: M X} {f: X -> M Y}
          {Hmx: Confined mx}
          {Hf: forall x, Confined (f x)} : Confined (mx >>= f).
   Proof.
@@ -545,6 +545,8 @@ Section neutral_section.
   Qed.
 
 End neutral_section.
+
+Arguments confined_bind {_ _ _ _ _ _ _ _} _ _.
 
 Section lens_section.
 
@@ -590,16 +592,6 @@ Section lens_section.
 
 End lens_section.
 
-(** This is equivalent to [Confined unitLens], which is more elegant,
-    but leads to loops, cf. MonExtras. *)
-Class Confined'
-      {S: Type}
-      {M: Type -> Type} `{SM: SMonad S M}
-      {X} (mx: M X) : Prop :=
-{
-  confined' {B} {Lb: Lens S B} :> Confined Lb mx;
-}.
-
 
 (** ** Sublenses and propriety *)
 
@@ -627,15 +619,6 @@ Section sublens_section.
     reflexivity.
   Qed.
 
-  (* TODO: Move to Mixer.v! *)
-  Proposition submixer_expand {A} {f g: Mixer A} (Hs: (f|g)) x y :
-    f x y = g x (f x y).
-  Proof.
-    transitivity (f (g x x) y).
-    - mixer_rewrite0. reflexivity.
-    - apply Hs.
-  Qed.
-
 
   (** *** Neutral *)
 
@@ -647,8 +630,7 @@ Section sublens_section.
            H s.
     destruct Hmx.
     setoid_rewrite (H s). rewrite putM_spec.
-    smon_rewrite'. setoid_rewrite submixer_left.
-    reflexivity.
+    smon_rewrite'.
   Qed.
 
   Global Instance neutral_proper {X} :
@@ -700,12 +682,29 @@ Section sublens_section.
     - apply Hc. exact H.
   Qed.
 
+
+  (** *** Corollaries *)
+
+  Context {f g: Mixer S} (Hs: (f | g)).
+
+  Instance neutral_sub {X} {mx: M X} {Hmx: Neutral g mx} : Neutral f mx.
+  Proof.
+    rewrite Hs. exact Hmx.
+  Qed.
+
+  Instance confined_sub {X} {mx: M X} {Hmx: Confined f mx} : Confined g mx.
+  Proof.
+    rewrite Hs in Hmx. exact Hmx.
+  Qed.
+
 End sublens_section.
 
 (* TODO: How useful is this? *)
 Arguments lens_get_proper {_ _ _ _ _ _} _.
 Arguments lens_put_proper {_ _ _ _ _ _} _ {_ _} _.
 Arguments neutral_proper {_ _ _ _ _ _} _ {_ _} _.
+Arguments neutral_sub {_ _ _ _} g Hs {_ _ _}.
+Arguments confined_sub {_ _ _} f {_} Hs {_ _ _}.
 
 
 (** ** Independence *)

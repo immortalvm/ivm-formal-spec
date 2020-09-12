@@ -107,7 +107,7 @@ Qed.
 
 Instance lens2mixer {A X} (L: Lens A X) : Mixer A := compositeMixer sndMixer L.
 
-Instance lens2lens_proper {A X} : Proper (@lensEq A X ==> @mixerEq A) lens2mixer.
+Instance lens2mixer_proper {A X} : Proper (@lensEq A X ==> @mixerEq A) lens2mixer.
 Proof.
   intros L L' Hl.
   unfold lens2mixer.
@@ -120,8 +120,8 @@ Coercion lens2mixer : Lens >-> Mixer.
 
 (** ** Independent lenses *)
 
-(** This is a trivial consequence of [independent_proper] and
-[lens2lens_proper]. I am not sure what it would take for [typeclasses
+(** This is a trivial consequence of [Mixer.independent_proper] and
+[lens2mixer_proper]. I am not sure what it would take for [typeclasses
 eauto] to solve such goals automatically.*)
 
 (* Shadows [Mixer.independence_proper] *)
@@ -139,21 +139,22 @@ Section independence_section.
           {Lx: Lens A X}
           {Ly: Lens A Y}.
 
-  Instance independent_update (H: forall a (x: X) (y: Y),
-                                  update (update a x) y = update (update a y) x) :
+  Instance independent_update
+           (H: forall a (x: X) (y: Y), update (update a x) y = update (update a y) x) :
     Independent Lx Ly.
   Proof.
     intros a ax ay. cbn. rewrite H. reflexivity.
   Qed.
 
-  Context (Hi: Independent Lx Ly).
+  Context {Hi: Independent Lx Ly}.
 
   (* Shadows [Mixer.independent] *)
   Proposition independent a (x: X) (y: Y):
     update (update a x) y = update (update a y) x.
   Proof.
     specialize (Hi a (update a x) (update a y)).
-    cbn in Hi. lens_rewrite0  in Hi.
+    cbn in Hi. lens_rewrite0 in Hi.
+    symmetry. (* TODO: Swap order in Mixer to match? *)
     exact Hi.
   Qed.
 
@@ -173,46 +174,14 @@ Section independence_section.
 
 End independence_section.
 
-Arguments proj2_update1 {_ _ _ _ _ Hi}.
-Arguments proj1_update2 {_ _ _ _ _ Hi}.
-
 Hint Rewrite @proj2_update1 using (typeclasses eauto) : lens.
 Hint Rewrite @proj1_update2 using (typeclasses eauto) : lens.
-
-
-(** *** Use [independent] in one direction only (cf. [Mixer.rewrite_independent]) *)
-
-Ltac rewrite_independent :=
-  match goal with
-    |- context [ @update _ _ ?Ly (@update _ _ ?Lx _ _) _ ] =>
-    let indeq := fresh "indeq" in
-    assert (indeq:=@eq_refl _ (_independent_ctor2 Lx Ly));
-    lazymatch goal with
-    | [ _ : _independent_ctor2 _ _ (Hi := (let _ := _ in @Mixer.independent_symm_imp _ _ _ _)) = _ |- _ ] =>
-      fail
-    | [ _ : _independent_ctor2 _ _ (Hi := ?Hi) = _ |- _ ] =>
-      clear indeq;
-      setoid_rewrite (@independent _ _ _ Lx Ly Hi)
-    end
-  end.
-
-(** **** Test *)
-
-Goal forall {A X Y} (L: Lens A X) (L':Lens A Y) (H: Independent L L')
-       a (x:X) (y:Y), update (update a x) y = update (update a y) x.
-  intros.
-  (* Rewrites once, but not twice (back to the original). *)
-  progress rewrite_independent.
-  assert_fails (progress rewrite_independent).
-  reflexivity.
-Qed.
-
+Hint Rewrite @independent using (typeclasses eauto) : lens.
 
 (** *** Rewrite tactics *)
 
 Ltac lens_rewrite1 := unfold compose;
                       lens_rewrite0
-                      || rewrite_independent
                       || mixer_rewrite1.
 Ltac lens_rewrite := repeat lens_rewrite1;
                      try reflexivity.
@@ -390,9 +359,8 @@ Infix "*" := prodLens : lens_scope.
 
 Hint Extern 5 => setoid_rewrite prodLens_prodMixer : typeclass_instances.
 
-(** Test *)
 Goal forall {A X Y: Type} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly},
-    (Lx | prodLens Lx Ly).
+    (Lx | Lx * Ly).
 Proof.
   typeclasses eauto.
 Qed.

@@ -239,6 +239,8 @@ Module Core (MP: MachineParameters).
   Existing Instance H_eqdec.
   Global Existing Instance H_mon.
 
+  Notation "⫫" := (@fstMixer State).
+
 
   (** *** Addressable  *)
 
@@ -283,8 +285,14 @@ Module Core (MP: MachineParameters).
   Instance MEM' u : Lens State (restr u) :=
     (restrLens u) ∘ MEM.
 
+  (* TODO: Move to Lens.v (replacing useless variant) *)
+  Hint Extern 2 (@Submixer _ (@lens2mixer _ _ (@compositeLens _ _ _ ?Ly ?Lx))
+                           (@lens2mixer _ _ ?Lx)) =>
+      apply sublens_comp' : typeclass_instances.
+
   Global Instance subset_mem u : (MEM' u | MEM).
-    typeclasses eauto.
+  Proof.
+    unfold MEM'. typeclasses eauto.
   Qed.
 
   Instance MEM'' a : Lens State (available a -> option Cell) :=
@@ -292,7 +300,7 @@ Module Core (MP: MachineParameters).
 
   Instance point_mem {a} : (MEM'' a | MEM).
   Proof.
-    typeclasses eauto.
+    unfold MEM''. typeclasses eauto.
   Qed.
 
   Global Instance point_mem' {a u} (Hau: a ∈ u) : (MEM'' a | MEM' u).
@@ -325,9 +333,9 @@ Module Core (MP: MachineParameters).
   Definition extr_spec := unfolded_eq (@extr).
 
   Global Instance confined_extr
-         {X} (ox: option X) : Confined' (extr ox).
+         {X} (ox: option X) : Confined ⫫ (extr ox).
   Proof.
-    split; typeclasses eauto.
+    typeclasses eauto.
   Qed.
 
   Global Opaque extr.
@@ -356,10 +364,24 @@ Module Core (MP: MachineParameters).
     smon_rewrite.
   Qed.
 
+  (* TODO: Move to Mon.v ? *)
+  (** A (hopefully) safe way to express that [Confined] is closed under submixers. *)
+  Ltac confined_tac' m t :=
+    assert_fails (is_evar m);
+    let Hconf := fresh "Hconf" in
+    let f := fresh "fConf" in
+    evar (f: Mixer State);
+    assert (Confined f t) as Hconf;
+    [ subst f; typeclasses eauto
+    | eapply (confined_sub f _); typeclasses eauto ].
+  Ltac confined_tac := match goal with
+                         |- Confined ?m ?t => confined_tac' m t
+                       end.
+  Hint Extern 2 (Confined ?m ?t) =>
+    confined_tac' m t : typeclass_instances.
+
   Global Instance confined_load {a} : Confined (MEM'' a) (load a).
-  Proof.
-    typeclasses eauto.
-  Qed.
+  Proof. typeclasses eauto. Qed.
 
   Opaque load.
 
@@ -391,14 +413,14 @@ Module Core (MP: MachineParameters).
       reflexivity.
   Qed.
 
+  (* TODO: [unfold compose] is annoying. Use notation instead? *)
+
   Global Instance confined_store a x : Confined (MEM'' a) (store a x).
   Proof.
     typeclasses eauto.
   Qed.
 
   Opaque store.
-
-  (* TODO: [unfold compose] is annoying. Use notation instead? *)
 
 
   (** *** Reordering load and store operations *)
@@ -477,6 +499,12 @@ Module Core (MP: MachineParameters).
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
 
+  Instance subset_mem' {u v} {Huv: u ⊆ v} : (MEM' u | MEM' v).
+  Proof.
+    apply sublens_comp, submixer_subset.
+    exact Huv.
+  Qed.
+
   Global Instance confined_loadMany n a : Confined (MEM' (nAfter n a)) (loadMany n a).
   Proof.
     (* TODO: automate! *)
@@ -486,17 +514,38 @@ Module Core (MP: MachineParameters).
       simp loadMany.
     - typeclasses eauto.
     - specialize (IHn (offset 1 a)).
-      apply confined_bind.
-      + unshelve eapply confined_sublens, confined_load.
+
+
+
+(* TODO: Continue from here! *)
+
+
+      Existing Instance pointLens_sublens.
+      Existing Instance sublens_comp.
+      Existing Instance subset_mem'.
+      set (H := nAfter_succ n).
+
+      Hint Extern 3 =>
+        refine (pointLens_sublens (nAfter_zero _ _)) : typeclass_instances.
+
+      Hint Extern 3 =>
+        unshelve eapply (confined_sub _ subset_mem').
+
+      unshelve eapply confined_bind.
+      + unshelve confined_tac.
+(*
+      +
+        subst fConf.
         apply sublens_comp.
+        typeclasses eauto.
         refine (pointLens_sublens (nAfter_zero n a)).
+*)
       + intros x.
-        apply confined_bind.
-        * eapply confined_sublens.
-          apply IHn.
-          Unshelve.
-          apply sublens_comp, subsetSublens, nAfter_succ.
-        * typeclasses eauto.
+        typeclasses eauto.
+
+        unshelve eapply (confined_bind _ _).
+        unshelve eapply (confined_sub _ subset_mem').
+        apply nAfter_succ.
   Qed.
 
   (** [simp] does not work under binders (yet), and (for some reason)
@@ -529,14 +578,38 @@ Module Core (MP: MachineParameters).
       reflexivity.
   Qed.
 
-  (* Remove Hints point_mem point_mem' point_mem'' sublens_comp subset_mem : typeclass_instances. *)
+  Ltac confined_tac :=
+    match goal with
+    | [ |- Confined ?mixer ?term ] =>
+      let H := fresh "Hconf" in
+      let mixer' := fresh "mix" in
+      evar (mixer': Mixer State);
+      assert (Confined mixer' term) as Hconf; [ typeclasses eauto |];
+      unshelve eapply confined_sublens
+    end.
+
+
 
   Global Instance confined_next n : Confined (MEM * PC) (next n).
   Proof.
+    (* TODO: Automate! *)
     rewrite next_spec.
-    typeclasses eauto.
 
-    (* TODO: Leaves shelved goals of type Addr. *)
+    apply confined_bind.
+    evar (f: Mixer State).
+    assert (Confined f (get' PC)).
+    typeclasses eauto.
+    apply (confined_sublens f _ H).
+
+let o := open_constr:(Mixer _) in
+unshelve evar (x:o); [typeclasses eauto|idtac x].
+
+
+    apply confined_bind; [ apply (confined_sublens PC _) |]. intros a.
+    apply confined_bind; [ apply (confined_sublens PC _) |]. intros [].
+    unshelve eapply (confined_sublens (MEM' _) _).
+    3: apply confined_loadMany.
+    transitivity MEM; typeclasses eauto.
   Qed.
 
   (* TODO: Does this have a useful form? *)
@@ -544,9 +617,9 @@ Module Core (MP: MachineParameters).
     Confined (MEM' (nAfter n a) * PC)
              (put' PC a;; next n).
   Proof.
-    rewrite next_spec.
-    smon_rewrite.
-    typeclasses eauto.
+    rewrite next_spec. smon_rewrite.
+    apply confined_bind; [ apply (confined_sublens PC _) |]. intros [].
+    apply (confined_sublens (MEM' _) _).
   Qed.
 
 
@@ -1114,7 +1187,7 @@ typeclasses eauto.
   Definition extractImage_spec := unfolded_eq (extractImage).
   Global Opaque extractImage.
 
-  Global Instance extractImage_confined img : Confined' (extractImage img).
+  Global Instance extractImage_confined img : Confined ⫫ (extractImage img).
   Proof. rewrite extractImage_spec. split. typeclasses eauto. Qed.
 
   Definition newFrame (w r h: N) : M unit :=

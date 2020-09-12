@@ -7,7 +7,7 @@ Unset Suggest Proof Using.
 
 (** ** Extensionality *)
 
-Section char_section.
+Section ext_section.
 
   Local Arguments proj {_ _} _ _.
   Local Arguments update {_ _} _ _ _.
@@ -33,7 +33,88 @@ Section char_section.
     f_equal; apply proof_irrelevance.
    Qed.
 
-End char_section.
+End ext_section.
+
+
+(** ** Every mixer is a product lens (assuming extensionality) *)
+
+Section mixer_section.
+
+  Arguments exist {_ _}.
+
+  Context {A} (f: Mixer A).
+
+  Proposition mix_lens1_prop
+              (g: A -> A) (H: forall a b, f a (g b) = g a)
+              a b : g (f a b) = g a.
+  Proof.
+    transitivity (f (f a b) (g a)).
+    + now rewrite H.
+    + mixer_rewrite0. now rewrite H.
+  Qed.
+
+  Let X := { g : A -> A | forall a b, f a (g b) = g a }.
+
+  #[refine] Instance mix_lens1 : Lens A X :=
+  {
+    proj a := exist (fun b => f b a) _;
+    update a x := proj1_sig x a;
+  }.
+  Proof.
+    - abstract mixer_rewrite'.
+    - intros a [h H]. cbn.
+      apply subset_eq_compat. extensionality b.
+      apply H.
+    - intros a. cbn. now mixer_rewrite0.
+    - intros a [h H] [h' H']. cbn.
+      transitivity (h' (f a (h a))).
+      + now rewrite H.
+      + now rewrite mix_lens1_prop.
+  Defined.
+
+  Proposition mix_lens2_prop
+              (g: A -> A) (H: forall a b, f (g a) b = g b)
+              a b : g (f a b) = g b.
+  Proof.
+    transitivity (f (g b) (f a b)).
+    + now rewrite H.
+    + mixer_rewrite0. now rewrite H.
+  Qed.
+
+  Let Y := { g : A -> A | forall a b, f (g a) b = g b }.
+
+  #[refine] Instance mix_lens2 : Lens A Y :=
+  {
+    proj a := exist (fun b => f a b) _;
+    update a x := proj1_sig x a;
+  }.
+  Proof.
+    - mixer_rewrite'.
+    - intros a [h H]. cbn.
+      apply subset_eq_compat. extensionality b.
+      apply H.
+    - intros a. cbn. now mixer_rewrite0.
+    - intros a [h H] [h' H']. cbn.
+      transitivity (h' (f (h a) a)).
+      + now rewrite H.
+      + now rewrite mix_lens2_prop.
+  Defined.
+
+  Instance mix_ind : Independent mix_lens1 mix_lens2.
+  Proof. mixer_rewrite'. Qed.
+
+  Lemma mix_inj a b (Hx: proj a = proj b :> X) (Hy: proj a = proj b :> Y) : a = b.
+  Proof.
+    inversion Hx as [Hx'].
+    inversion Hy as [Hy'].
+    transitivity (f a a); [now mixer_rewrite0|];
+      transitivity (f b b); [|now mixer_rewrite0].
+    change (f a a) with ((fun x => f x a) a). rewrite Hx'.
+    change (f a b) with ((fun x => f a x) b). rewrite Hy'.
+    reflexivity.
+  Qed.
+
+End mixer_section.
 
 
 (** ** Elementary *)
