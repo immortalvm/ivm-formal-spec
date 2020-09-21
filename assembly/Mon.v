@@ -623,7 +623,7 @@ Section sublens_section.
   (** *** Neutral *)
 
   Global Instance neutral_proper_sub {X} :
-    Proper (@Submixer S ==> @eq (M X) ==> flip impl) Neutral.
+    Proper (@Submixer S ==> @eq (M X) ==> flip impl) Neutral | 15.
   Proof.
     intros m m' Hm
            mx mx' Hmx
@@ -634,7 +634,7 @@ Section sublens_section.
   Qed.
 
   Global Instance neutral_proper {X} :
-    Proper (@mixerEq S ==> @eq (M X) ==> iff) Neutral.
+    Proper (@mixerEq S ==> @eq (M X) ==> iff) Neutral | 15.
   Proof.
     intros m m' Hm
            mx mx' Hmx.
@@ -648,7 +648,7 @@ Section sublens_section.
 
   (* TODO: Useful? *)
   Global Instance neutral_proper' {A X} :
-    Proper (@lensEq S A ==> @eq (M X) ==> iff) Neutral.
+    Proper (@lensEq S A ==> @eq (M X) ==> iff) Neutral | 15.
   Proof.
     intros La La' Hla
            mx mx' Hmx.
@@ -669,7 +669,7 @@ Section sublens_section.
   (** *** Confined *)
 
   Global Instance confined_proper_sub {X} :
-    Proper (@Submixer S ==> @eq (M X) ==> impl) Confined.
+    Proper (@Submixer S ==> @eq (M X) ==> impl) Confined | 15.
   Proof.
     intros m m' Hm
            mx mx' Hmx Hc

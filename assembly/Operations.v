@@ -1,3 +1,6 @@
+(* TODO: Move to Init.v*)
+Require Import Coq.Program.Tactics.
+
 From Assembly Require Export Restr Mon.
 From Assembly Require Import DSet.
 Import DSetNotations.
@@ -285,6 +288,8 @@ Module Core (MP: MachineParameters).
   Instance MEM' u : Lens State (restr u) :=
     (restrLens u) ∘ MEM.
 
+
+
   (* TODO: Move to Lens.v (replacing useless variant) *)
   Hint Extern 2 (@Submixer _ (@lens2mixer _ _ (@compositeLens _ _ _ ?Ly ?Lx))
                            (@lens2mixer _ _ ?Lx)) =>
@@ -293,6 +298,11 @@ Module Core (MP: MachineParameters).
   Global Instance subset_mem u : (MEM' u | MEM).
   Proof.
     unfold MEM'. typeclasses eauto.
+  Qed.
+
+  Global Instance itest u f `((MEM | f)) : (MEM' u | f).
+  Proof.
+    transitivity MEM; typeclasses eauto.
   Qed.
 
   Instance MEM'' a : Lens State (available a -> option Cell) :=
@@ -377,7 +387,7 @@ Module Core (MP: MachineParameters).
   Ltac confined_tac := match goal with
                          |- Confined ?m ?t => confined_tac' m t
                        end.
-  Hint Extern 2 (Confined ?m ?t) =>
+  Hint Extern 10 (Confined ?m ?t) =>
     confined_tac' m t : typeclass_instances.
 
   Global Instance confined_load {a} : Confined (MEM'' a) (load a).
@@ -422,7 +432,6 @@ Module Core (MP: MachineParameters).
 
   Opaque store.
 
-
   (** *** Reordering load and store operations *)
 
   Lemma store_load a x {Y} (f: unit -> Cell -> M Y) : let* u := store a x in
@@ -466,8 +475,8 @@ Module Core (MP: MachineParameters).
     f_equal. lia.
   Qed.
 
-  Definition nAfter (n: nat) (a: Addr) : DSet Addr
-    := def (fun a' => exists i, (i<n)%nat /\ offset i a = a').
+  Definition nAfter (n: nat) (a: Addr) : DSet Addr :=
+    def (fun a' => exists i, (i<n)%nat /\ offset i a = a').
 
   Proposition nAfter_zero n a : a ∈ nAfter (S n) a.
   Proof.
@@ -475,6 +484,9 @@ Module Core (MP: MachineParameters).
     - lia.
     - apply Z_action_zero.
   Qed.
+
+  (* TODO: Repeat after section if necessary. *)
+  Hint Extern 3 (_ ∈ nAfter _ _) => rapply nAfter_zero : typeclass_instances.
 
   Proposition nAfter_succ n a : nAfter n (offset 1 a) ⊆ nAfter (S n) a.
   Proof.
@@ -489,6 +501,8 @@ Module Core (MP: MachineParameters).
     - rewrite <- offset_inc. exact Ho.
   Qed.
 
+  Hint Extern 3 (_ ⊆ nAfter _ _) => rapply nAfter_succ : typeclass_instances.
+
   Definition nBefore n a := nAfter n (offset (-n) a).
 
   (* TODO: noind is used to circumvent what appears to be an Equation bug. *)
@@ -499,7 +513,7 @@ Module Core (MP: MachineParameters).
       let* r := loadMany n (offset 1 a) in
       ret (x :: r).
 
-  Instance subset_mem' {u v} {Huv: u ⊆ v} : (MEM' u | MEM' v).
+  Global Instance subset_mem' {u v} {Huv: u ⊆ v} : (MEM' u | MEM' v).
   Proof.
     apply sublens_comp, submixer_subset.
     exact Huv.
@@ -507,45 +521,13 @@ Module Core (MP: MachineParameters).
 
   Global Instance confined_loadMany n a : Confined (MEM' (nAfter n a)) (loadMany n a).
   Proof.
-    (* TODO: automate! *)
     revert a.
     induction n;
       intros a;
       simp loadMany.
     - typeclasses eauto.
     - specialize (IHn (offset 1 a)).
-
-
-
-(* TODO: Continue from here! *)
-
-
-      Existing Instance pointLens_sublens.
-      Existing Instance sublens_comp.
-      Existing Instance subset_mem'.
-      set (H := nAfter_succ n).
-
-      Hint Extern 3 =>
-        refine (pointLens_sublens (nAfter_zero _ _)) : typeclass_instances.
-
-      Hint Extern 3 =>
-        unshelve eapply (confined_sub _ subset_mem').
-
-      unshelve eapply confined_bind.
-      + unshelve confined_tac.
-(*
-      +
-        subst fConf.
-        apply sublens_comp.
-        typeclasses eauto.
-        refine (pointLens_sublens (nAfter_zero n a)).
-*)
-      + intros x.
-        typeclasses eauto.
-
-        unshelve eapply (confined_bind _ _).
-        unshelve eapply (confined_sub _ subset_mem').
-        apply nAfter_succ.
+      typeclasses eauto.
   Qed.
 
   (** [simp] does not work under binders (yet), and (for some reason)
@@ -578,38 +560,10 @@ Module Core (MP: MachineParameters).
       reflexivity.
   Qed.
 
-  Ltac confined_tac :=
-    match goal with
-    | [ |- Confined ?mixer ?term ] =>
-      let H := fresh "Hconf" in
-      let mixer' := fresh "mix" in
-      evar (mixer': Mixer State);
-      assert (Confined mixer' term) as Hconf; [ typeclasses eauto |];
-      unshelve eapply confined_sublens
-    end.
-
-
-
   Global Instance confined_next n : Confined (MEM * PC) (next n).
   Proof.
-    (* TODO: Automate! *)
     rewrite next_spec.
-
-    apply confined_bind.
-    evar (f: Mixer State).
-    assert (Confined f (get' PC)).
     typeclasses eauto.
-    apply (confined_sublens f _ H).
-
-let o := open_constr:(Mixer _) in
-unshelve evar (x:o); [typeclasses eauto|idtac x].
-
-
-    apply confined_bind; [ apply (confined_sublens PC _) |]. intros a.
-    apply confined_bind; [ apply (confined_sublens PC _) |]. intros [].
-    unshelve eapply (confined_sublens (MEM' _) _).
-    3: apply confined_loadMany.
-    transitivity MEM; typeclasses eauto.
   Qed.
 
   (* TODO: Does this have a useful form? *)
@@ -618,8 +572,7 @@ unshelve evar (x:o); [typeclasses eauto|idtac x].
              (put' PC a;; next n).
   Proof.
     rewrite next_spec. smon_rewrite.
-    apply confined_bind; [ apply (confined_sublens PC _) |]. intros [].
-    apply (confined_sublens (MEM' _) _).
+    typeclasses eauto.
   Qed.
 
 
@@ -636,7 +589,14 @@ unshelve evar (x:o); [typeclasses eauto|idtac x].
 
   Global Instance confined_pop : Confined (MEM * SP) pop.
   Proof.
+    apply confined_bind.
     typeclasses eauto.
+    intros x.
+    apply confined_bind.
+    typeclasses eauto.
+    intros [].
+    typeclasses eauto.
+
   Qed.
 
   Global Instance confined_pop' sp :
