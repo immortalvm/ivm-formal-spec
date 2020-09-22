@@ -1,6 +1,3 @@
-(* TODO: Move to Init.v*)
-Require Import Coq.Program.Tactics.
-
 From Assembly Require Export Restr Mon.
 From Assembly Require Import DSet.
 Import DSetNotations.

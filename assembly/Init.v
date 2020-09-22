@@ -8,6 +8,7 @@ Require Export Coq.Vectors.Vector. (** Does not open [vector_scope]. *)
 Require Export Coq.Bool.Bvector.
 Require Export Coq.Lists.List. (** Opens [list_scope]. *)
 Require Export Coq.Program.Basics.
+Require Export Coq.Program.Tactics.
 
 Export EqNotations.
 
