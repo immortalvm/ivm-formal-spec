@@ -151,7 +151,7 @@ Proof.
   intro. apply submixer_refl.
 Qed.
 
-Instance eq_submixer_subrelation {A} : subrelation (@mixerEq A) (@Submixer A).
+Proposition eq_submixer_subrelation {A} : subrelation (@mixerEq A) (@Submixer A).
 Proof.
   intros f g H. rewrite H. reflexivity.
 Qed.
@@ -174,8 +174,7 @@ Proof.
   - rewrite mixer_right. reflexivity.
 Qed.
 
-(* TODO: Rename? *)
-Proposition submixer_right2 {A} {f g: Mixer A} {Hs: (f|g)} x y :
+Proposition submixer_right' {A} {f g: Mixer A} {Hs: (f|g)} x y :
   g x (f x y) = f x y.
 Proof.
   now rewrite <- Hs, mixer_id.
@@ -194,15 +193,15 @@ Proof.
   split; intros H x y z; apply H.
 Qed.
 
-Proposition independent_symm' {A} {f g: Mixer A} : Independent f g -> Independent g f.
+Instance independent_symmetric {A} : Symmetric (@Independent A).
 Proof.
-  intros H x y z; symmetry; apply H.
+  intros f g H x y z; symmetry; apply H.
 Qed.
 
 (** This can be used with [setoid_rewrite]. *)
 Corollary independent_symm {A} (f g: Mixer A) : Independent f g <-> Independent g f.
 Proof.
-  split; apply independent_symm'.
+  split; apply independent_symmetric.
 Qed.
 
 Proposition independent_left {A} (f g: Mixer A) {Hi: Independent f g} x y :
@@ -224,7 +223,7 @@ Section indie_section.
   Global Instance independent_forward (Hi: Independent f g): Independent' := Hi.
 
   Global Instance independent_backward (Hi: Independent g f): Independent' :=
-    independent_symm' Hi.
+    independent_symmetric g f Hi.
 
   Context {Hi: Independent'}.
 
@@ -250,6 +249,13 @@ Qed.
 
 Arguments independent' {_ _ _} _.
 
+Instance independent_symmetric' {A} : Symmetric (@Independent' A).
+Proof.
+  intros f g H.
+  apply independent_backward, independent'.
+  exact H.
+Qed.
+
 
 (** ** Rewrite/reduction tactic *)
 
@@ -267,7 +273,7 @@ Ltac mixer_rewrite1 :=
       | assert (g | f) as H;
         (* f x (g x y)  ~>  g x y *)
         [ typeclasses eauto
-        | setoid_rewrite (@submixer_right2 _ g f H) ]
+        | setoid_rewrite (@submixer_right' _ g f H) ]
 
       | assert (Independent' g f) as H;
         (* f x (g y z)  ~>  f x y *)
@@ -312,6 +318,12 @@ Ltac mixer_rewrite := repeat mixer_rewrite1; try reflexivity.
 Ltac mixer_rewrite' := repeat intro; cbn; mixer_rewrite.
 
 
+Instance fstMixer_independent {A} (f: Mixer A) : Independent fstMixer f.
+Proof.
+  mixer_rewrite'.
+Qed.
+
+
 (** ** More submixer properties *)
 
 Lemma submixer_antisymm {A} {f g: Mixer A} (Hs: (f|g)) (Hs': (g|f)) : f ≃ g.
@@ -335,16 +347,11 @@ Proof.
   intros f g h. apply submixer_trans.
 Qed.
 
-Create HintDb submixers discriminated.
-
 Proposition submixer_fst {A} (f: Mixer A) : (fstMixer | f).
 Proof. mixer_rewrite'. Qed.
-Hint Resolve submixer_fst : submixers.
 
 Proposition submixer_snd {A} (f: Mixer A) : (f | sndMixer).
 Proof. mixer_rewrite'. Qed.
-Hint Resolve submixer_snd : submixers.
-
 
 
 (** *** Propriety *)
@@ -375,6 +382,7 @@ Instance independent_proper {A} :
   Proper (@mixerEq A ==> @mixerEq A ==> iff) (@Independent A).
 Proof.
   (* The direct proof is not much longer. *)
+  set (Hsub := @eq_submixer_subrelation).
   intros f f' Hf
          g g' Hg.
   split; intro H.
@@ -405,51 +413,64 @@ Section prod_section.
   Instance submixer_prod2 : (g | prodMixer).
   Proof. mixer_rewrite'. Qed.
 
-  Instance submixer_prod0
+  Global Instance submixer_prod_right
          (h: Mixer A)
          {Hf: (f | h)}
          {Hg: (g | h)} : (prodMixer | h).
   Proof. mixer_rewrite'. Qed.
 
-  (** Thus, [prodMixer] is the least upper bound w.r.t. [(_ | _)]. *)
+  (** Thus, [prodMixer] is a least upper bound w.r.t. [Submixer]. *)
 
-  Global Instance independent_prod
-         {h: Mixer A}
-         (Hf: Independent f h)
-         (Hg: Independent g h) : Independent prodMixer h.
+  Global Instance submixer_prod_left1
+         (h: Mixer A) {Hf: (h | f)} : (h | prodMixer).
+  Proof.
+    transitivity f.
+    - exact Hf.
+    - exact submixer_prod1.
+  Qed.
+
+  Global Instance submixer_prod_left2
+         (h: Mixer A) {Hg: (h | g)} : (h | prodMixer).
+  Proof.
+    transitivity g.
+    - exact Hg.
+    - exact submixer_prod2.
+  Qed.
+
+  Instance independent_prod
+           (h: Mixer A)
+           {Hf: Independent f h}
+           {Hg: Independent g h} : Independent prodMixer h.
   Proof.
     intros x y z. cbn. mixer_rewrite.
   Qed.
+
+  Global Instance independent_prod'
+           (h: Mixer A)
+           {Hf: Independent' f h}
+           {Hg: Independent' g h} : Independent' prodMixer h.
+  Proof.
+    apply independent_forward, independent_prod.
+    - apply Hf.
+    - apply Hg.
+  Qed.
+
+  Global Instance independent_prod''
+           (h: Mixer A)
+           {Hf: Independent' h f}
+           {Hg: Independent' h g} : Independent' h prodMixer.
+  Proof.
+    symmetry.
+    apply independent_prod';
+      symmetry;
+      assumption.
+  Qed.
+
 
 End prod_section.
 
 (* "\times" : The same level and associativity as "*". *)
 Infix "×" := prodMixer (at level 40, left associativity) : lens_scope.
-
-Section flip_section.
-
-  Context {A} (f g: Mixer A)
-          {Hi: Independent' f g}
-          {Hi': Independent' g f}.
-
-  (* [Hi'] follows from [Hi], but assuming it makes the propositions more
-  general. *)
-
-  Instance ind_flip : Independent f g := independent' Hi.
-
-  Proposition prodMixer_comm : g × f ≃ f × g.
-  Proof.
-    intros x y. cbn.
-    clear Hi'. (* Avoid rewrite loop *)
-    mixer_rewrite.
-  Qed.
-
-  Instance submixer_prod3 : (f × g | g × f).
-  Proof.
-    rewrite prodMixer_comm. reflexivity.
-  Qed.
-
-End flip_section.
 
 (** I am not sure how to make this an actual instance of [Proper]. *)
 Proposition prodMixer_proper {A}
@@ -461,52 +482,4 @@ Proposition prodMixer_proper {A}
   f × g ≃ f' × g'.
 Proof.
   intros x y. cbn. rewrite Hf, Hg. reflexivity.
-Qed.
-
-Section more_prod_section.
-
-  Context {A: Type}.
-
-  Instance prodMixer_proper_sub
-              {f f': Mixer A} (Hf: (f | f'))
-              {g g': Mixer A} (Hg: (g | g'))
-              {Hi: Independent f g} (* redundant, but convenient *)
-              {Hi': Independent f' g'} :
-    (f × g | f' × g').
-  Proof.
-    intros x y z. cbn.
-    assert (Independent f g') as H; [ rewrite Hf; exact Hi' | ].
-    assert (Independent f' g) as H'; [ rewrite Hg; exact Hi' | ].
-    mixer_rewrite.
-  Qed.
-
-End more_prod_section.
-
-
-(** ** Submixer tactic *)
-
-(** Assumes non-reflexive goal of the form [(@Submixer _ _ _)]. *)
-Ltac submixer_tac :=
-  lazymatch goal with
-  | |- (?f × ?g | ?h) => apply (submixer_prod0 f g h)
-  | |- (?f | ?g × ?h) => (transitivity g; [ typeclasses eauto
-                                        | apply (submixer_prod1 g h) ])
-                       || (transitivity h; [ typeclasses eauto
-                                          | apply (submixer_prod2 g h) ])
-  | |- (?f | ?g) => typeclasses eauto with submixers
-  end.
-
-Hint Extern 3 => submixer_tac : typeclass_instances.
-
-Instance fstMixer_independent {A} (f: Mixer A) : Independent fstMixer f.
-Proof.
-  mixer_rewrite'.
-Qed.
-
-Goal forall {A : Type} (f g h: Mixer A)
-       {H1: Independent f g}
-       {H2: Independent g h}
-       {H3: Independent f h},
-    (h × f × fstMixer | f × g × h).
-  typeclasses eauto.
 Qed.

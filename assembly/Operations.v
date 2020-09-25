@@ -241,6 +241,8 @@ Module Core (MP: MachineParameters).
 
   Notation "⫫" := (@fstMixer State).
 
+  Existing Instance submixer_fst.
+
 
   (** *** Addressable  *)
 
@@ -285,29 +287,31 @@ Module Core (MP: MachineParameters).
   Instance MEM' u : Lens State (restr u) :=
     (restrLens u) ∘ MEM.
 
-
-
-  (* TODO: Move to Lens.v (replacing useless variant) *)
-  Hint Extern 2 (@Submixer _ (@lens2mixer _ _ (@compositeLens _ _ _ ?Ly ?Lx))
-                           (@lens2mixer _ _ ?Lx)) =>
-      apply sublens_comp' : typeclass_instances.
-
-  Global Instance subset_mem u : (MEM' u | MEM).
+  Proposition subset_mem u : (MEM' u | MEM).
   Proof.
     unfold MEM'. typeclasses eauto.
   Qed.
 
-  Global Instance itest u f `((MEM | f)) : (MEM' u | f).
+  Global Instance subset_mem2 f {Hf: (MEM | f)} u : (MEM' u | f).
   Proof.
-    transitivity MEM; typeclasses eauto.
+    transitivity MEM.
+    - apply subset_mem.
+    - exact Hf.
   Qed.
 
   Instance MEM'' a : Lens State (available a -> option Cell) :=
     (pointLens a) ∘ MEM.
 
-  Instance point_mem {a} : (MEM'' a | MEM).
+  Proposition point_mem a : (MEM'' a | MEM).
   Proof.
     unfold MEM''. typeclasses eauto.
+  Qed.
+
+  Global Instance point_mem2 f {Hf: (MEM | f)} a : (MEM'' a | f).
+  Proof.
+    transitivity MEM.
+    - apply point_mem.
+    - exact Hf.
   Qed.
 
   Global Instance point_mem' {a u} (Hau: a ∈ u) : (MEM'' a | MEM' u).
@@ -371,24 +375,10 @@ Module Core (MP: MachineParameters).
     smon_rewrite.
   Qed.
 
-  (* TODO: Move to Mon.v ? *)
-  (** A (hopefully) safe way to express that [Confined] is closed under submixers. *)
-  Ltac confined_tac' m t :=
-    assert_fails (is_evar m);
-    let Hconf := fresh "Hconf" in
-    let f := fresh "fConf" in
-    evar (f: Mixer State);
-    assert (Confined f t) as Hconf;
-    [ subst f; typeclasses eauto
-    | eapply (confined_sub f _); typeclasses eauto ].
-  Ltac confined_tac := match goal with
-                         |- Confined ?m ?t => confined_tac' m t
-                       end.
-  Hint Extern 10 (Confined ?m ?t) =>
-    confined_tac' m t : typeclass_instances.
-
   Global Instance confined_load {a} : Confined (MEM'' a) (load a).
-  Proof. typeclasses eauto. Qed.
+  Proof.
+    typeclasses eauto.
+  Qed.
 
   Opaque load.
 
@@ -586,14 +576,7 @@ Module Core (MP: MachineParameters).
 
   Global Instance confined_pop : Confined (MEM * SP) pop.
   Proof.
-    apply confined_bind.
     typeclasses eauto.
-    intros x.
-    apply confined_bind.
-    typeclasses eauto.
-    intros [].
-    typeclasses eauto.
-
   Qed.
 
   Global Instance confined_pop' sp :
@@ -703,16 +686,8 @@ Module Core (MP: MachineParameters).
       intros a;
       simp storeMany.
     - typeclasses eauto.
-    - simpl length.
-      apply confined_bind.
-      + unshelve eapply confined_sublens, confined_store.
-        apply sublens_comp.
-        refine (pointLens_sublens (nAfter_zero (length u) a)).
-      + intros [].
-        eapply confined_sublens.
-        apply IH.
-        Unshelve.
-        apply sublens_comp, subsetSublens, nAfter_succ.
+    - specialize (IH (offset 1 a)).
+      typeclasses eauto.
   Qed.
 
   Lemma storeMany_rev a x u :
@@ -869,6 +844,8 @@ Module Core (MP: MachineParameters).
     f_equal. lia.
   Qed.
 
+  Hint Extern 3 (_ ∈ nBefore _ _) => rapply nBefore_zero : typeclass_instances.
+
   Proposition nBefore_succ n a : nBefore n (offset (-1) a) ⊆ nBefore (S n) a.
   Proof.
     unfold nBefore, nAfter.
@@ -880,99 +857,29 @@ Module Core (MP: MachineParameters).
     intros H. right. exact H.
   Qed.
 
-
-  (***************)
-
-  (* TODO: Move *)
-  Global Instance sublens_prod_r
-         {A X Y Z} (Lx: Lens A X) (Ly: Lens A Y) (Lz: Lens A Z)
-         (Sxy: (Lx | Ly))
-         (Ixz: Independent Lx Lz)
-         (Iyz: Independent Ly Lz) : (Lx * Lz | Ly * Lz).
-  Proof.
-    destruct Sxy as [Lyx Hx].
-    unshelve rewrite (prodLens_proper Hx).
-    - reflexivity.
-    - set (HH := prodLens_proper (@lens_refl _ _ (Lyx ∘ Ly)) (idLens_composite Lz) ).
-      setoid_rewrite <- HH.
-
-rewrite <- (idLens_composite Lz).
-
-
-      apply prodSublens1'.
-
-
-typeclasses eauto.
-
-
-rewrite <- (compositeLens_associative Lz Ly Lyx).
-    exact Lx.
-
-    apply sublens_proper.
-    rewrite Hx.
-    intros xz.
+  Hint Extern 3 (_ ⊆ nBefore _ _) => rapply nBefore_succ : typeclass_instances.
 
   Global Instance confined_pushManyR' sp u :
-    Confined (MEM' (nBefore (length u) sp) * SP) (put' SP sp;;
-                                                  pushManyR u).
+    Confined (MEM' (nBefore (length u) sp) * SP)
+             (put' SP sp;;
+              pushManyR u).
   Proof.
     revert sp.
     induction u as [|x r IH];
-      simp pushManyR;
-      [ typeclasses eauto | ].
-    intros sp. simpl length. rewrite push_spec. smon_rewrite.
+      intros sp;
+      (* Too slow: simp pushManyR; *)
+      autorewrite with pushManyR;
+    [ typeclasses eauto | ].
+
+    simpl length. rewrite push_spec. smon_rewrite.
+
     setoid_rewrite (confined_store _ _ _ _ _).
-    apply confined_bind.
-    - apply confined_sublens.
-      eapply confined_sublens.
-      apply confined_store.
-      Unshelve.
-      apply sublens_comp.
-      refine (pointLens_sublens (nBefore_zero _ sp)).
-    - intros [].
-      assert ( MEM' (nBefore (length r) sp) * SP
-             | MEM' (nBefore (S (length r)) sp) * SP ) as H.
-      +
-
-
-
-
-      eapply (confined_sublens.
-      apply IH.
-      Unshelve.
-      apply sublens_comp, subsetSublens, nAfter_succ.
-
-
-      Opaque Confined.
-      unfold MEM'.
-      eapply (confined_sublens (Sab:=pointLens_sublens _)).
-
-
-      typeclasses eauto.
-
-
-
-typeclasses eauto.
-
-    assert (put' SP sp;;
-            push a;;
-            pushManyR u = put' SP sp;;
-                          push a;;
-                          put' SP sp;;
-                          pushManyR u).
-      - setoid_rewrite <- (confined_push).
-
-
-        smon_rewrite | ].
-
-
-
-    rewrite nBefore_succ.
-
-
-
-
+    apply confined_bind; [ typeclasses eauto | ].
+    intros [].
+    (* [typeclasses eauto] needs help, since it is not able to deconstruct IH. *)
+    apply (confined_sub (IH (offset (-1) sp))).
     typeclasses eauto.
+  Qed.
 
  Lemma pushManyR_action u v : pushManyR (u ++ v) = pushManyR u;; pushManyR v.
   Proof.
@@ -996,6 +903,21 @@ typeclasses eauto.
     apply pushManyR_action.
   Qed.
 
+  Proposition confined_swap
+              {A} {LA: Lens State A} {X} {ma: M X} (Ha: Confined LA ma)
+              {B} {LB: Lens State B} {Y} {mb: M Y} (Hb: Confined LB mb)
+              {Hi: Independent LA LB} {Z} (f: X -> Y -> M Z) :
+    let* x := ma in
+    let* y := mb in
+    f x y = let* y := mb in
+            let* x := ma in
+            f x y.
+  Proof.
+    setoid_rewrite <- Ha.
+    - reflexivity.
+    - typeclasses eauto.
+  Qed.
+
   Lemma pushMany_alt u (H: addressable (length u)) :
     pushMany u = let* sp := get' SP in
                  let a := offset (- List.length u) sp in
@@ -1015,18 +937,17 @@ typeclasses eauto.
       smon_rewrite.
       set (f := offset (- length ([x] ++ u))).
       rewrite IH; [|addressable_tac].
+      clear IH.
       unfold pushMany.
       simpl rev.
       simp pushManyR.
       rewrite push_spec.
       smon_rewrite.
       apply bind_extensional. intros sp.
-
-      setoid_rewrite <- (confined_storeMany _ _ _).
-      setoid_rewrite <- (confined_storeMany _ _ _).
+      setoid_rewrite <- (confined_storeMany _ _ _ _ _).
+      setoid_rewrite <- (confined_storeMany _ _ _ _ _).
       smon_rewrite.
       setoid_rewrite <- Z_action_add.
-
       subst f.
       apply bind_extensional'.
       + f_equal. f_equal. cbn. lia.
@@ -1142,10 +1063,11 @@ typeclasses eauto.
         pixel x Hx y Hy := extract (H_complete x Hx y Hy);
       |}.
   Definition extractImage_spec := unfolded_eq (extractImage).
-  Global Opaque extractImage.
 
   Global Instance extractImage_confined img : Confined ⫫ (extractImage img).
-  Proof. rewrite extractImage_spec. split. typeclasses eauto. Qed.
+  Proof. typeclasses eauto. Qed.
+
+  Global Opaque extractImage.
 
   Definition newFrame (w r h: N) : M unit :=
     let* bytes := get' OUT_BYTES in
@@ -1174,15 +1096,15 @@ typeclasses eauto.
            pixel _ _ _ _ := None;
          |}.
   Definition newFrame_spec := unfolded_eq (newFrame).
-  Global Opaque newFrame.
 
   Global Instance confined_newFrame w r h :
     Confined (OUT_IMAGE * OUT_BYTES * OUT_CHARS * OUT_SOUND * LOG)
              (newFrame w r h).
   Proof.
-    rewrite newFrame_spec.
     typeclasses eauto.
   Qed.
+
+  Global Opaque newFrame.
 
  End core_section.
 

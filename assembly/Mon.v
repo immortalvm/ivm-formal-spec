@@ -363,6 +363,16 @@ Section mixer_section.
     reflexivity.
   Qed.
 
+  Proposition putM_putM (m: Mixer S) s s' {X} (f: unit -> unit -> M X) :
+    let* x := putM m s in
+    let* y := putM m s' in
+    f x y = putM m s';;
+            f tt tt.
+  Proof.
+    rewrite putM_spec.
+    smon_rewrite'.
+  Qed.
+
   Global Opaque putM.
 
 End mixer_section.
@@ -682,17 +692,30 @@ Section sublens_section.
     - apply Hc. exact H.
   Qed.
 
+  Global Instance Confined_proper2 {X}:
+    Proper (@mixerEq S ==> @eq (M X) ==> iff) Confined | 15.
+  Proof.
+    set (Hsub := @eq_submixer_subrelation).
+    intros f f' Hf
+           mx mx' Hmx.
+    destruct Hmx.
+    split.
+    - now rewrite Hf.
+    - now rewrite <- Hf.
+  Qed.
 
   (** *** Corollaries *)
 
-  Context {f g: Mixer S} (Hs: (f | g)).
-
-  Instance neutral_sub {X} {mx: M X} {Hmx: Neutral g mx} : Neutral f mx.
+  Global Instance neutral_sub
+           {X} {mx: M X} {g: Mixer S} (Hmx: Neutral g mx)
+           (f: Mixer S) {Hs: (f | g)}: Neutral f mx.
   Proof.
     rewrite Hs. exact Hmx.
   Qed.
 
-  Instance confined_sub {X} {mx: M X} {Hmx: Confined f mx} : Confined g mx.
+  Global Instance confined_sub
+           {X} {mx: M X} {f: Mixer S} (Hmx: Confined f mx)
+           (g: Mixer S) {Hs: (f | g)} : Confined g mx.
   Proof.
     rewrite Hs in Hmx. exact Hmx.
   Qed.
@@ -703,8 +726,6 @@ End sublens_section.
 Arguments lens_get_proper {_ _ _ _ _ _} _.
 Arguments lens_put_proper {_ _ _ _ _ _} _ {_ _} _.
 Arguments neutral_proper {_ _ _ _ _ _} _ {_ _} _.
-Arguments neutral_sub {_ _ _ _} g Hs {_ _ _}.
-Arguments confined_sub {_ _ _} f {_} Hs {_ _ _}.
 
 
 (** ** Independence *)
@@ -795,26 +816,17 @@ Section independence_section3.
 
   Context {S M} {SM: SMonad S M}
           {m m': Mixer S}
-          {Hm: Independent m m'}.
+          {Hm: Independent' m m'}.
 
   Global Instance neutral_putM s : Neutral m (putM m' s).
   Proof.
     intros t.
     rewrite putM_spec.
     smon_rewrite.
+    (* TODO: [mixer_rewrite] ought to be sufficient here. *)
+    set (H := independent' Hm).
     setoid_rewrite <- Mixer.independent.
     mixer_rewrite.
-  Qed.
-
-  (* TODO: Move *)
-  Proposition putM_putM s s' {X} (f: unit -> unit -> M X) :
-    let* x := putM m' s in
-    let* y := putM m' s' in
-    f x y = putM m' s';;
-            f tt tt.
-  Proof.
-    rewrite putM_spec.
-    smon_rewrite'.
   Qed.
 
   Global Instance confined_neutral
@@ -836,7 +848,7 @@ Section independence_section3.
       + subst keeper. rewrite putM_spec. smon_rewrite. smon_rewrite.
   Qed.
 
-  (** This proof above is an indication how [get'] and [put'] can be
+  (** The proof above is an indication how [get'] and [put'] can be
   generalized from lenses to mixers using function types. *)
 
 End independence_section3.

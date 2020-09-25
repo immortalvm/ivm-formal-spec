@@ -124,7 +124,7 @@ Coercion lens2mixer : Lens >-> Mixer.
 [lens2mixer_proper]. I am not sure what it would take for [typeclasses
 eauto] to solve such goals automatically.*)
 
-(* Shadows [Mixer.independence_proper] *)
+(* Shadows [Mixer.independent_proper] *)
 Instance independent_proper {A X Y : Type} :
   Proper (@lensEq A X ==> @lensEq A Y ==> iff) Independent.
 Proof.
@@ -313,8 +313,14 @@ Section sublens_ordering_section.
 
 End sublens_ordering_section.
 
+(*
 Hint Extern 2 (?Ly ∘ ?Lx | ?Lx) =>
   apply sublens_comp' : typeclass_instances.
+*)
+
+Hint Extern 2 (@Submixer _ (@lens2mixer _ _ (@compositeLens _ _ _ ?Ly ?Lx))
+                         (@lens2mixer _ _ ?Lx)) =>
+    apply sublens_comp' : typeclass_instances.
 
 
 (** ** Products and projections *)
@@ -337,7 +343,7 @@ Section projection_section.
 
   Global Program Instance independent_projs : Independent fstLens sndLens.
 
-  Context (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly}.
+  Context (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent' Lx Ly}.
 
   #[refine] Global Instance prodLens : Lens A (X * Y) :=
   {
@@ -345,7 +351,10 @@ Section projection_section.
     update a xy := update (update a (fst xy)) (snd xy);
   }.
   Proof.
-    all: idestructs; repeat (lens_rewrite || simpl).
+    all:
+      set (H := independent' Hi);
+      idestructs;
+      repeat (lens_rewrite || simpl).
   Defined.
 
   Proposition prodLens_prodMixer : prodLens ≃ Lx × Ly.
@@ -359,7 +368,7 @@ Infix "*" := prodLens : lens_scope.
 
 Hint Extern 5 => setoid_rewrite prodLens_prodMixer : typeclass_instances.
 
-Goal forall {A X Y: Type} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent Lx Ly},
+Goal forall {A X Y: Type} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent' Lx Ly},
     (Lx | Lx * Ly).
 Proof.
   typeclasses eauto.
@@ -375,4 +384,18 @@ Lemma prodLens_proper {A X Y}
 Proof.
   intros a [x y]. cbn.
   rewrite Hx, Hy. reflexivity.
+Qed.
+
+(* This is needed to be able to define products such as [LX * LY * LZ].
+   Is it useful to register the symmetric case as well? *)
+Instance independent_lp1
+         {S X Y} (LX: Lens S X) (LY: Lens S Y) (f: Mixer S)
+         (Hxy: Independent' LX LY)
+         (Hxf: Independent' LX f)
+         (Hyf: Independent' LY f) : Independent' (LX * LY) f.
+Proof.
+  apply independent_forward.
+  rewrite prodLens_prodMixer.
+  apply independent'.
+  typeclasses eauto.
 Qed.
