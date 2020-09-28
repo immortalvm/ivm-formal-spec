@@ -335,7 +335,6 @@ Module Core (MP: MachineParameters).
 
   (** *** Extract the boxed element from an [option] type or fail. *)
 
-  (* TODO: Move to Mon.v ? *)
   Definition extr {X} (ox: option X) : M X :=
     match ox with
     | Some x => ret x
@@ -431,8 +430,7 @@ Module Core (MP: MachineParameters).
       extr_spec.
     smon_rewrite.
     destruct (decide (available a)) as [Ha|_];
-      smon_rewrite;
-      smon_rewrite. (* TODO: This should not be necessary! *)
+      smon_rewrite.
   Qed.
 
   Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
@@ -758,15 +756,18 @@ Module Core (MP: MachineParameters).
       all: addressable_tac.
   Qed.
 
-  Lemma storeMany_loadMany a n (u: Cells n) :
-    addressable n -> storeMany a (to_list u);;
-                    loadMany n a = storeMany a (to_list u);;
-                                   ret u.
+  Lemma storeMany_loadMany' a n (u: Cells n) {Y} (f: unit -> Cells n -> M Y) :
+    addressable n -> let* x := storeMany a (to_list u) in
+                    let* v := loadMany n a in
+                    f x v = storeMany a (to_list u);;
+                            f tt u.
   Proof.
+    intros H.
+    smon_rewrite.
     revert a; induction n; intros a.
-    - intros _. dependent elimination u. cbn.
+    - dependent elimination u. cbn.
       simp storeMany loadMany. smon_rewrite.
-    - intros H. dependent elimination u as [Vector.cons (n:=n) x u]. simp to_list.
+    - dependent elimination u as [Vector.cons (n:=n) x u]. simp to_list.
       rewrite storeMany_equation_2' at 1; [|addressable_tac].
       simp loadMany.
       smon_rewrite.
@@ -776,24 +777,9 @@ Module Core (MP: MachineParameters).
       simp storeMany.
       smon_rewrite.
       apply bind_extensional. intros [].
-      rewrite <- bind_assoc.
-      rewrite IHn; [|addressable_tac].
-      smon_rewrite.
-  Qed.
-
-  (* TODO: Prove this directly (and skip the lemma). *)
-  Corollary storeMany_loadMany' a n (u: Cells n) {Y} (f: unit -> Cells n -> M Y) :
-    addressable n -> let* x := storeMany a (to_list u) in
-                    let* v := loadMany n a in
-                    f x v = storeMany a (to_list u);;
-                            f tt u.
-  Proof.
-    intros H.
-    smon_rewrite.
-    rewrite <- bind_assoc.
-    rewrite storeMany_loadMany.
-    - smon_rewrite.
-    - exact H.
+      rewrite (IHn u (fun _ v => f tt (x :: v)%vector)).
+      + smon_rewrite.
+      + addressable_tac.
   Qed.
 
 

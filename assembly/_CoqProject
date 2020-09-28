@@ -3,6 +3,7 @@
 Init.v
 DSet.v
 Mixer.v
+MixerExtras.v
 Lens.v
 LensExtras.v
 Restr.v

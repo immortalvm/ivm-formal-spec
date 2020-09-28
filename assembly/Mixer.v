@@ -9,7 +9,6 @@ Ltac mixer_rewrite0 := rewrite_strat (repeat (outermost (hints mixer))).
 Tactic Notation "mixer_rewrite0" "in" hyp(H) :=
   rewrite_strat (repeat (outermost (hints mixer))) in H.
 
-
 (** * Mixers
 
 [Mixer] represents lenses with the target type abstracted away.
@@ -46,37 +45,26 @@ Program Instance sndMixer {A} : Mixer A :=
   mixer _ y := y;
 }.
 
-Section hide_instance_section.
-
-  (** This too easily *)
-
-  #[refine] Instance oppMixer {A} (f: Mixer A) : Mixer A :=
-  {
-    mixer x y := f y x;
-  }.
-  Proof.
-    all: intros; mixer_rewrite0; reflexivity.
-  Defined.
-
-End hide_instance_section.
-
 
 (** ** Equality *)
+
+(** Equivalent to "f = g" if we assume extensionality and proof irrelevance. *)
+Definition mixerEq {A} (f g: Mixer A) : Prop := forall x y, f x y = g x y.
+
+(* "\simeq" : Same level and associativity as "=". *)
+Notation "f ≃ g" := (mixerEq f g) (at level 70, no associativity) : type_scope.
 
 Section equality_section.
 
   Context {A : Type}.
 
-  (** Equivalent to "f = g" if we assume extensionality and proof irrelevance. *)
-  Definition mixerEq (f g: Mixer A) : Prop := forall x y, f x y = g x y.
-
   (** Useful to have as separate fact. *)
-  Proposition mixer_refl {f: Mixer A} : mixerEq f f.
+  Proposition mixer_refl {f: Mixer A} : f ≃ f.
   Proof.
     intros a x. reflexivity.
   Qed.
 
-  Global Instance mixerEq_equivalence : Equivalence mixerEq.
+  Global Instance mixerEq_equivalence : Equivalence (@mixerEq A).
   Proof.
     split.
     - intro f. exact mixer_refl.
@@ -87,8 +75,9 @@ Section equality_section.
       + apply Hgh.
   Qed.
 
-  Instance mix_proper :
-    Proper (mixerEq ==> eq ==> eq ==> eq) (@mixer A).
+  (* TODO: Is this safe? *)
+  Global Instance mixer_proper :
+    Proper (@mixerEq A ==> eq ==> eq ==> eq) (@mixer A).
   Proof.
     repeat intro.
     repeat subst.
@@ -97,18 +86,6 @@ Section equality_section.
 
 End equality_section.
 
-(* "\simeq" : Same level and associativity as "=". *)
-Notation "f ≃ g" := (mixerEq f g) (at level 70, no associativity) : type_scope.
-
-Proposition opp_fstMixer {A} : oppMixer fstMixer ≃ @sndMixer A.
-Proof.
-  intros x y. reflexivity.
-Qed.
-
-Proposition opp_oppMixer {A} (f: Mixer A) : oppMixer (oppMixer f) ≃ f.
-Proof.
-  intros x y. reflexivity.
-Qed.
 
 
 (** ** Submixers *)
@@ -125,97 +102,98 @@ Unset Typeclasses Unique Instances.
 (* Cf. the notation for Z.divide. *)
 Notation "( f | g )" := (Submixer f g) : type_scope.
 
-Instance submixer_proper {A} :
-  Proper (@mixerEq A ==> @mixerEq A ==> iff) Submixer.
-Proof.
-  intros f f' Hf g g' Hg.
-  split; intros H x y z.
-  - repeat rewrite <- Hf.
-    repeat rewrite <- Hg.
-    rewrite submixer.
-    reflexivity.
-  - repeat rewrite Hf.
-    repeat rewrite Hg.
-    rewrite submixer.
-    reflexivity.
-Qed.
+Section submixer_section.
 
-(** We want tight control over the [Submixer] resolution.
-Hence, we will not in general register such instances. *)
+  Context {A: Type}.
 
-Instance submixer_refl {A} {f: Mixer A} : (f | f).
-Proof. repeat intro. apply mixer_assoc. Qed.
+  (** Making this a global instance is somewhat problematic since
+      [Submixer] is itself a class. *)
+  #[global] Instance submixer_proper :
+    Proper (@mixerEq A ==> @mixerEq A ==> iff) (@Submixer A).
+  Proof.
+    intros f f' Hf g g' Hg.
+    split; intros H x y z.
+    - repeat rewrite <- Hf.
+      repeat rewrite <- Hg.
+      rewrite submixer.
+      reflexivity.
+    - repeat rewrite Hf.
+      repeat rewrite Hg.
+      rewrite submixer.
+      reflexivity.
+  Qed.
 
-Instance submixer_reflexive {A} : Reflexive (@Submixer A).
-Proof.
-  intro. apply submixer_refl.
-Qed.
+  Global Instance submixer_refl {f: Mixer A} : (f | f).
+  Proof. repeat intro. apply mixer_assoc. Qed.
 
-Proposition eq_submixer_subrelation {A} : subrelation (@mixerEq A) (@Submixer A).
-Proof.
-  intros f g H. rewrite H. reflexivity.
-Qed.
+  Global Instance submixer_reflexive : Reflexive (@Submixer A).
+  Proof.
+    intro. apply submixer_refl.
+  Qed.
 
-(** *** Rewriting *)
+  (** Not global by the same argument as for [submixer_proper]. *)
+  Instance eq_submixer_subrelation : subrelation (@mixerEq A) (@Submixer A).
+  Proof.
+    intros f g H. rewrite H. reflexivity.
+  Qed.
 
-Proposition submixer_left {A} {f g: Mixer A} {Hs: (f|g)} x y z :
-  g (f x y) z = g x z.
-Proof.
-  transitivity (g (g x (f x y)) z).
-  - rewrite <- submixer, mixer_id. reflexivity.
-  - rewrite mixer_left. reflexivity.
-Qed.
+  (** *** Rewriting *)
 
-Proposition submixer_right {A} {f g: Mixer A} {Hs: (f|g)} x y z :
-  f x (g y z) = f x z.
-Proof.
-  transitivity (f x (f (g y z) z)).
-  - rewrite submixer, mixer_id. reflexivity.
-  - rewrite mixer_right. reflexivity.
-Qed.
+  Proposition submixer_left {f g: Mixer A} {Hs: (f|g)} x y z :
+    g (f x y) z = g x z.
+  Proof.
+    transitivity (g (g x (f x y)) z).
+    - rewrite <- submixer, mixer_id. reflexivity.
+    - rewrite mixer_left. reflexivity.
+  Qed.
 
-Proposition submixer_right' {A} {f g: Mixer A} {Hs: (f|g)} x y :
-  g x (f x y) = f x y.
-Proof.
-  now rewrite <- Hs, mixer_id.
-Qed.
+  Proposition submixer_right {f g: Mixer A} {Hs: (f|g)} x y z :
+    f x (g y z) = f x z.
+  Proof.
+    transitivity (f x (f (g y z) z)).
+    - rewrite submixer, mixer_id. reflexivity.
+    - rewrite mixer_right. reflexivity.
+  Qed.
+
+  Proposition submixer_right' {f g: Mixer A} {Hs: (f|g)} x y :
+    g x (f x y) = f x y.
+  Proof.
+    now rewrite <- Hs, mixer_id.
+  Qed.
+
+End submixer_section.
 
 
 (** ** Independence *)
 
-(* TODO: Is it better to use a parse-only notation? *)
-Class Independent {A} (f g: Mixer A) :=
-  independent x y z : f (g x z) y = g (f x y) z.
+Section independence_section.
 
-Proposition independent_spec {A} (f g: Mixer A) :
-  Independent f g <-> (f | oppMixer g).
-Proof.
-  split; intros H x y z; apply H.
-Qed.
+  Context {A: Type}.
 
-Instance independent_symmetric {A} : Symmetric (@Independent A).
-Proof.
-  intros f g H x y z; symmetry; apply H.
-Qed.
+  Class Independent (f g: Mixer A) :=
+    independent x y z : f (g x z) y = g (f x y) z.
 
-(** This can be used with [setoid_rewrite]. *)
-Corollary independent_symm {A} (f g: Mixer A) : Independent f g <-> Independent g f.
-Proof.
-  split; apply independent_symmetric.
-Qed.
+  Global Instance independent_symmetric : Symmetric Independent.
+  Proof.
+    intros f g H x y z; symmetry; apply H.
+  Qed.
 
-Proposition independent_left {A} (f g: Mixer A) {Hi: Independent f g} x y :
-  g (f x y) x = f x y.
-Proof.
-  rewrite <- Hi. mixer_rewrite0. reflexivity.
-Qed.
+  (** This can be used with [setoid_rewrite]. *)
+  Corollary independent_symm (f g: Mixer A) : Independent f g <-> Independent g f.
+  Proof.
+    split; apply independent_symmetric.
+  Qed.
+
+  Proposition independent_left (f g: Mixer A) {Hi: Independent f g} x y :
+    g (f x y) x = f x y.
+  Proof.
+    rewrite <- Hi. mixer_rewrite0. reflexivity.
+  Qed.
 
 
-(** *** Add symmetry hint while avoiding loops. *)
+  (** The following is used to add symmetry hints while avoiding loops. *)
 
-Section indie_section.
-
-  Context {A} (f g: Mixer A).
+  Context (f g: Mixer A).
 
   Class Independent' :=
     independent' : Independent f g.
@@ -235,7 +213,7 @@ Section indie_section.
     now mixer_rewrite0.
   Qed.
 
-End indie_section.
+End independence_section.
 
 Arguments independent_right {_ _ _ _}.
 
@@ -317,7 +295,6 @@ Ltac mixer_rewrite1 :=
 Ltac mixer_rewrite := repeat mixer_rewrite1; try reflexivity.
 Ltac mixer_rewrite' := repeat intro; cbn; mixer_rewrite.
 
-
 Instance fstMixer_independent {A} (f: Mixer A) : Independent fstMixer f.
 Proof.
   mixer_rewrite'.
@@ -350,45 +327,48 @@ Qed.
 Proposition submixer_fst {A} (f: Mixer A) : (fstMixer | f).
 Proof. mixer_rewrite'. Qed.
 
-Proposition submixer_snd {A} (f: Mixer A) : (f | sndMixer).
-Proof. mixer_rewrite'. Qed.
-
 
 (** *** Propriety *)
 
-Instance independent_proper_sub0 {A} {f: Mixer A} :
-  Proper (@Submixer A ==> flip impl) (Independent f).
-Proof.
-  intros g g' Hg
-         H x y z.
-  rewrite <- (mixer_id (Mixer:=g') x) at 2.
-  rewrite H.
-  rewrite Hg.
-  rewrite <- H.
-  mixer_rewrite.
-Qed.
+Section propriety_section.
 
-Instance independent_proper_sub {A} :
-  Proper (@Submixer A ==> @Submixer A ==> flip impl) (@Independent A).
-Proof.
-  (* The rewrites use [independent_proper_sub0]. *)
-  intros f f' Hf
-         g g' Hg.
-  rewrite Hg. setoid_rewrite independent_symm.
-  rewrite Hf. reflexivity.
-Qed.
+  Context {A: Type}.
 
-Instance independent_proper {A} :
-  Proper (@mixerEq A ==> @mixerEq A ==> iff) (@Independent A).
-Proof.
-  (* The direct proof is not much longer. *)
-  set (Hsub := @eq_submixer_subrelation).
-  intros f f' Hf
-         g g' Hg.
-  split; intro H.
-  - rewrite <- Hf, <- Hg. exact H.
-  - rewrite Hf, Hg. exact H.
-Qed.
+  Instance independent_proper_sub0 {f: Mixer A} :
+    Proper (@Submixer A ==> flip impl) (Independent f).
+  Proof.
+    intros g g' Hg
+           H x y z.
+    rewrite <- (mixer_id (Mixer:=g') x) at 2.
+    rewrite H.
+    rewrite Hg.
+    rewrite <- H.
+    mixer_rewrite.
+  Qed.
+
+  #[global] Instance independent_proper_sub :
+    Proper (@Submixer A ==> @Submixer A ==> flip impl) (@Independent A).
+  Proof.
+    (* The rewrites use [independent_proper_sub0]. *)
+    intros f f' Hf
+           g g' Hg.
+    rewrite Hg. setoid_rewrite independent_symm.
+    rewrite Hf. reflexivity.
+  Qed.
+
+  #[global] Instance independent_proper :
+    Proper (@mixerEq A ==> @mixerEq A ==> iff) (@Independent A).
+  Proof.
+    (* The direct proof is not much longer. *)
+    set (Hsub := @eq_submixer_subrelation).
+    intros f f' Hf
+           g g' Hg.
+    split; intro H.
+    - rewrite <- Hf, <- Hg. exact H.
+    - rewrite Hf, Hg. exact H.
+  Qed.
+
+End propriety_section.
 
 
 (** ** Products *)

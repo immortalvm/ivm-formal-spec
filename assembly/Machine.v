@@ -1,4 +1,4 @@
-From Assembly Require Export Basics Operations.
+From Assembly Require Export Operations Binary.
 Require Assembly.OpCodes.
 
 Unset Suggest Proof Using.
@@ -281,8 +281,6 @@ Section machine_section.
   Definition chain (u v : M bool) :=
     let* cont := u in
     if cont then v else ret false.
-
-  Unset Suggest Proof Using.
 
   Lemma true_chain (u: M bool) : chain (ret true) u = u.
   Proof.

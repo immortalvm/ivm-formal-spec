@@ -1,4 +1,6 @@
-From Assembly Require Import Basics.
+From Assembly Require Export Restr Mon.
+From Assembly Require Import DSet.
+Import DSetNotations.
 
 Unset Suggest Proof Using.
 
@@ -136,6 +138,7 @@ End lens_section.
 
 (** ** Proper effects *)
 
+(* TODO: Redefine as subclass of Proper? *)
 (** Like [Proper], but for [Rel]. *)
 Class PropR {X: Type} {RX: Rel X} (x: X) := propR : x ⊑ x.
 

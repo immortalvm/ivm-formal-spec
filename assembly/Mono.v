@@ -319,9 +319,8 @@ Qed.
 Instance load_propr a : PropR (load a).
 Proof.
   rewrite load_spec.
-  unfold load0.
   crush.
-  apply Hfg.
+  apply extr_propr, Hfg.
 Qed.
 
 Instance loadMany_propr n a : PropR (loadMany n a).
@@ -334,7 +333,7 @@ Proof. induction n; simp next; crush. Qed.
 
 Instance store_propr a o : PropR (store a o).
 Proof.
-  rewrite store_spec. unfold store0.
+  rewrite store_spec.
   crush.
   apply Hfg.
 Qed.

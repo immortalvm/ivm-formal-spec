@@ -226,7 +226,8 @@ Ltac2 mutable smon_rewrite1 () :=
 Ltac smon_rewrite2 :=
   repeat (rewrite bind_ret (* [setoid_rewrite] is not always sufficient! *)
           || setoid_rewrite bind_ret
-          || setoid_rewrite bind_ret_tt).
+          || setoid_rewrite bind_ret_tt
+          || setoid_rewrite ret_bind).
 
 Ltac smon_rewrite :=
   smon_rewrite0;

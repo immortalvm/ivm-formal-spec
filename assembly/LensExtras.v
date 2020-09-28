@@ -1,4 +1,4 @@
-From Assembly Require Import Init DSet Lens.
+From Assembly Require Import Init DSet Lens MixerExtras.
 
 Require Import Coq.Logic.ProofIrrelevance.
 

@@ -120,23 +120,27 @@ Coercion lens2mixer : Lens >-> Mixer.
 
 (** ** Independent lenses *)
 
-(** This is a trivial consequence of [Mixer.independent_proper] and
-[lens2mixer_proper]. I am not sure what it would take for [typeclasses
-eauto] to solve such goals automatically.*)
-
-(* Shadows [Mixer.independent_proper] *)
-Instance independent_proper {A X Y : Type} :
-  Proper (@lensEq A X ==> @lensEq A Y ==> iff) Independent.
-Proof.
-  intros ? ? Hx ? ? Hy.
-  rewrite Hx, Hy.
-  reflexivity.
-Qed.
-
 Section independence_section.
 
-  Context {A X Y : Type}
-          {Lx: Lens A X}
+  Context {A X Y : Type}.
+
+
+  (** The following is a trivial consequence of [Mixer.independent_proper] and
+      [lens2mixer_proper]. I am not sure what it would take for
+      [typeclasses eauto] to solve such goals automatically.*)
+
+  Existing Instance Mixer.independent_proper.
+
+  (* Shadows [Mixer.independent_proper] *)
+  Instance independent_proper :
+    Proper (@lensEq A X ==> @lensEq A Y ==> iff) Independent.
+  Proof.
+    intros ? ? Hx ? ? Hy.
+    rewrite Hx, Hy.
+    reflexivity.
+  Qed.
+
+  Context {Lx: Lens A X}
           {Ly: Lens A Y}.
 
   Instance independent_update
@@ -292,6 +296,8 @@ Section sublens_ordering_section.
 
   Context {A X} (Lx: Lens A X).
 
+  Existing Instance Mixer.submixer_proper.
+
   Global Instance sublens_comp
          {Y} {Ly: Lens X Y}
          {Z} {Lz: Lens X Z}
@@ -366,7 +372,8 @@ End projection_section.
 
 Infix "*" := prodLens : lens_scope.
 
-Hint Extern 5 => setoid_rewrite prodLens_prodMixer : typeclass_instances.
+Hint Extern 5 (lens2mixer _ | lens2mixer _) => setoid_rewrite prodLens_prodMixer : typeclass_instances.
+Hint Extern 5 (Independent' (lens2mixer _) (lens2mixer _)) => setoid_rewrite prodLens_prodMixer : typeclass_instances.
 
 Goal forall {A X Y: Type} (Lx: Lens A X) (Ly: Lens A Y) {Hi: Independent' Lx Ly},
     (Lx | Lx * Ly).
