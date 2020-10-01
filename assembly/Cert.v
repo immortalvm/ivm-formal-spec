@@ -1,4 +1,5 @@
-From Assembly Require Import Mono.
+From Assembly Require Import DSet Mono.
+Import DSetNotations.
 
 Unset Suggest Proof Using.
 
@@ -48,9 +49,6 @@ Proof.
     reflexivity.
 Qed.
 
-(* TODO: Move *)
-Opaque put'.
-
 Lemma swallow_lemma {n} {ops: vector Z n} {X} {u: M X} {f: Bytes n -> M X} :
   u ⊑ f (Vector.map toB8 ops) -> swallow ops;; u ⊑ next n >>= f.
 Proof.
@@ -66,26 +64,32 @@ Proof.
     repeat setoid_rewrite bind_assoc.
     setoid_rewrite assert_bind.
     crush.
-    + srel_destruct Hst. assumption.
-    + setoid_rewrite ret_bind.
-      apply IHn. subst y0. exact H.
+    smon_rewrite.
+    subst.
+    exact (IHn r u (fun v => f (toB8 x :: v)) H).
 Qed.
-
-
-(** ** ?? *)
-
-(* TODO: Place inside section or module. *)
-Import OpCodes.
 
 Local Notation not_terminated := (ret true) (only parsing).
 Local Notation terminated := (ret false) (only parsing).
 
+Lemma cert_id : nCert 0 (not_terminated).
+Proof.
+  unfold nCert.
+  simp nSteps.
+  crush.
+Qed.
+
+(* TODO: Place inside section or module. *)
+Import OpCodes.
+
 (* TODO: Move? *)
 Opaque next.
 
+Open Scope Z.
+
 Lemma next_helper (op: Z) (Hop: 0 <= op < 256) :
   (Vector.map toB8 [op] : Bytes 1) = Z.to_N op :> N.
-Proof. (* TODO: automate? *)
+Proof.
   simpl Vector.map.
   remember (toB8 op) as u eqn:Hu.
   dependent elimination u as [[b0; b1; b2; b3; b4; b5; b6; b7]].
@@ -136,9 +140,7 @@ Lemma cert_jump : nCert 1 (swallow [JUMP];;
                            put' PC a;;
                            not_terminated).
 Proof.
-  unfold nCert;
-  simp nSteps;
-  unfold chain, oneStep.
+  unfold nCert; simp nSteps; unfold chain, oneStep.
   setoid_rewrite bind_assoc at 3.
   apply swallow_lemma.
   rewrite match_helper; [ | lia ].
@@ -149,13 +151,6 @@ Proof.
   apply (bind_propr _ _); crush.
   rewrite ofN_bitsToN, toBits_fromBits.
   reflexivity.
-Qed.
-
-Lemma cert_id : nCert 0 (not_terminated).
-Proof.
-  unfold nCert.
-  simp nSteps.
-  crush.
 Qed.
 
 Instance chain_propr : PropR chain.
@@ -185,92 +180,56 @@ Qed.
 
 (** ** Available stack *)
 
-(* TODO: Where did we make it opaque. *)
-Transparent put'.
+Definition wipe (u: DSet Addr) : M unit :=
+  put' (MEM' u) (fun _ _ _ => None).
 
-(* TODO: Move
-Corollary add_ret_tt {S: Type} {M: Type -> Type} {SM: SMonad S M} (mu: M unit) :
-  mu = mu;; ret tt.
-Proof.
-  rewrite <- bind_ret at 1.
-  apply bind_ext.
-  intros [].
-  reflexivity.
+Goal forall u, Confined (MEM' u) (wipe u).
+  typeclasses eauto.
 Qed.
 
 (* TODO: Move *)
-Lemma get_put' (S: Type) (M: Type -> Type) (SM: SMonad S M) :
-  get >>= put = ret tt.
+Proposition sub_put_spec {A B} {LA: Lens State A} {LB: Lens A B} (b: B) :
+  put' (LB ∘ LA) b = let* a := get' LA in
+                     put' LA (update a b).
 Proof.
-  rewrite add_ret_tt at 1.
-  rewrite bind_assoc, get_put, get_ret.
-  reflexivity.
+  setoid_rewrite put_spec'.
+  setoid_rewrite get_spec.
+  smon_rewrite.
 Qed.
-*)
 
-(* TODO: Move *)
-Opaque get'.
-Opaque put'.
-
-
-Lemma store_none_less a : store a None ⊑ ret tt.
+Lemma wipe_less u : wipe u ⊑ ret tt.
 Proof.
-  unfold store.
-  destruct (Machine.available' a).
+  unfold wipe.
+  unfold MEM'.
+  rewrite sub_put_spec.
+  assert (ret tt = get' MEM >>= put' MEM) as Hret;
+    [ smon_rewrite
+    | rewrite Hret; clear Hret ].
+  crush.
+  - apply getMem_propr.
   - cbn.
-    rewrite update_state, <- get_put.
-    crush.
-    srel_destruct Hst.
-    repeat split;
-      unfold lens_relation;
-      [ rewrite proj_update; crush; apply Hst_mem
-      | rewrite projY_updateX; assumption .. ].
-  - apply (err_least _).
+    destruct (decide (a ∈ u)).
+    + exact I.
+    + apply Hfg.
 Qed.
 
-(****)
-
-Equations abandonedBefore (a: B64) (n: nat) : M unit :=
-  abandonedBefore _ 0 := ret tt;
-  abandonedBefore a (S n) :=
-    let a' := offset (-1) a in
-    store a' None;;
-    abandonedBefore a' n.
-
-Lemma abandonedBefore_less a n : abandonedBefore a n ⊑ ret tt.
-Proof.
-  revert a.
-  induction n; intros a; simp abandonedBefore.
-  - crush.
-  - enough (ret tt = ret tt;; ret tt) as H.
-    + rewrite H.
-      apply (bind_propr _ _).
-      * apply store_none_less.
-      * crush. apply IHn.
-    + setoid_rewrite bind_ret_tt.
-      reflexivity.
-Qed.
-
-Definition abandoned n :=
+Definition wipeStack n :=
   let* a := get' SP in
-  abandonedBefore a (n * 8).
+  wipe (nBefore (n * 8) a).
 
-Transparent get'.
-
-Corollary abandoned_less n : abandoned n ⊑ ret tt.
+Corollary wipeStack_less n : wipeStack n ⊑ ret tt.
 Proof.
-  unfold abandoned, get'.
+  unfold wipeStack.
+  rewrite get_spec.
   cbn.
   rewrite bind_assoc.
   rewrite <- get_ret.
   crush.
   rewrite ret_bind.
-  apply abandonedBefore_less.
+  apply wipe_less.
 Qed.
 
-Opaque get'.
-
-Lemma rel_ret_tt mu Y (my my' : M Y) :
+Proposition rel_ret_tt mu Y (my my' : M Y) :
   mu ⊑ ret tt -> my ⊑ my' -> mu;; my ⊑ my'.
 Proof.
   intros Hu Hy.
@@ -279,15 +238,17 @@ Proof.
   - rewrite H. crush; assumption.
 Qed.
 
-Corollary abandoning_pop :
-  let* v := pop64 in
-  abandoned 8;;
-  ret v ⊑ pop64.
+Definition w_pop64 := let* v := pop64 in
+                      wipeStack 1;;
+                      ret v.
+
+Corollary wiped_pop64 : w_pop64 ⊑ pop64.
 Proof.
+  unfold w_pop64.
   rewrite <- bind_ret.
   crush.
   apply rel_ret_tt.
-  - apply abandoned_less.
+  - apply wipeStack_less.
   - crush.
 Qed.
 
@@ -308,13 +269,8 @@ Equations popN (n: nat) : M (vector B64 n) :=
                 let* r := popN n in
                 ret (h :: r).
 
-Equations abandonedAfter (a: B64) (n: nat) : M unit :=
-  abandonedAfter _ 0 := ret tt;
-  abandonedAfter a (S n) :=
-    store a None;;
-    abandonedAfter (offset 1 a) n.
+(**************** TODO: move **************)
 
-(* TODO: move *)
 Corollary toBits_cong' n z : cong n (toBits n z) z.
 Proof.
   rewrite ofN_bitsToN, fromBits_toBits_mod.
@@ -322,52 +278,65 @@ Proof.
   lia.
 Qed.
 
-Hint Rewrite toBits_cong'.
-(*
-Hint Rewrite @ofN_bitsToN @fromBits_toBits_mod : cong.
-Hint Rewrite @ofN_bitsToN @fromBits_toBits_mod : cong.
- *)
-
 Hint Opaque cong : rewrite.
 
-(* TODO: move *)
+Instance cong_equivalence n : Equivalence (cong n).
+Proof.
+  typeclasses eauto.
+Qed.
 
-Existing Instance cong_equivalence.
+Ltac cong_tac :=
+  apply toBits_cong;
+  rewrite toBits_cong';
+  apply eq_cong;
+  lia.
 
-Lemma abandonedAfter_action (a: B64) (m n: nat) :
-  abandonedAfter a (m + n) = abandonedAfter a m;;
-                             abandonedAfter (offset m a) n.
+Lemma nAfter_action (a: B64) (m n: nat) :
+  nAfter (m + n) a = (nAfter m a ∪ nAfter n (offset m a))%DSet.
 Proof.
   revert a; induction m; intros a.
   - unfold offset. cbn.
     rewrite ofN_bitsToN, toBits_fromBits.
-    simp abandonedAfter.
-    rewrite ret_bind.
-    reflexivity.
-  - simpl Init.Nat.add.
-    simp abandonedAfter.
-    rewrite bind_assoc.
-    rewrite IHm.
-    apply bind_extensional. intros [].
-    apply bind_extensional. intros [].
-    f_equal.
-    unfold offset.
+    apply extensionality. intro x.
+    rewrite union_spec.
+    unfold nAfter.
+    setoid_rewrite def_spec.
+    split.
+    + intros H. right. exact H.
+    + intros [H|H].
+      * exfalso. destruct H as [i [H _]]. lia.
+      * exact H.
 
-    autorewrite with cong.
-    (** Hangs: [rewrite toBits_cong'] *)
-    transitivity (m + (1 + a)).
-    + apply cong_add_proper, toBits_cong'. reflexivity.
-    + apply eq_cong. lia.
+  - unfold offset.
+    apply extensionality. intro x.
+    rewrite union_spec.
+    unfold nAfter.
+    setoid_rewrite def_spec.
+    split.
+    + intros [i [H1 H2]].
+      by_lia (i < S m \/ S m <= i < S m + n)%nat as H.
+      destruct H as [H|H].
+      * left. exists i. split.
+        -- exact H.
+        -- exact H2.
+      * right. exists (i - S m)%nat. split.
+        -- lia.
+        -- rewrite <- H2. cong_tac.
+    + intros [[i [H1 H2]] | [i [H1 H2]]].
+      * exists i. split.
+        -- lia.
+        -- exact H2.
+      * exists (S m + i)%nat. split.
+        -- lia.
+        -- rewrite <- H2. cong_tac.
 Qed.
 
-(* TODO: move *)
 Instance cong_toBits_proper n : Proper (cong n ==> eq) (toBits n).
 Proof. intros z z' Hz. apply toBits_cong. exact Hz. Qed.
 
 Corollary fromBits_toBits' n (u: Bits n) : toBits n u = u.
 Proof. rewrite ofN_bitsToN. apply toBits_fromBits. Qed.
 
-(* TODO: move *)
 Proposition generalizer
       {MP1 : MachineParams1}
       {MP2 : MachineParams2}
@@ -387,114 +356,249 @@ Proof.
   reflexivity.
 Qed.
 
+(* TODO: Move to Operations.v ? *)
 Opaque loadMany.
 
-Transparent get' put'.
+(* TODO: Move to Mon.v *)
 Lemma put_get_prime
       {MP1 : MachineParams1}
       {MP2 : MachineParams2}
       {X : Type}
       {LX: Lens State X} (x: X) : put' LX x;; get' LX = put' LX x;; ret x.
 Proof.
-  unfold get', put'.
-  setoid_rewrite <- bind_ret.
-  rewrite to_lensmonad_bind, put_get.
-  reflexivity.
+  (* TODO: Use lens_transfer tactic *)
+  setoid_rewrite get_spec.
+  setoid_rewrite put_spec'.
+  repeat rewrite <- bind_spec.
+  smon_rewrite'.
+Qed.
+
+(***************** End move ******************)
+
+
+Definition stdStart m n {o} (ops: vector Z o) : M (vector B64 n) :=
+  let* v := popN n in
+  wipeStack (m + n);;
+  swallow ops;;
+  ret v.
+
+(** By putting [swallow] after [wipeStack] we ensure that [stdStart] fails
+    if the operations overlap with (the relevant parts of) the stack. *)
+
+Proposition nAfter_disjoint_spec u n a :
+  u # nAfter n a <-> forall i, (i<n)%nat -> not (offset i a ∈ u).
+Proof.
+  unfold nAfter, disjoint.
+  setoid_rewrite def_spec.
+  split; intro H.
+  - intros i Hi Ho.
+    apply (H (offset i a)).
+    split.
+    + exact Ho.
+    + now exists i.
+  - intros x [Hx [i [Hi Ha]]].
+    apply (H i Hi).
+    unfold offset.
+    rewrite Ha.
+    exact Hx.
+Qed.
+
+(* TODO: Move. *)
+(** Making this an instance confuses the proof search.
+    Maybe this could somehow be made into an instance of [Proper] instead? *)
+Proposition decidable_proper {P} {D: Decidable P} {Q} (H: Q <-> P) : Decidable Q.
+Proof.
+  destruct D; [left|right]; tauto.
+Qed.
+
+Instance nAfter_disjoint_decidable u n a : Decidable (u # nAfter n a).
+Proof.
+  refine (decidable_proper (nAfter_disjoint_spec _ _ _)).
 Qed.
 
 (* TODO: Move *)
-Lemma next_loadMany n:
-  next n = let* pc := get' PC in
-           let* ops := loadMany n pc in
-           put' PC (offset n pc);;
-           ret ops.
+Definition bounded_evidence
+           P {DP: forall (x:nat), Decidable (P x)}
+           n (H: exists x, (x < n)%nat /\ P x) : { x: nat | (x < n)%nat /\ P x }.
 Proof.
-  induction n; simp next.
-  - unfold offset.
-    cbn.
-    setoid_rewrite loadMany_equation_1. (** [simp loadMany] does not work here. *)
-    setoid_rewrite fromBits_toBits'.
-    setoid_rewrite ret_bind.
-    setoid_rewrite (generalizer get_put_prime).
-    rewrite ret_bind.
-    reflexivity.
-  - rewrite IHn. clear IHn.
-    setoid_rewrite loadMany_equation_2.
-    repeat setoid_rewrite bind_assoc.
+  induction n.
+  - exfalso. destruct H as [x [H1 H2]]. lia.
+  - specialize (DP n). destruct DP as [H1|H2].
+    + refine (exist _ n _). split; [lia | exact H1].
+    + assert (exists (x: nat), (x < n)%nat /\ P x) as He.
+      * destruct H as [x [Hsn Hx]].
+        exists x. split; [ | exact Hx ].
+        by_lia (x < n \/ x = n)%nat as Hn.
+        destruct Hn as [Hn|Hn]; [ exact Hn | ].
+        destruct Hn. exfalso. exact (H2 Hx).
+      * specialize (IHn He).
+        destruct IHn as [x [IH1 IH2]].
+        refine (exist _ x _).
+        split; [lia | exact IH2].
+Defined.
 
-    setoid_rewrite <- bind_assoc at 1.
-    Set Printing Implicit.
-    setoid_rewrite (to_lensmonad_bind (LX:=PC)).
-    setoid_rewrite (generalizer put_get).
-
-
-
-
-  unfold next.
-
-
-
-
-Lemma abandonedBefore_abandonedAfter a n :
-  abandonedBefore a n = abandonedAfter (offset (-n) a) n.
+Lemma bounded_all_neg P {DP: forall (x:nat), Decidable (P x)} n :
+  not (forall x, (x < n)%nat -> P x) <-> (exists x, (x < n)%nat /\ not (P x)).
 Proof.
-  revert a.
-  induction n; intros a; simp abandonedBefore abandonedAfter; unfold offset.
-  - reflexivity.
-  - rewrite IHn.
-    f_equal.
-    + f_equal.
-      f_equal.
+  induction n; split; intro H.
+  - exfalso. apply H. intros x Hx. exfalso. lia.
+  - intros Ha. destruct H as [x [Hx Hp]]. lia.
+  - destruct (decide (P n)) as [Hd|Hd].
+    + assert (~ forall x : nat, (x < n)%nat -> P x) as Hnot.
+      * intros Hno.
+        apply H.
+        intros x Hx.
+        by_lia (x < n \/ x = n)%nat as H0.
+        destruct H0 as [H1|H2].
+        -- apply Hno. exact H1.
+        -- destruct H2. exact Hd.
+      * apply proj1 in IHn. specialize (IHn Hnot).
+        destruct IHn as [x [Hx Hp]].
+        exists x. split.
+        -- lia.
+        -- exact Hp.
+    + exists n. split.
+      * lia.
+      * exact Hd.
+  - destruct (decide (P n)) as [Hd|Hd].
+    +
 
-      cbn.
-
-Definition withAddrUndefined {X} (u : M X) (a: B64) : M X :=
-  match decide (available a) with
-  | right _ => u
-  | left H =>
-    let* mem := get' MEM in
-    store a None;;
-    let* res := u in
-    store a (mem a H);;
-    ret res
-  end.
-
-Equations withAddrsUndefined {X} (u : M X) (start: B64) n : M X :=
-  withAddrsUndefined _ _ 0 := u;
-  withAddrsUndefined u start 0 :=
+assert (exists x : nat, (x < n)%nat /\ ~ P x) as Hnot.
+    * destruct H as [x [Hx Hp]].
 
 
-Definition notAffectedBy {X} (u : M X) (a: B64) : Prop := forall (H: available a),
-    let* e := get' MEM in
-    store a None;;
-    let* res := u in
-    store a (e a H);;
-    ret res = u.
 
-(* PROBLEM: There's no way we can prove this with the existing axioms. *)
-Instance notAffectedBy_decidable {X} (u : M X) (a: B64) :
-  Decidable (notAffectedBy u a).
+  assert ({forall x, (x < n)%nat -> P x} + {exists x, (x < n)%nat /\ not (P x)}) as ae.
+  - apply bounded_decidable0. typeclasses eauto.
+  - destruct ae as [Ha|He].
+
+
+
+
+  split.
+  -
+
+
+Proposition not_nAfter_disjoint_spec u n a :
+
+  not (u # nAfter n a) <-> exists i, (i<n)%nat /\ offset i a ∈ u.
 Proof.
-  unfold notAffectedBy.
+  assert ({forall i, (i<n)%nat -> not (offset i a ∈ u)} + {exists i, (i<n)%nat /\ not (not (offset i a ∈ u))}) as s.
+  - apply bounded_decidable0. typeclasses eauto.
+  - destruct s as [Ha|He]; split; intro H.
+    * admit.
+    * admit.
+    * setoid_rewrite decidable_raa in He. exact He.
+    * unfold disjoint. intro HH.
+      destruct H as [i [H1 H2]].
+      apply (HH (offset i a)).
+      split.
+      -- exact H2.
+      -- unfold nAfter. rewrite def_spec. exists i. now split.
 
 
 
 
+destruct He as [i [H1 H2]].
+      exists i. split.
+      -- exact H1.
+      -- apply decidable_raa in He.
 
-Lemma popN_abandoned_swallow {X} m n ops (rest: M X) :
-  (let* v := popN n in
-  abandoned (m + n);;
-  swallow ops;;
-  rest) =
+Definition not_nAfter_disjoint_evidence u n a (H : not (u # nAfter n a)) : Addr.
+Proof.
+  rewrite nAfter_disjoint_spec in H.
+  unfold disjoint, nAfter in H.
 
+Defined.
 
+Definition stdDis m n o :=
+  let* sp := get' SP in
+  let* pc := get' PC in
+  assert* (nBefore m sp # nAfter o pc) in
+  assert* (nAfter n sp # nAfter o pc) in
+  ret tt.
+
+(* TODO: Move / remove *)
+Definition inc' L z :=
+  let* a := get' L in
+  put' L (offset z a).
+
+(* TODO: move *)
+Proposition assert_bind2
+            P {DP: Decidable P}
+            Q {DQ: Decidable Q}
+            {X} (mx: M X) {Y} (f: X -> M Y) :
+  let* x := (assert* P in assert* Q in mx) in
+  f x = assert* P in
+        assert* Q in
+        let* x := mx in
+        f x.
+Proof.
+  destruct (decide P);
+    destruct (decide Q);
+    smon_rewrite.
+Qed.
+
+Proposition stdStart_stdDis m n {o} (ops: vector Z o) :
+  stdDis m n o;; stdStart m n ops = stdStart m n ops.
+Proof.
+  unfold stdDis, stdStart.
+  smon_ext s.
+  setoid_rewrite get_spec.
+  repeat setoid_rewrite bind_assoc.
+  setoid_rewrite assert_bind2.
+  smon_rewrite.
+
+  destruct (decide (nBefore _ _ # _)) as [H1|H1];
+    [ destruct (decide (nAfter _ _ # _)) as [H2|H2] | ];
+    [ rewrite ret_tt_bind; reflexivity
+    | clear H1
+    | ];
+    rewrite bind_err.
+
+  smon_rewrite.
 
 
 Definition code_isZero := [PUSH1; 1; LT].
 
+(* TODO *)
+Opaque pushZ.
+
+Lemma ncert_isZero :
+  nCert 2 (let* v := stdStart 1 1 code_isZero in
+           pushZ (if decide (Vector.hd v = 0 :> Z) then -1 else 0);;
+           not_terminated).
+Proof.
+  unfold nCert;
+    simp nSteps;
+    unfold stdStart, chain, oneStep;
+    setoid_rewrite chain_ret_true.
+  (* TODO: smon_rewrite is too slow. *)
+  repeat setoid_rewrite bind_assoc.
+  simpl nBefore.
+
+
+
+  apply swallow_lemma.
+  unfold code_isZero.
+
+
+
+
+let* x := pop64 in
+           wipeStack 2;;
+           swallow code_isZero;;
+           pushZ (if decide (x = 0 :> Z) then -1 else 0);;
+           not_terminated).
+Proof.
+  unfold nCert, code_isZero.
+  simp nSteps.
+  setoid_rewrite chain_ret_true.
+  unfold chain.
+
 Lemma ncert_isZero :
   nCert 2 (let* x := pop64 in
-           abandoned 2;;
+           wipeStack 2;;
            swallow code_isZero;;
            pushZ (if decide (x = 0 :> Z) then -1 else 0);;
            not_terminated).
