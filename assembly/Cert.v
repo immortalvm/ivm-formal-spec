@@ -23,7 +23,7 @@ Qed.
 Definition swallow1 (op: Z) : M unit :=
   let* pc := get' PC in
   let* x := load pc in
-  assert* x = toBits 8 op in
+  assert* x = toB8 op in
   put' PC (offset 1 pc).
 
 Open Scope vector.
@@ -33,6 +33,79 @@ Equations swallow {n} (ops: vector Z n) : M unit :=
   swallow (op :: rest) :=
     swallow1 op;;
     swallow rest.
+
+(* TODO: Make definition in Operations.v global instead. *)
+Global Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
+
+(* TODO: Move to Operations.v ? *)
+Opaque loadMany.
+Opaque load.
+
+(* TODO: Move: *)
+Lemma postpone_assert P {DP: Decidable P} {X} (mx: M X) {Y} (f: X -> M Y) :
+  assert* P in
+  let* x := mx in
+  f x = let* x := mx in
+        assert* P in
+        f x.
+Proof.
+  destruct (decide P) as [H|H].
+  - reflexivity.
+  - smon_rewrite.
+Qed.
+
+Lemma swallow_spec {n} (ops: vector Z n) :
+  swallow ops = let* pc := get' PC in
+                let* u := loadMany n pc in
+                assert* (u = Vector.map toB8 ops) in
+                put' PC (offset n pc).
+Proof.
+  (* TODO: Simplify *)
+  induction n.
+  - dependent elimination ops.
+    simp swallow.
+    simp_loadMany.
+    unfold offset.
+    cbn.
+    smon_rewrite. setoid_rewrite toBits_ofN_bitsToN.
+    smon_rewrite.
+  - dependent elimination ops as [ @Vector.cons z n ops ].
+    simp swallow. unfold swallow1. rewrite IHn.
+    simp_loadMany.
+    smon_rewrite. (* Why not better? *)
+
+    apply bind_extensional. intros pc.
+    apply bind_extensional. intros op.
+
+    do 3 setoid_rewrite postpone_assert.
+    smon_rewrite.
+    setoid_rewrite <- confined_put;
+      [ | apply (confined_neutral (m:=MEM));
+          typeclasses eauto ].
+
+    apply bind_extensional. intros u.
+    destruct (decide (op = toB8 z)) as [Hop|Hop].
+    + subst op.
+      destruct (decide (u = Vector.map toB8 ops)) as [Hu|Hu].
+      * subst u.
+        simpl Vector.map.
+        destruct (decide _) as [He|He];
+          [ | exfalso; congruence ].
+        setoid_rewrite <- Z_action_add.
+        smon_rewrite.
+        do 2 f_equal.
+        lia.
+      * destruct (decide _) as [He|He].
+        -- exfalso. cbn in He. destruct (cons_inj He). congruence.
+        -- smon_rewrite.
+    + simpl Vector.map.
+      destruct (decide _) as [He|He].
+      * exfalso. cbn in He. destruct (cons_inj He). congruence.
+      * smon_rewrite.
+Qed.
+
+Instance confined_sallow {n} (ops: vector Z n) :
+  Confined (
 
 Lemma swallow_action {m n} (o1: vector Z m) (o2: vector Z n) :
   swallow (o1 ++ o2) = swallow o1;; swallow o2.
@@ -263,14 +336,7 @@ Proof.
   intros [|]; reflexivity.
 Qed.
 
-Equations popN (n: nat) : M (vector B64 n) :=
-  popN 0 := ret [];
-  popN (S n) := let* h := pop64 in
-                let* r := popN n in
-                ret (h :: r).
-
-(**************** TODO: move **************)
-
+(* TODO: Move *)
 Corollary toBits_cong' n z : cong n (toBits n z) z.
 Proof.
   rewrite ofN_bitsToN, fromBits_toBits_mod.
@@ -278,19 +344,23 @@ Proof.
   lia.
 Qed.
 
+(* TODO: Move *)
 Hint Opaque cong : rewrite.
 
+(* TODO: Move *)
 Instance cong_equivalence n : Equivalence (cong n).
 Proof.
   typeclasses eauto.
 Qed.
 
+(* TODO: Move *)
 Ltac cong_tac :=
   apply toBits_cong;
   rewrite toBits_cong';
   apply eq_cong;
   lia.
 
+(* TODO: Move *)
 Lemma nAfter_action (a: B64) (m n: nat) :
   nAfter (m + n) a = (nAfter m a ∪ nAfter n (offset m a))%DSet.
 Proof.
@@ -331,12 +401,15 @@ Proof.
         -- rewrite <- H2. cong_tac.
 Qed.
 
+(* TODO: Move *)
 Instance cong_toBits_proper n : Proper (cong n ==> eq) (toBits n).
 Proof. intros z z' Hz. apply toBits_cong. exact Hz. Qed.
 
+(* TODO: Move *)
 Corollary fromBits_toBits' n (u: Bits n) : toBits n u = u.
 Proof. rewrite ofN_bitsToN. apply toBits_fromBits. Qed.
 
+(* TODO: Move *)
 Proposition generalizer
       {MP1 : MachineParams1}
       {MP2 : MachineParams2}
@@ -356,9 +429,6 @@ Proof.
   reflexivity.
 Qed.
 
-(* TODO: Move to Operations.v ? *)
-Opaque loadMany.
-
 (* TODO: Move to Mon.v *)
 Lemma put_get_prime
       {MP1 : MachineParams1}
@@ -373,14 +443,75 @@ Proof.
   smon_rewrite'.
 Qed.
 
-(***************** End move ******************)
+(* TODO: Move. *)
+(** Making this an instance confuses the proof search.
+    Maybe this could somehow be made into an instance of [Proper] instead? *)
+Proposition decidable_proper {P} {D: Decidable P} {Q} (H: Q <-> P) : Decidable Q.
+Proof.
+  destruct D; [left|right]; tauto.
+Qed.
 
+(* TODO: Move *)
+Lemma bounded_all_neg P {DP: forall (x:nat), Decidable (P x)} n :
+  not (forall x, (x < n)%nat -> P x) -> (exists x, (x < n)%nat /\ not (P x)).
+Proof.
+  induction n; intro H.
+  - exfalso. apply H. intros x Hx. exfalso. lia.
+  - destruct (decide (P n)) as [Hd|Hd].
+    + assert (~ forall x : nat, (x < n)%nat -> P x) as Hnot.
+      * intros Hno.
+        apply H.
+        intros x Hx.
+        by_lia (x < n \/ x = n)%nat as H0.
+        destruct H0 as [H1|H2].
+        -- apply Hno. exact H1.
+        -- destruct H2. exact Hd.
+      * specialize (IHn Hnot).
+        destruct IHn as [x [Hx Hp]].
+        exists x. split.
+        -- lia.
+        -- exact Hp.
+    + exists n. split.
+      * lia.
+      * exact Hd.
+Qed.
 
-Definition stdStart m n {o} (ops: vector Z o) : M (vector B64 n) :=
-  let* v := popN n in
-  wipeStack (m + n);;
-  swallow ops;;
-  ret v.
+(* TODO: Move. Are there better ways to do this? *)
+Definition bounded_evidence
+           P {DP: forall (x:nat), Decidable (P x)}
+           n (H: exists x, (x < n)%nat /\ P x) : { x: nat | (x < n)%nat /\ P x }.
+Proof.
+  induction n.
+  - exfalso. destruct H as [x [H1 H2]]. lia.
+  - specialize (DP n). destruct DP as [H1|H2].
+    + refine (exist _ n _). split; [lia | exact H1].
+    + assert (exists (x: nat), (x < n)%nat /\ P x) as He.
+      * destruct H as [x [Hsn Hx]].
+        exists x. split; [ | exact Hx ].
+        by_lia (x < n \/ x = n)%nat as Hn.
+        destruct Hn as [Hn|Hn]; [ exact Hn | ].
+        destruct Hn. exfalso. exact (H2 Hx).
+      * specialize (IHn He).
+        destruct IHn as [x [IH1 IH2]].
+        refine (exist _ x _).
+        split; [lia | exact IH2].
+Defined.
+
+(* TODO: move *)
+Proposition assert_bind2
+            P {DP: Decidable P}
+            Q {DQ: Decidable Q}
+            {X} (mx: M X) {Y} (f: X -> M Y) :
+  let* x := (assert* P in assert* Q in mx) in
+  f x = assert* P in
+        assert* Q in
+        let* x := mx in
+        f x.
+Proof.
+  destruct (decide P);
+    destruct (decide Q);
+    smon_rewrite.
+Qed.
 
 (** By putting [swallow] after [wipeStack] we ensure that [stdStart] fails
     if the operations overlap with (the relevant parts of) the stack. *)
@@ -403,141 +534,119 @@ Proof.
     exact Hx.
 Qed.
 
-(* TODO: Move. *)
-(** Making this an instance confuses the proof search.
-    Maybe this could somehow be made into an instance of [Proper] instead? *)
-Proposition decidable_proper {P} {D: Decidable P} {Q} (H: Q <-> P) : Decidable Q.
-Proof.
-  destruct D; [left|right]; tauto.
-Qed.
-
 Instance nAfter_disjoint_decidable u n a : Decidable (u # nAfter n a).
 Proof.
   refine (decidable_proper (nAfter_disjoint_spec _ _ _)).
 Qed.
 
-(* TODO: Move *)
-Definition bounded_evidence
-           P {DP: forall (x:nat), Decidable (P x)}
-           n (H: exists x, (x < n)%nat /\ P x) : { x: nat | (x < n)%nat /\ P x }.
+Proposition not_nAfter_disjoint_spec u n a :
+  not (u # nAfter n a) -> exists i, (i<n)%nat /\ offset i a ∈ u.
+Proof.
+  rewrite nAfter_disjoint_spec.
+  intros H.
+  apply bounded_all_neg in H.
+  - setoid_rewrite decidable_raa in H. exact H.
+  - typeclasses eauto.
+Qed.
+
+Definition not_nAfter_disjoint_evidence u n a (H : not (u # nAfter n a)) :
+  { x: Addr | x ∈ u /\ exists i, (i < n)%nat /\ offset i a = x }.
+Proof.
+  apply not_nAfter_disjoint_spec in H.
+  apply bounded_evidence in H; [ | typeclasses eauto ].
+  destruct H as [i [Hi Hu]].
+  refine (exist _ (offset i a) _).
+  split.
+  - exact Hu.
+  - now exists i.
+Defined.
+
+
+(* TODO: Move to Binary.v *)
+(** Cf. [bitsToBytes] *)
+Definition bytesToLongs {n} (u: Bytes (n * 8)) : vector B64 n.
 Proof.
   induction n.
-  - exfalso. destruct H as [x [H1 H2]]. lia.
-  - specialize (DP n). destruct DP as [H1|H2].
-    + refine (exist _ n _). split; [lia | exact H1].
-    + assert (exists (x: nat), (x < n)%nat /\ P x) as He.
-      * destruct H as [x [Hsn Hx]].
-        exists x. split; [ | exact Hx ].
-        by_lia (x < n \/ x = n)%nat as Hn.
-        destruct Hn as [Hn|Hn]; [ exact Hn | ].
-        destruct Hn. exfalso. exact (H2 Hx).
-      * specialize (IHn He).
-        destruct IHn as [x [IH1 IH2]].
-        refine (exist _ x _).
-        split; [lia | exact IH2].
+  - exact [].
+  - simpl in u.
+    dependent elimination u as [b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u].
+    exact ((b0 ++ b1 ++ b2 ++ b3 ++ b4 ++ b5 ++ b6 ++ b7) :: IHn u).
 Defined.
 
-Lemma bounded_all_neg P {DP: forall (x:nat), Decidable (P x)} n :
-  not (forall x, (x < n)%nat -> P x) <-> (exists x, (x < n)%nat /\ not (P x)).
+Proposition bytesToLongs_equation_1 : @bytesToLongs (0 * 8) [] = [].
+Proof. reflexivity. Qed.
+
+Proposition bytesToLongs_equation_2 {n} b0 b1 b2 b3 b4 b5 b6 b7 (u: Bytes (n * 8)) :
+  @bytesToLongs (S n) (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u) =
+  (b0 ++ b1 ++ b2 ++ b3 ++ b4 ++ b5 ++ b6 ++ b7) :: bytesToLongs u.
+Proof. reflexivity. Qed.
+
+Hint Rewrite bytesToLongs_equation_1 @bytesToLongs_equation_2 : bytesToLongs.
+Opaque bytesToLongs.
+
+
+Equations popN (n: nat) : M (vector B64 n) :=
+  popN 0 := ret [];
+  popN (S n) := let* h := pop64 in
+                let* r := popN n in
+                ret (h :: r).
+
+(* TODO: Move *)
+Opaque popMany.
+
+Proposition bytesToBits_equation_2' {n} b (u: Bytes n) :
+  @bytesToBits (S n) (b :: u) = b ++ bytesToBits u.
 Proof.
-  induction n; split; intro H.
-  - exfalso. apply H. intros x Hx. exfalso. lia.
-  - intros Ha. destruct H as [x [Hx Hp]]. lia.
-  - destruct (decide (P n)) as [Hd|Hd].
-    + assert (~ forall x : nat, (x < n)%nat -> P x) as Hnot.
-      * intros Hno.
-        apply H.
-        intros x Hx.
-        by_lia (x < n \/ x = n)%nat as H0.
-        destruct H0 as [H1|H2].
-        -- apply Hno. exact H1.
-        -- destruct H2. exact Hd.
-      * apply proj1 in IHn. specialize (IHn Hnot).
-        destruct IHn as [x [Hx Hp]].
-        exists x. split.
-        -- lia.
-        -- exact Hp.
-    + exists n. split.
-      * lia.
-      * exact Hd.
-  - destruct (decide (P n)) as [Hd|Hd].
-    +
+  dependent elimination b as [b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: []].
+  simp bytesToBits.
+  reflexivity.
+Qed.
 
-assert (exists x : nat, (x < n)%nat /\ ~ P x) as Hnot.
-    * destruct H as [x [Hx Hp]].
+(* Proposition append_nil {A} {n} (u: vector A n) : u ++ [] = u. *)
 
-
-
-  assert ({forall x, (x < n)%nat -> P x} + {exists x, (x < n)%nat /\ not (P x)}) as ae.
-  - apply bounded_decidable0. typeclasses eauto.
-  - destruct ae as [Ha|He].
-
-
-
-
-  split.
-  -
-
-
-Proposition not_nAfter_disjoint_spec u n a :
-
-  not (u # nAfter n a) <-> exists i, (i<n)%nat /\ offset i a ∈ u.
+Proposition bytesToLongs_equation_2' {n} b0 b1 b2 b3 b4 b5 b6 b7 (u: Bytes (n * 8)) :
+  @bytesToLongs (S n) (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: u) =
+  (([b0; b1; b2; b3; b4; b5; b6; b7] : Bytes 8) : B64) :: bytesToLongs u.
 Proof.
-  assert ({forall i, (i<n)%nat -> not (offset i a ∈ u)} + {exists i, (i<n)%nat /\ not (not (offset i a ∈ u))}) as s.
-  - apply bounded_decidable0. typeclasses eauto.
-  - destruct s as [Ha|He]; split; intro H.
-    * admit.
-    * admit.
-    * setoid_rewrite decidable_raa in He. exact He.
-    * unfold disjoint. intro HH.
-      destruct H as [i [H1 H2]].
-      apply (HH (offset i a)).
-      split.
-      -- exact H2.
-      -- unfold nAfter. rewrite def_spec. exists i. now split.
+  (* TODO: Can this be done more elegantly? *)
+  simp bytesToLongs.
+  repeat rewrite bytesToBits_equation_2'.
+  repeat f_equal.
+  dependent elimination b7 as [c0 :: c1 :: c2 :: c3 :: c4 :: c5 :: c6 :: c7 :: []].
+  reflexivity.
+Qed.
 
-
-
-
-destruct He as [i [H1 H2]].
-      exists i. split.
-      -- exact H1.
-      -- apply decidable_raa in He.
-
-Definition not_nAfter_disjoint_evidence u n a (H : not (u # nAfter n a)) : Addr.
+Proposition popN_spec n :
+  popN n = let* u := popMany (n * 8) in
+           ret (bytesToLongs u).
 Proof.
-  rewrite nAfter_disjoint_spec in H.
-  unfold disjoint, nAfter in H.
+  induction n.
+  - simp popMany. smon_rewrite.
+  - simp popN.
+    change (S n * 8)%nat with (S (S (S (S (S (S (S (S (n * 8)))))))))%nat.
+    setoid_rewrite IHn.
+    unfold pop64.
+    simp popMany.
+    smon_rewrite.
+    setoid_rewrite bytesToLongs_equation_2'.
+    reflexivity.
+Qed.
 
-Defined.
+
+(** ** Standard cert start *)
+
+Definition stdStart m n {o} (ops: vector Z o) : M (vector B64 n) :=
+  let* v := popN n in
+  wipeStack (m + n);;
+  swallow ops;;
+  ret v.
 
 Definition stdDis m n o :=
   let* sp := get' SP in
   let* pc := get' PC in
-  assert* (nBefore m sp # nAfter o pc) in
-  assert* (nAfter n sp # nAfter o pc) in
+  assert* (nBefore (m * 8) sp # nAfter o pc) in
+  assert* (nAfter (n * 8) sp # nAfter o pc) in
   ret tt.
-
-(* TODO: Move / remove *)
-Definition inc' L z :=
-  let* a := get' L in
-  put' L (offset z a).
-
-(* TODO: move *)
-Proposition assert_bind2
-            P {DP: Decidable P}
-            Q {DQ: Decidable Q}
-            {X} (mx: M X) {Y} (f: X -> M Y) :
-  let* x := (assert* P in assert* Q in mx) in
-  f x = assert* P in
-        assert* Q in
-        let* x := mx in
-        f x.
-Proof.
-  destruct (decide P);
-    destruct (decide Q);
-    smon_rewrite.
-Qed.
 
 Proposition stdStart_stdDis m n {o} (ops: vector Z o) :
   stdDis m n o;; stdStart m n ops = stdStart m n ops.
@@ -549,15 +658,67 @@ Proof.
   setoid_rewrite assert_bind2.
   smon_rewrite.
 
-  destruct (decide (nBefore _ _ # _)) as [H1|H1];
-    [ destruct (decide (nAfter _ _ # _)) as [H2|H2] | ];
+  destruct (decide (nBefore _ _ # _)) as [_|H];
+    [ destruct (decide (nAfter _ _ # _)) as [_|H] | ];
     [ rewrite ret_tt_bind; reflexivity
-    | clear H1
-    | ];
-    rewrite bind_err.
+    | | ];
+    rewrite bind_err;
+    apply not_nAfter_disjoint_evidence in H;
+    destruct H as [x [Hx [i [Hi Ho]]]];
+    subst x.
+  - setoid_rewrite popN_spec.
+    setoid_rewrite popMany_spec.
+    smon_rewrite.
+
+    setoid_rewrite <- (confined_loadMany _ _ _ _ _).
+    setoid_rewrite get_spec at 1.
+    smon_rewrite.
+
+    set (sp := (@proj _ _ SP s)).
+    set (pc := (@proj _ _ PC s)).
+    set (sp' := (toB64 ((n * 8)%nat + sp))).
+
+    do 2 (setoid_rewrite <- (confined_put SP sp');
+          (* TODO: Why is this needed? *)
+          [ | apply (confined_neutral (Hm:=independent_MEM_SP));
+              typeclasses eauto ] ).
+
+    setoid_rewrite <- (confined_put SP sp').
+    admit.
+    apply (confined_neutral (m := MEM * PC)).
+
+    typeclasses eauto.
+
+          (* TODO: Why is this needed? *)
+          [ | apply (confined_neutral (Hm:=independent_MEM_SP));
+              typeclasses eauto ] ).
+
+          setoid_rewrite <- (confined_put SP sp');
+      (* TODO: Why is this needed? *)
+      [ | apply (confined_neutral (Hm:=independent_MEM_SP));
+          typeclasses eauto ].
+
+    admit.
+
+
+    setoid_rewrite get_spec.
+    setoid_rewrite get_spec.
+
+
+
+unfold wipe.
+
 
   smon_rewrite.
 
+
+
+(** ** Zero check *)
+
+(* TODO: Move / remove *)
+Definition inc' L z :=
+  let* a := get' L in
+  put' L (offset z a).
 
 Definition code_isZero := [PUSH1; 1; LT].
 
