@@ -356,20 +356,19 @@ Module Core (MP: MachineParameters).
   (** *** [load] *)
 
   Definition load (a: Addr): M Cell :=
-    assert* available a as Ha in
+    let* Ha := assume (available a) in
     let* c := get' (MEM'' a) in
     extr (c Ha).
 
   Definition load_spec'' := unfolded_eq load.
 
   Proposition load_spec a :
-    load a = assert* available a as Ha in
+    load a = let* Ha := assume (available a) in
              let* mem := get' MEM in
              extr (mem a Ha).
   Proof.
     unfold load.
-    destruct (decide (available a)) as [Ha|_];
-      [ | reflexivity ].
+    destr_assume (available a) as Ha.
     repeat rewrite get_spec.
     smon_rewrite.
   Qed.
@@ -385,13 +384,13 @@ Module Core (MP: MachineParameters).
   (** *** [store] *)
 
   Definition store (a: Addr) (x: Cell) : M unit :=
-    assert* available a in
+    assume (available a);;
     put' (MEM'' a) (fun _ => Some x).
 
   Definition store_spec'' := unfolded_eq store.
 
   Proposition store_spec a x :
-    store a x = assert* available a in
+    store a x = assume (available a);;
                 let* s := get' MEM in
                 let s' a' H := if decide (a = a') then Some x else s a' H in
                 put' MEM s'.
@@ -399,8 +398,7 @@ Module Core (MP: MachineParameters).
     unfold store.
     repeat rewrite get_spec.
     repeat rewrite put_spec.
-    destruct (decide (available a)) as [Ha|_];
-      [ | reflexivity ].
+    destr_assume (available a) as Ha.
     smon_rewrite.
     apply bind_extensional. intro s.
     f_equal. cbn. unfold compose. f_equal.
@@ -429,8 +427,8 @@ Module Core (MP: MachineParameters).
       store_spec'', load_spec'',
       extr_spec.
     smon_rewrite.
-    destruct (decide (available a)) as [Ha|_];
-      smon_rewrite.
+    destr_assume (available a) as Ha.
+    smon_rewrite.
   Qed.
 
   Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
@@ -441,8 +439,8 @@ Module Core (MP: MachineParameters).
             f u v.
   Proof.
     rewrite store_spec''.
-    destruct (decide (available a)) as [Ha|_];
-      destruct (decide (available a')) as [Ha'|_];
+    destr_assume (available a);
+      destr_assume (available a');
       smon_rewrite.
     rewrite <- flip_put_put.
     - reflexivity.
@@ -978,8 +976,8 @@ Module Core (MP: MachineParameters).
   Definition readPixel (x y : N) : M InputColor :=
     let* i := get' INP in
     let img := nth (N.to_nat i) allInputImages noImage in
-    assert* x < width img as Hx in
-    assert* y < height img as Hy in
+    let* Hx := assume (x < width img) in
+    let* Hy := assume (y < height img) in
     ret (pixel img Hx Hy).
 
   Definition readPixel_spec := unfolded_eq (readPixel).
@@ -1027,8 +1025,8 @@ Module Core (MP: MachineParameters).
 
   Definition setPixel (x y: N) (c: OutputColor) : M unit :=
     let* img := get' OUT_IMAGE in
-    assert* x < width img in
-    assert* y < height img in
+    assume (x < width img);;
+    assume (y < height img);;
     put' OUT_IMAGE (updatePixel x y (Some c) img).
   Definition setPixel_spec := unfolded_eq (setPixel).
   Global Opaque setPixel.
@@ -1042,7 +1040,7 @@ Module Core (MP: MachineParameters).
     forall x (Hx: x < width img) y (Hy: y < height img), pixel img Hx Hy.
 
   Definition extractImage (img: Image (option OutputColor)) : M (Image OutputColor) :=
-    assert* image_complete img as H_complete in
+    let* H_complete := assume (image_complete img) in
     ret {|
         width := width img;
         height := height img;

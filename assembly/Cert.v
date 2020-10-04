@@ -23,7 +23,7 @@ Qed.
 Definition swallow1 (op: Z) : M unit :=
   let* pc := get' PC in
   let* x := load pc in
-  assert* x = toB8 op in
+  assume (x = toB8 op);;
   put' PC (offset 1 pc).
 
 Open Scope vector.
@@ -41,23 +41,17 @@ Global Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
 Opaque loadMany.
 Opaque load.
 
-(* TODO: Move: *)
-Lemma postpone_assert P {DP: Decidable P} {X} (mx: M X) {Y} (f: X -> M Y) :
-  assert* P in
-  let* x := mx in
-  f x = let* x := mx in
-        assert* P in
-        f x.
-Proof.
-  destruct (decide P) as [H|H].
-  - reflexivity.
-  - smon_rewrite.
-Qed.
+
+
+Tactic Notation "destr_assume'" :=
+  match goal with
+    |- context [assume ?P] => destr_assume P
+  end.
 
 Lemma swallow_spec {n} (ops: vector Z n) :
   swallow ops = let* pc := get' PC in
                 let* u := loadMany n pc in
-                assert* (u = Vector.map toB8 ops) in
+                assume (u = Vector.map toB8 ops);;
                 put' PC (offset n pc).
 Proof.
   (* TODO: Simplify *)
@@ -72,7 +66,54 @@ Proof.
   - dependent elimination ops as [ @Vector.cons z n ops ].
     simp swallow. unfold swallow1. rewrite IHn.
     simp_loadMany.
-    smon_rewrite. (* Why not better? *)
+    smon_rewrite.
+
+    apply bind_extensional. intros pc.
+    apply bind_extensional. intros op.
+    setoid_rewrite <- confined_put;
+      [ | apply (confined_neutral (m:=MEM));
+          typeclasses eauto ].
+    simpl Vector.map.
+    destr_assume (op = toB8 z) as Hop.
+    + subst op.
+      apply bind_extensional. intros u.
+      destr_assume (u = Vector.map toB8 ops) as Hu.
+      * subst u.
+        destr_assume'; [ | exfalso; congruence ].
+        setoid_rewrite <- Z_action_add.
+        smon_rewrite.
+        do 2 f_equal.
+        lia.
+      * destr_assume'.
+        -- exfalso. destruct (cons_inj H). congruence.
+        -- smon_rewrite.
+
+
+
+
+
+    + apply bind_extensional. intros u.
+
+
+unfold assume.
+      destruct (decide _) as [He|He].
+      * exfalso. cbn in He. destruct (cons_inj He). congruence.
+      * smon_rewrite.
+
+
+      destr_assume'.
+      * exfalso. cbn in He. destruct (cons_inj He). congruence.
+      * smon_rewrite.
+
+
+        ; [ | exfalso; congruence ].
+
+
+
+    setoid_rewrite <- (confined_assume _ _ _).
+
+
+
 
     apply bind_extensional. intros pc.
     apply bind_extensional. intros op.

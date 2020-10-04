@@ -126,6 +126,8 @@ Proof.
   exact (bind_propr State RX RY mx mx' Hmx f f' Hf).
 Qed.
 
+Transparent assume.
+
 Ltac crush0 :=
   match goal with
   | [ |- ret _ ⊑ ret _ ] => unshelve eapply ret_propr; [apply PM|]
@@ -183,6 +185,20 @@ Ltac crush0 :=
     let HR := fresh "HR" in
     destruct H as [HL|HR]
 
+  | [|- (match ?H with left _ => _ | right _ => _ end) >>= _ ⊑ _] =>
+    let HL := fresh "HL" in
+    let HR := fresh "HR" in
+    destruct H as [HL|HR];
+    [ repeat rewrite ret_bind
+    | repeat rewrite err_bind ]
+
+  | [|- _ ⊑ (match ?H with left _ => _ | right _ => _ end) >>= _] =>
+    let HL := fresh "HL" in
+    let HR := fresh "HR" in
+    destruct H as [HL|HR];
+    [ repeat rewrite ret_bind
+    | repeat rewrite err_bind ]
+
   | [|- match ?H with Some _ => _ | None => _ end ⊑ _] =>
     let u := fresh "u" in
     let Hu := fresh "Hu" in
@@ -203,8 +219,18 @@ Ltac crush0 :=
   | [ |- _ >>= _ ⊑ _ >>= _ ] => apply bind_propr'
 
   | _ => exact eq_refl
-  | _ => progress unfold PropR
+  | _ => progress unfold PropR, assume
   end.
+
+(* TODO: Move / remove *)
+(*
+Global Instance prop_relation : Rel Prop := fun _ _ => True.
+
+Instance assume_propr P {DP: Decidable P} : PropR (assume P).
+Proof.
+  repeat crush0.
+Qed.
+*)
 
 
 (** *** Get *)

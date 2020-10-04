@@ -60,18 +60,11 @@ Notation "mx ;; my" := (bind mx (fun _ => my))
                          (at level 60, right associativity,
                           format "'[hv' mx ;;  '//' my ']'") : monad_scope.
 
-Notation "'assert*' P 'in' result" :=
-  (if (decide P%type) then result else err)
-    (at level 60, right associativity,
-     format "'[hv' assert*  P  'in'  '//' result ']'") : monad_scope.
-
-(* TODO: For some reason this is only used for parsing. *)
-Notation "'assert*' P 'as' H 'in' result" :=
-  (match (decide P%type) with
-   | left H => result
-   | right _ => err
-   end) (at level 60, right associativity,
-         format "'[hv' assert*  P  'as'  H  'in'  '//' result ']'") : monad_scope.
+Definition assume {S: Type} {M: Type -> Type} {SM: SMonad S M} P {DP: Decidable P} : M P :=
+  match (decide P%type) with
+  | left p => ret p
+  | right _ => err
+  end.
 
 Open Scope monad_scope.
 
@@ -174,34 +167,45 @@ Section basics_section.
     exact H.
   Qed.
 
-  Proposition assert_bind {P} {DP: Decidable P} {X} {mx: M X} {Y} {f: X -> M Y} :
-    (assert* P in mx) >>= f = assert* P in (mx >>= f).
+  Definition assume_cases P {DP: Decidable P} [T: M P -> Type]
+             (H_true: forall (H: P), T (ret H))
+             (H_false: not P -> T err) : T (assume P).
   Proof.
-    destruct (decide P); [ | rewrite err_bind ]; reflexivity.
-  Qed.
-
-  Proposition assert_bind' {P} {DP: Decidable P} {X} {f: P -> M X} {Y} {g: X -> M Y} :
-    (assert* P as H in f H) >>= g = assert* P as H in (f H >>= g).
-  Proof.
-    destruct (decide P); [ | rewrite err_bind ]; reflexivity.
-  Qed.
+    unfold assume.
+    destruct (decide P) as [H|H].
+    - exact (H_true H).
+    - exact (H_false H).
+  Defined.
 
 End basics_section.
+
+Definition assume_spec := unfolded_eq (@assume).
+Opaque assume.
+
+Tactic Notation "destr_assume" constr(P) "as" ident(H) :=
+  apply (assume_cases P);
+  [ setoid_rewrite ret_bind
+  | repeat setoid_rewrite err_bind];
+  intro H;
+  try reflexivity.
+
+
+Tactic Notation "destr_assume" constr(P) :=
+  let H := fresh in
+  destr_assume P as H.
 
 
 (** *** Automation
 
 This is a mess. We often need [setoid_rewrite] and/or [rewrite_strat], but
-they are clearly buggy. Hence, we also use [rewrite] many places to
-increase the success rate. *)
+they appear buggy. Hence, we also use [rewrite] some places to increase
+the success rate. *)
 
 Ltac smon_rewrite0 :=
   try (rewrite_strat (outermost <- bind_ret));
   try rewrite <- bind_ret;
   repeat (rewrite bind_assoc
-          || setoid_rewrite bind_assoc
-          || setoid_rewrite assert_bind
-          || setoid_rewrite assert_bind');
+          || setoid_rewrite bind_assoc);
   repeat (setoid_rewrite ret_bind);
   repeat (setoid_rewrite err_bind);
   repeat (setoid_rewrite bind_err);
@@ -546,6 +550,12 @@ Section neutral_section.
   Global Instance confined_err {X} : Confined (err : M X).
   Proof.
     unfold Confined. intros. smon_rewrite.
+  Qed.
+
+  Global Instance confined_assume P {DP: Decidable P} : Confined (assume P).
+  Proof.
+    apply (assume_cases P);
+      typeclasses eauto.
   Qed.
 
   Global Instance confined_putM s : Confined (putM m s).
