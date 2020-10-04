@@ -60,11 +60,11 @@ Notation "mx ;; my" := (bind mx (fun _ => my))
                          (at level 60, right associativity,
                           format "'[hv' mx ;;  '//' my ']'") : monad_scope.
 
-Definition assume {S: Type} {M: Type -> Type} {SM: SMonad S M} P {DP: Decidable P} : M P :=
-  match (decide P%type) with
-  | left p => ret p
-  | right _ => err
-  end.
+Notation "'assume' P" :=
+  (match (decide P%type) with
+   | left p => ret p
+   | right _ => err
+   end) (at level 50) : monad_scope.
 
 Open Scope monad_scope.
 
@@ -167,32 +167,7 @@ Section basics_section.
     exact H.
   Qed.
 
-  Definition assume_cases P {DP: Decidable P} [T: M P -> Type]
-             (H_true: forall (H: P), T (ret H))
-             (H_false: not P -> T err) : T (assume P).
-  Proof.
-    unfold assume.
-    destruct (decide P) as [H|H].
-    - exact (H_true H).
-    - exact (H_false H).
-  Defined.
-
 End basics_section.
-
-Definition assume_spec := unfolded_eq (@assume).
-Opaque assume.
-
-Tactic Notation "destr_assume" constr(P) "as" ident(H) :=
-  apply (assume_cases P);
-  [ setoid_rewrite ret_bind
-  | repeat setoid_rewrite err_bind];
-  intro H;
-  try reflexivity.
-
-
-Tactic Notation "destr_assume" constr(P) :=
-  let H := fresh in
-  destr_assume P as H.
 
 
 (** *** Automation
@@ -550,12 +525,6 @@ Section neutral_section.
   Global Instance confined_err {X} : Confined (err : M X).
   Proof.
     unfold Confined. intros. smon_rewrite.
-  Qed.
-
-  Global Instance confined_assume P {DP: Decidable P} : Confined (assume P).
-  Proof.
-    apply (assume_cases P);
-      typeclasses eauto.
   Qed.
 
   Global Instance confined_putM s : Confined (putM m s).

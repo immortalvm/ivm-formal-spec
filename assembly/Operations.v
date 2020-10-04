@@ -368,9 +368,9 @@ Module Core (MP: MachineParameters).
              extr (mem a Ha).
   Proof.
     unfold load.
-    destr_assume (available a) as Ha.
-    repeat rewrite get_spec.
-    smon_rewrite.
+    destruct (decide (available a));
+      repeat rewrite get_spec;
+      smon_rewrite.
   Qed.
 
   Global Instance confined_load {a} : Confined (MEM'' a) (load a).
@@ -398,12 +398,12 @@ Module Core (MP: MachineParameters).
     unfold store.
     repeat rewrite get_spec.
     repeat rewrite put_spec.
-    destr_assume (available a) as Ha.
-    smon_rewrite.
+    destruct (decide (available a));
+      smon_rewrite.
     apply bind_extensional. intro s.
     f_equal. cbn. unfold compose. f_equal.
     extensionality a'.
-    destruct (decide (a = a')) as [[]|_];
+    destruct (decide _) as [[]|_];
       reflexivity.
   Qed.
 
@@ -427,8 +427,8 @@ Module Core (MP: MachineParameters).
       store_spec'', load_spec'',
       extr_spec.
     smon_rewrite.
-    destr_assume (available a) as Ha.
-    smon_rewrite.
+    destruct (decide _);
+      smon_rewrite.
   Qed.
 
   Lemma store_store a a' x x' Y (H: a <> a') (f: unit -> unit -> M Y) :
@@ -439,8 +439,8 @@ Module Core (MP: MachineParameters).
             f u v.
   Proof.
     rewrite store_spec''.
-    destr_assume (available a);
-      destr_assume (available a');
+    destruct (decide (available a));
+      destruct (decide (available a'));
       smon_rewrite.
     rewrite <- flip_put_put.
     - reflexivity.

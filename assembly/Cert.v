@@ -41,12 +41,50 @@ Global Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
 Opaque loadMany.
 Opaque load.
 
+Lemma postpone_assume P {DP: Decidable P} {X} (mx: M X) {Y} (f: X -> M Y) :
+  assume P;;
+  let* x := mx in
+  f x = let* x := mx in
+        assume P;;
+        f x.
+Proof.
+  destruct (decide P) as [H|H]; smon_rewrite.
+Qed.
 
+Lemma assume_cons {A} (EA: EqDec A) (a a': A) n (u u': vector A n) {X} (mx: M X) :
+  assume (a :: u = a' :: u');;
+  mx = assume (a = a');;
+       assume (u = u');;
+       mx.
+Proof.
+  destruct (decide (a :: u = a' :: u')) as [He|He].
+  - rewrite ret_bind.
+    apply cons_inj in He.
+    destruct He as [Ha Hu].
+    decided Ha.
+    decided Hu.
+    now do 2 rewrite ret_bind.
+  - destruct (decide (a = a')) as [Ha|Ha];
+      destruct (decide (u = u')) as [Hu|Hu].
+    1: exfalso. congruence.
+    all: smon_rewrite.
+Qed.
 
-Tactic Notation "destr_assume'" :=
-  match goal with
-    |- context [assume ?P] => destr_assume P
-  end.
+Proposition vector_equation_1 {A B} (f: A -> B) : Vector.map f [] = [].
+Proof.
+  reflexivity.
+Qed.
+
+Proposition vector_equation_2 {A B} (f: A -> B) (x: A) {n} (u: vector A n) : Vector.map f (x :: u) = f x :: Vector.map f u.
+Proof.
+  reflexivity.
+Qed.
+
+Hint Rewrite @vector_equation_1 : map.
+Hint Rewrite @vector_equation_2 : map.
+
+Opaque Vector.map.
+
 
 Lemma swallow_spec {n} (ops: vector Z n) :
   swallow ops = let* pc := get' PC in
@@ -57,96 +95,47 @@ Proof.
   (* TODO: Simplify *)
   induction n.
   - dependent elimination ops.
-    simp swallow.
+    simp swallow map.
     simp_loadMany.
     unfold offset.
-    cbn.
     smon_rewrite. setoid_rewrite toBits_ofN_bitsToN.
     smon_rewrite.
   - dependent elimination ops as [ @Vector.cons z n ops ].
-    simp swallow. unfold swallow1. rewrite IHn.
+    simp swallow map. unfold swallow1. rewrite IHn.
     simp_loadMany.
     smon_rewrite.
 
     apply bind_extensional. intros pc.
     apply bind_extensional. intros op.
-    setoid_rewrite <- confined_put;
-      [ | apply (confined_neutral (m:=MEM));
-          typeclasses eauto ].
-    simpl Vector.map.
-    destr_assume (op = toB8 z) as Hop.
-    + subst op.
-      apply bind_extensional. intros u.
-      destr_assume (u = Vector.map toB8 ops) as Hu.
-      * subst u.
-        destr_assume'; [ | exfalso; congruence ].
-        setoid_rewrite <- Z_action_add.
-        smon_rewrite.
-        do 2 f_equal.
-        lia.
-      * destr_assume'.
-        -- exfalso. destruct (cons_inj H). congruence.
-        -- smon_rewrite.
 
-
-
-
-
-    + apply bind_extensional. intros u.
-
-
-unfold assume.
-      destruct (decide _) as [He|He].
-      * exfalso. cbn in He. destruct (cons_inj He). congruence.
-      * smon_rewrite.
-
-
-      destr_assume'.
-      * exfalso. cbn in He. destruct (cons_inj He). congruence.
-      * smon_rewrite.
-
-
-        ; [ | exfalso; congruence ].
-
-
-
-    setoid_rewrite <- (confined_assume _ _ _).
-
-
-
-
-    apply bind_extensional. intros pc.
-    apply bind_extensional. intros op.
-
-    do 3 setoid_rewrite postpone_assert.
+    do 3 setoid_rewrite postpone_assume.
     smon_rewrite.
     setoid_rewrite <- confined_put;
       [ | apply (confined_neutral (m:=MEM));
           typeclasses eauto ].
 
     apply bind_extensional. intros u.
-    destruct (decide (op = toB8 z)) as [Hop|Hop].
-    + subst op.
-      destruct (decide (u = Vector.map toB8 ops)) as [Hu|Hu].
-      * subst u.
-        simpl Vector.map.
-        destruct (decide _) as [He|He];
-          [ | exfalso; congruence ].
-        setoid_rewrite <- Z_action_add.
-        smon_rewrite.
-        do 2 f_equal.
-        lia.
-      * destruct (decide _) as [He|He].
-        -- exfalso. cbn in He. destruct (cons_inj He). congruence.
-        -- smon_rewrite.
-    + simpl Vector.map.
-      destruct (decide _) as [He|He].
-      * exfalso. cbn in He. destruct (cons_inj He). congruence.
-      * smon_rewrite.
+    simpl Vector.map.
+    Opaque Vector.map.
+
+    unfold Cells. (* TODO: How can we avoid having to remember this everywhere? *)
+    setoid_rewrite assume_cons.
+    destruct (decide (op = toB8 z)) as [Hop|Hop]; [ | smon_rewrite ].
+    subst op.
+    destruct (decide _) as [Hu|Hu]; [ | smon_rewrite ].
+    subst u.
+    smon_rewrite.
+    setoid_rewrite <- Z_action_add.
+    do 2 f_equal.
+    lia.
 Qed.
 
-Instance confined_sallow {n} (ops: vector Z n) :
-  Confined (
+Instance confined_swallow {n} (ops: vector Z n) :
+  Confined (MEM * PC) (swallow ops).
+Proof.
+  rewrite swallow_spec.
+  typeclasses eauto.
+Qed.
 
 Lemma swallow_action {m n} (o1: vector Z m) (o2: vector Z n) :
   swallow (o1 ++ o2) = swallow o1;; swallow o2.
@@ -176,7 +165,6 @@ Proof.
     simp swallow.
     unfold swallow1.
     repeat setoid_rewrite bind_assoc.
-    setoid_rewrite assert_bind.
     crush.
     smon_rewrite.
     subst.
@@ -204,7 +192,7 @@ Open Scope Z.
 Lemma next_helper (op: Z) (Hop: 0 <= op < 256) :
   (Vector.map toB8 [op] : Bytes 1) = Z.to_N op :> N.
 Proof.
-  simpl Vector.map.
+  simp map.
   remember (toB8 op) as u eqn:Hu.
   dependent elimination u as [[b0; b1; b2; b3; b4; b5; b6; b7]].
   simp bytesToBits. simpl. rewrite Hu.
@@ -538,22 +526,6 @@ Proof.
         split; [lia | exact IH2].
 Defined.
 
-(* TODO: move *)
-Proposition assert_bind2
-            P {DP: Decidable P}
-            Q {DQ: Decidable Q}
-            {X} (mx: M X) {Y} (f: X -> M Y) :
-  let* x := (assert* P in assert* Q in mx) in
-  f x = assert* P in
-        assert* Q in
-        let* x := mx in
-        f x.
-Proof.
-  destruct (decide P);
-    destruct (decide Q);
-    smon_rewrite.
-Qed.
-
 (** By putting [swallow] after [wipeStack] we ensure that [stdStart] fails
     if the operations overlap with (the relevant parts of) the stack. *)
 
@@ -685,9 +657,62 @@ Definition stdStart m n {o} (ops: vector Z o) : M (vector B64 n) :=
 Definition stdDis m n o :=
   let* sp := get' SP in
   let* pc := get' PC in
-  assert* (nBefore (m * 8) sp # nAfter o pc) in
-  assert* (nAfter (n * 8) sp # nAfter o pc) in
+  assume (nBefore (m * 8) sp # nAfter o pc);;
+  assume (nAfter (n * 8) sp # nAfter o pc);;
   ret tt.
+
+(* TODO: Move *)
+Proposition nAfter_empty a : nAfter 0 a = ∅%DSet.
+Proof.
+  apply extensionality.
+  intros x.
+  unfold nAfter.
+  rewrite def_spec.
+  transitivity False.
+  - split.
+    + intros [i [Hi _]]. lia.
+    + tauto.
+  - set (H := @empty_spec _ x). tauto.
+Qed.
+
+Proposition simp_assume P {DP: Decidable P} {X} (mx: M X) :
+  assume P;; mx = if decide P
+                  then mx
+                  else err.
+Proof.
+  destruct (decide P) as [H|H]; smon_rewrite.
+Qed.
+
+Ltac simp_assume := setoid_rewrite simp_assume.
+
+Proposition wipe_swallow_crash u {n} (ops: vector Z n) :
+  wipe u;;
+  swallow ops = let* pc := get' PC in
+                assume (u # nAfter (length ops) pc);;
+                wipe u;;
+                swallow ops.
+Proof.
+  induction n.
+  - dependent elimination ops.
+    simpl length.
+    simp_assume.
+
+(********* Continue from here *********)
+
+    setoid_rewrite nAfter_empty.
+    unfold nAfter.
+
+
+setoid_rewrite nAfter_spec.
+
+  smon_ext s. rewrite get_spec. smon_rewrite. apply bind_extensional. intros [].
+  set (pc := proj _).
+  destruct (decide _) as [H|H]; smon_rewrite.
+    apply not_nAfter_disjoint_evidence in H.
+  destruct H as [x [Hx [i [Hi Ho]]]];
+    subst x.
+
+
 
 Proposition stdStart_stdDis m n {o} (ops: vector Z o) :
   stdDis m n o;; stdStart m n ops = stdStart m n ops.
@@ -696,17 +721,15 @@ Proof.
   smon_ext s.
   setoid_rewrite get_spec.
   repeat setoid_rewrite bind_assoc.
-  setoid_rewrite assert_bind2.
   smon_rewrite.
 
-  destruct (decide (nBefore _ _ # _)) as [_|H];
-    [ destruct (decide (nAfter _ _ # _)) as [_|H] | ];
-    [ rewrite ret_tt_bind; reflexivity
-    | | ];
-    rewrite bind_err;
+  destruct (decide (nBefore _ _ # _)) as [H0|H];
+    [ destruct (decide (nAfter _ _ # _)) as [H0'|H] | ];
+    [ smon_rewrite | | ];
     apply not_nAfter_disjoint_evidence in H;
     destruct H as [x [Hx [i [Hi Ho]]]];
     subst x.
+
   - setoid_rewrite popN_spec.
     setoid_rewrite popMany_spec.
     smon_rewrite.
@@ -724,11 +747,9 @@ Proof.
           [ | apply (confined_neutral (Hm:=independent_MEM_SP));
               typeclasses eauto ] ).
 
-    setoid_rewrite <- (confined_put SP sp').
-    admit.
-    apply (confined_neutral (m := MEM * PC)).
+    setoid_rewrite <- (confined_put SP sp');
+      [ | apply (confined_neutral (m := MEM * PC)); typeclasses eauto ].
 
-    typeclasses eauto.
 
           (* TODO: Why is this needed? *)
           [ | apply (confined_neutral (Hm:=independent_MEM_SP));

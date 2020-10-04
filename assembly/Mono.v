@@ -126,8 +126,6 @@ Proof.
   exact (bind_propr State RX RY mx mx' Hmx f f' Hf).
 Qed.
 
-Transparent assume.
-
 Ltac crush0 :=
   match goal with
   | [ |- ret _ ⊑ ret _ ] => unshelve eapply ret_propr; [apply PM|]
@@ -219,7 +217,7 @@ Ltac crush0 :=
   | [ |- _ >>= _ ⊑ _ >>= _ ] => apply bind_propr'
 
   | _ => exact eq_refl
-  | _ => progress unfold PropR, assume
+  | _ => progress unfold PropR
   end.
 
 (* TODO: Move / remove *)
