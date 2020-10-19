@@ -3,36 +3,31 @@ Import DSetNotations.
 
 Unset Suggest Proof Using.
 
-
-Definition Cert (spec: M bool) :=
-  exists (f: State -> nat), spec ⊑ let* s := get in
-                           nSteps (f s).
-
-(** In some cases we know exactly how many steps are needed. *)
-Definition nCert n (spec: M bool) := spec ⊑ nSteps n.
-
-Proposition nCert_is_Cert n (spec: M bool) : nCert n spec -> Cert spec.
-Proof.
-  unfold nCert, Cert.
-  intros H.
-  exists (fun _ => n).
-  smon_rewrite.
-  exact H.
-Qed.
-
-Definition swallow1 (op: Z) : M unit :=
-  let* pc := get' PC in
-  let* x := load pc in
-  assume (x = toB8 op);;
-  put' PC (offset 1 pc).
-
 Open Scope vector.
 
-Equations swallow {n} (ops: vector Z n) : M unit :=
-  swallow [] := ret tt;
-  swallow (op :: rest) :=
-    swallow1 op;;
-    swallow rest.
+(* TODO: Place inside section or module. *)
+Import OpCodes.
+
+(* TODO: Move? *)
+Opaque next.
+
+Open Scope Z.
+
+
+(** ** Preliminaries / to be moved *)
+
+(* TODO: Move (must repeat Operations.v) *)
+Notation "⫫" := (@fstMixer State).
+
+(* TODO: Move *)
+Proposition sub_put_spec {A B} {LA: Lens State A} {LB: Lens A B} (b: B) :
+  put' (LB ∘ LA) b = let* a := get' LA in
+                     put' LA (update a b).
+Proof.
+  setoid_rewrite put_spec'.
+  setoid_rewrite get_spec.
+  smon_rewrite.
+Qed.
 
 (* TODO: Make definition in Operations.v global instead. *)
 Global Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
@@ -70,126 +65,26 @@ Proof.
     all: smon_rewrite.
 Qed.
 
-Proposition vector_equation_1 {A B} (f: A -> B) : Vector.map f [] = [].
+
+(* TODO: Move to Init.v ? *)
+
+Proposition vector_map_equation_1 {A B} (f: A -> B) : Vector.map f [] = [].
 Proof.
   reflexivity.
 Qed.
 
-Proposition vector_equation_2 {A B} (f: A -> B) (x: A) {n} (u: vector A n) : Vector.map f (x :: u) = f x :: Vector.map f u.
+Proposition vector_map_equation_2 {A B} (f: A -> B) (x: A) {n} (u: vector A n) : Vector.map f (x :: u) = f x :: Vector.map f u.
 Proof.
   reflexivity.
 Qed.
 
-Hint Rewrite @vector_equation_1 : map.
-Hint Rewrite @vector_equation_2 : map.
+Hint Rewrite @vector_map_equation_1 : map.
+Hint Rewrite @vector_map_equation_2 : map.
 
 Opaque Vector.map.
 
 
-Lemma swallow_spec {n} (ops: vector Z n) :
-  swallow ops = let* pc := get' PC in
-                let* u := loadMany n pc in
-                assume (u = Vector.map toB8 ops);;
-                put' PC (offset n pc).
-Proof.
-  (* TODO: Simplify *)
-  induction n.
-  - dependent elimination ops.
-    simp swallow map.
-    simp_loadMany.
-    unfold offset.
-    smon_rewrite. setoid_rewrite toBits_ofN_bitsToN.
-    smon_rewrite.
-  - dependent elimination ops as [ @Vector.cons z n ops ].
-    simp swallow map. unfold swallow1. rewrite IHn.
-    simp_loadMany.
-    smon_rewrite.
-
-    apply bind_extensional. intros pc.
-    apply bind_extensional. intros op.
-
-    do 3 setoid_rewrite postpone_assume.
-    smon_rewrite.
-    setoid_rewrite <- confined_put;
-      [ | apply (confined_neutral (m:=MEM));
-          typeclasses eauto ].
-
-    apply bind_extensional. intros u.
-    simpl Vector.map.
-    Opaque Vector.map.
-
-    unfold Cells. (* TODO: How can we avoid having to remember this everywhere? *)
-    setoid_rewrite assume_cons.
-    destruct (decide (op = toB8 z)) as [Hop|Hop]; [ | smon_rewrite ].
-    subst op.
-    destruct (decide _) as [Hu|Hu]; [ | smon_rewrite ].
-    subst u.
-    smon_rewrite.
-    setoid_rewrite <- Z_action_add.
-    do 2 f_equal.
-    lia.
-Qed.
-
-Instance confined_swallow {n} (ops: vector Z n) :
-  Confined (MEM * PC) (swallow ops).
-Proof.
-  rewrite swallow_spec.
-  typeclasses eauto.
-Qed.
-
-Lemma swallow_action {m n} (o1: vector Z m) (o2: vector Z n) :
-  swallow (o1 ++ o2) = swallow o1;; swallow o2.
-Proof.
-  induction m.
-  - dependent elimination o1.
-    simp swallow.
-    smon_rewrite.
-  - dependent elimination o1 as [ @Vector.cons x m o1 ].
-    simpl (swallow _).
-    simp swallow.
-    rewrite (IHm o1).
-    rewrite bind_assoc.
-    reflexivity.
-Qed.
-
-Lemma swallow_lemma {n} {ops: vector Z n} {X} {u: M X} {f: Bytes n -> M X} :
-  u ⊑ f (Vector.map toB8 ops) -> swallow ops;; u ⊑ next n >>= f.
-Proof.
-  intros H.
-  repeat setoid_rewrite bind_assoc.
-  revert ops u f H.
-  induction n; intros ops u f H; simp next.
-  - dependent elimination ops. simp swallow.
-    setoid_rewrite ret_bind. exact H.
-  - dependent elimination ops as [Vector.cons (n:=n) x r].
-    simp swallow.
-    unfold swallow1.
-    repeat setoid_rewrite bind_assoc.
-    crush.
-    smon_rewrite.
-    subst.
-    exact (IHn r u (fun v => f (toB8 x :: v)) H).
-Qed.
-
-Local Notation not_terminated := (ret true) (only parsing).
-Local Notation terminated := (ret false) (only parsing).
-
-Lemma cert_id : nCert 0 (not_terminated).
-Proof.
-  unfold nCert.
-  simp nSteps.
-  crush.
-Qed.
-
-(* TODO: Place inside section or module. *)
-Import OpCodes.
-
-(* TODO: Move? *)
-Opaque next.
-
-Open Scope Z.
-
-Lemma next_helper (op: Z) (Hop: 0 <= op < 256) :
+Lemma next_1_helper (op: Z) (Hop: 0 <= op < 256) :
   (Vector.map toB8 [op] : Bytes 1) = Z.to_N op :> N.
 Proof.
   simp map.
@@ -200,164 +95,17 @@ Proof.
   apply fromBits_toBits. cbn. lia.
 Qed.
 
-Lemma match_helper (op: Z) (Hop: 0 <= op < 256) :
+Lemma step_match_helper (op: Z) (Hop: 0 <= op < 256) :
   Z.of_N (bitsToN (bytesToBits (cells_to_bytes (Vector.map toB8 [op])))) = op.
 Proof.
   unfold cells_to_bytes, id.
-  rewrite next_helper;
+  rewrite next_1_helper;
     [ rewrite Z2N.id | ];
     lia.
 Qed.
 
-Ltac cert_start :=
-  unfold nCert;
-  simp nSteps;
-  unfold chain, oneStep;
-  setoid_rewrite bind_assoc;
-  try setoid_rewrite bind_assoc;
-  apply swallow_lemma;
-  setoid_rewrite next_helper; [ | lia ];
-  try (unfold cells_to_bytes, id;
-       rewrite next_helper; try lia);
-  simpl;
-  repeat rewrite ret_bind;
-  crush.
 
-Lemma cert_exit : nCert 1 (swallow [EXIT];;
-                           terminated).
-Proof. cert_start. Qed.
-
-Lemma cert_nop : nCert 1 (swallow [NOP];;
-                          not_terminated).
-Proof. cert_start. Qed.
-
-Lemma bind_ret_helper {X Y Z} {mx: M X} {y: Y} {f: Y -> M Z} :
-  mx;; ret y >>= f = mx;; f y.
-Proof.
-  rewrite bind_assoc, ret_bind. reflexivity.
-Qed.
-
-Lemma cert_jump : nCert 1 (swallow [JUMP];;
-                           let* a := pop64 in
-                           put' PC a;;
-                           not_terminated).
-Proof.
-  unfold nCert; simp nSteps; unfold chain, oneStep.
-  setoid_rewrite bind_assoc at 3.
-  apply swallow_lemma.
-  rewrite match_helper; [ | lia ].
-  rewrite bind_ret_helper.
-  rewrite <- bind_assoc.
-  apply (bind_propr _ _); [ | crush ].
-  simp oneStep'.
-  apply (bind_propr _ _); crush.
-  rewrite ofN_bitsToN, toBits_fromBits.
-  reflexivity.
-Qed.
-
-Instance chain_propr : PropR chain.
-Proof.
-  intros u u' Hu v v' Hv.
-  unfold chain.
-  apply (bind_propr _ _).
-  - exact Hu.
-  - intros x x' Hx.
-    cbv in Hx.
-    subst x.
-    destruct x'.
-    + exact Hv.
-    + crush.
-Qed.
-
-Lemma ncert_comp m n (u: M bool) {Cu: nCert m u} (v: M bool) {Cv: nCert n v} :
-  nCert (m + n) (chain u v).
-Proof.
-  unfold nCert in *.
-  rewrite nSteps_action.
-  apply chain_propr.
-  - exact Cu.
-  - exact Cv.
-Qed.
-
-
-(** ** Available stack *)
-
-Definition wipe (u: DSet Addr) : M unit :=
-  put' (MEM' u) (fun _ _ _ => None).
-
-Goal forall u, Confined (MEM' u) (wipe u).
-  typeclasses eauto.
-Qed.
-
-(* TODO: Move *)
-Proposition sub_put_spec {A B} {LA: Lens State A} {LB: Lens A B} (b: B) :
-  put' (LB ∘ LA) b = let* a := get' LA in
-                     put' LA (update a b).
-Proof.
-  setoid_rewrite put_spec'.
-  setoid_rewrite get_spec.
-  smon_rewrite.
-Qed.
-
-Lemma wipe_less u : wipe u ⊑ ret tt.
-Proof.
-  unfold wipe.
-  unfold MEM'.
-  rewrite sub_put_spec.
-  assert (ret tt = get' MEM >>= put' MEM) as Hret;
-    [ smon_rewrite
-    | rewrite Hret; clear Hret ].
-  crush.
-  - apply getMem_propr.
-  - cbn.
-    destruct (decide (a ∈ u)).
-    + exact I.
-    + apply Hfg.
-Qed.
-
-Definition wipeStack n :=
-  let* a := get' SP in
-  wipe (nBefore (n * 8) a).
-
-Corollary wipeStack_less n : wipeStack n ⊑ ret tt.
-Proof.
-  unfold wipeStack.
-  rewrite get_spec.
-  cbn.
-  rewrite bind_assoc.
-  rewrite <- get_ret.
-  crush.
-  rewrite ret_bind.
-  apply wipe_less.
-Qed.
-
-Proposition rel_ret_tt mu Y (my my' : M Y) :
-  mu ⊑ ret tt -> my ⊑ my' -> mu;; my ⊑ my'.
-Proof.
-  intros Hu Hy.
-  assert (my' = ret tt;; my') as H.
-  - rewrite ret_bind. reflexivity.
-  - rewrite H. crush; assumption.
-Qed.
-
-Definition w_pop64 := let* v := pop64 in
-                      wipeStack 1;;
-                      ret v.
-
-Corollary wiped_pop64 : w_pop64 ⊑ pop64.
-Proof.
-  unfold w_pop64.
-  rewrite <- bind_ret.
-  crush.
-  apply rel_ret_tt.
-  - apply wipeStack_less.
-  - crush.
-Qed.
-
-
-(** ** Is zero *)
-
-Corollary chain_ret_true u : chain u (ret true) = u.
+Proposition chain_ret_true u : chain u (ret true) = u.
 Proof.
   unfold chain.
   rewrite <- bind_ret.
@@ -526,9 +274,6 @@ Proof.
         split; [lia | exact IH2].
 Defined.
 
-(** By putting [swallow] after [wipeStack] we ensure that [stdStart] fails
-    if the operations overlap with (the relevant parts of) the stack. *)
-
 Proposition nAfter_disjoint_spec u n a :
   u # nAfter n a <-> forall i, (i<n)%nat -> not (offset i a ∈ u).
 Proof.
@@ -646,22 +391,6 @@ Proof.
 Qed.
 
 
-(** ** Standard cert start *)
-
-Definition stdStart m n {o} (ops: vector Z o) : M (vector B64 n) :=
-  let* v := popN n in
-  wipeStack (m + n);;
-  swallow ops;;
-  ret v.
-
-Definition stdDis m n o :=
-  let* sp := get' SP in
-  let* pc := get' PC in
-  assume (nBefore (m * 8) sp # nAfter o pc);;
-  assume (nAfter (n * 8) sp # nAfter o pc);;
-  ret tt.
-
-(* TODO: Move *)
 Proposition nAfter_empty a : nAfter 0 a = ∅%DSet.
 Proof.
   apply extensionality.
@@ -685,7 +414,346 @@ Qed.
 
 Ltac simp_assume := setoid_rewrite simp_assume.
 
-Proposition wipe_swallow_crash u {n} (ops: vector Z n) :
+(* TODO: Move *)
+Instance decidable_iff {P Q} (H: P <-> Q) {DP: Decidable P} : Decidable Q.
+Proof.
+  destruct DP; [left|right]; tauto.
+Qed.
+
+(* Presumably in coq-hott this could be an actual instance of Proper. *)
+Proposition decide_proper
+            {P Q}
+            {DP: Decidable P}
+            {DQ: Decidable Q}
+            (H: P <-> Q)
+            {X} (x x':X) :
+  (if decide P then x else x') = (if decide Q then x else x').
+Proof.
+  destruct (decide P) as [Hp|Hp];
+    destruct (decide Q) as [Hq|Hq];
+    reflexivity || tauto.
+Qed.
+
+(* TODO: Move *)
+Proposition decide_true
+          {P} {DP: Decidable P} (H: P) {X} (x x':X) :
+  (if decide P then x else x') = x.
+Proof.
+  decided H. reflexivity.
+Qed.
+
+
+(***************************************************************************************)
+
+
+(** ** Certified programs *)
+
+Definition Cert (spec: M bool) :=
+  exists (f: State -> nat), spec ⊑ let* s := get in
+                           nSteps (f s).
+
+(** In most cases we know exactly how many steps are needed. *)
+Definition nCert n (spec: M bool) := spec ⊑ nSteps n.
+
+Proposition nCert_is_Cert n (spec: M bool) : nCert n spec -> Cert spec.
+Proof.
+  unfold nCert, Cert.
+  intros H.
+  exists (fun _ => n).
+  smon_rewrite.
+  exact H.
+Qed.
+
+Local Notation not_terminated := (ret true) (only parsing).
+Local Notation terminated := (ret false) (only parsing).
+
+Lemma cert_id : nCert 0 not_terminated.
+Proof.
+  unfold nCert.
+  simp nSteps.
+  crush.
+Qed.
+
+
+(** *** Asserting next operations and move PC *)
+
+Definition swallow1 (op: Z) : M unit :=
+  let* pc := get' PC in
+  let* x := load pc in
+  assume (x = toB8 op);;
+  put' PC (offset 1 pc).
+
+Equations swallow {n} (ops: vector Z n) : M unit :=
+  swallow [] := ret tt;
+  swallow (op :: rest) :=
+    swallow1 op;;
+    swallow rest.
+
+Lemma swallow_spec {n} (ops: vector Z n) :
+  swallow ops = let* pc := get' PC in
+                let* u := loadMany n pc in
+                assume (u = Vector.map toB8 ops);;
+                put' PC (offset n pc).
+Proof.
+  (* TODO: Simplify *)
+  induction n.
+  - dependent elimination ops.
+    simp swallow map.
+    simp_loadMany.
+    unfold offset.
+    smon_rewrite. setoid_rewrite toBits_ofN_bitsToN.
+    smon_rewrite.
+  - dependent elimination ops as [ @Vector.cons z n ops ].
+    simp swallow map. unfold swallow1. rewrite IHn.
+    simp_loadMany.
+    smon_rewrite.
+
+    apply bind_extensional. intros pc.
+    apply bind_extensional. intros op.
+
+    do 3 setoid_rewrite postpone_assume.
+    smon_rewrite.
+    setoid_rewrite <- confined_put;
+      [ | apply (confined_neutral (m:=MEM));
+          typeclasses eauto ].
+
+    apply bind_extensional. intros u.
+    simpl Vector.map.
+    Opaque Vector.map.
+
+    unfold Cells. (* TODO: How can we avoid having to remember this everywhere? *)
+    setoid_rewrite assume_cons.
+    destruct (decide (op = toB8 z)) as [Hop|Hop]; [ | smon_rewrite ].
+    subst op.
+    destruct (decide _) as [Hu|Hu]; [ | smon_rewrite ].
+    subst u.
+    smon_rewrite.
+    setoid_rewrite <- Z_action_add.
+    do 2 f_equal.
+    lia.
+Qed.
+
+Instance confined_swallow {n} (ops: vector Z n) :
+  Confined (MEM * PC) (swallow ops).
+Proof.
+  rewrite swallow_spec.
+  typeclasses eauto.
+Qed.
+
+Lemma swallow_action {m n} (o1: vector Z m) (o2: vector Z n) :
+  swallow (o1 ++ o2) = swallow o1;; swallow o2.
+Proof.
+  induction m.
+  - dependent elimination o1.
+    simp swallow.
+    smon_rewrite.
+  - dependent elimination o1 as [ @Vector.cons x m o1 ].
+    simpl (swallow _).
+    simp swallow.
+    rewrite (IHm o1).
+    rewrite bind_assoc.
+    reflexivity.
+Qed.
+
+Lemma swallow_lemma {n} {ops: vector Z n} {X} {u: M X} {f: Bytes n -> M X} :
+  u ⊑ f (Vector.map toB8 ops) -> swallow ops;; u ⊑ next n >>= f.
+Proof.
+  intros H.
+  repeat setoid_rewrite bind_assoc.
+  revert ops u f H.
+  induction n; intros ops u f H; simp next.
+  - dependent elimination ops. simp swallow.
+    setoid_rewrite ret_bind. exact H.
+  - dependent elimination ops as [Vector.cons (n:=n) x r].
+    simp swallow.
+    unfold swallow1.
+    repeat setoid_rewrite bind_assoc.
+    crush.
+    smon_rewrite.
+    subst.
+    exact (IHn r u (fun v => f (toB8 x :: v)) H).
+Qed.
+
+
+(** ** Basics *)
+
+Ltac cert_start :=
+  unfold nCert;
+  simp nSteps;
+  unfold chain, oneStep;
+  repeat setoid_rewrite bind_assoc;
+  apply swallow_lemma;
+  setoid_rewrite next_1_helper; [ | lia ];
+  try (unfold cells_to_bytes, id;
+       rewrite next_1_helper; try lia);
+  simpl;
+  repeat rewrite ret_bind;
+  crush.
+
+Lemma cert_exit : nCert 1 (swallow [EXIT];;
+                           terminated).
+Proof. cert_start. Qed.
+
+Lemma cert_nop : nCert 1 (swallow [NOP];;
+                          not_terminated).
+Proof. cert_start. Qed.
+
+Lemma bind_ret_helper {X Y Z} {mx: M X} {y: Y} {f: Y -> M Z} :
+  mx;; ret y >>= f = mx;; f y.
+Proof.
+  rewrite bind_assoc, ret_bind. reflexivity.
+Qed.
+
+Lemma cert_jump : nCert 1 (swallow [JUMP];;
+                           let* a := pop64 in
+                           put' PC a;;
+                           not_terminated).
+Proof.
+  unfold nCert; simp nSteps; unfold chain, oneStep.
+  setoid_rewrite bind_assoc at 2.
+  apply swallow_lemma.
+  rewrite step_match_helper; [ | lia ].
+  rewrite bind_ret_helper.
+  rewrite <- bind_assoc.
+  apply (bind_propr _ _); [ | crush ].
+  simp oneStep'.
+  apply (bind_propr _ _); crush.
+  rewrite ofN_bitsToN, toBits_fromBits.
+  reflexivity.
+Qed.
+
+Instance chain_propr : PropR chain.
+Proof.
+  intros u u' Hu v v' Hv.
+  unfold chain.
+  apply (bind_propr _ _).
+  - exact Hu.
+  - intros x x' Hx.
+    cbv in Hx.
+    subst x.
+    destruct x'.
+    + exact Hv.
+    + crush.
+Qed.
+
+Lemma ncert_comp m n (u: M bool) {Cu: nCert m u} (v: M bool) {Cv: nCert n v} :
+  nCert (m + n) (chain u v).
+Proof.
+  unfold nCert in *.
+  rewrite nSteps_action.
+  apply chain_propr.
+  - exact Cu.
+  - exact Cv.
+Qed.
+
+
+(** ** Mark memory as undefined *)
+
+Definition wipe (u: DSet Addr) : M unit :=
+  put' (MEM' u) (fun _ _ _ => None).
+
+Goal forall u, Confined (MEM' u) (wipe u).
+  typeclasses eauto.
+Qed.
+
+Lemma wipe_less u : wipe u ⊑ ret tt.
+Proof.
+  unfold wipe.
+  unfold MEM'.
+  rewrite sub_put_spec.
+  assert (ret tt = get' MEM >>= put' MEM) as Hret;
+    [ smon_rewrite
+    | rewrite Hret; clear Hret ].
+  crush.
+  - apply getMem_propr.
+  - cbn.
+    destruct (decide (a ∈ u)).
+    + exact I.
+    + apply Hfg.
+Qed.
+
+Definition wipeStack n :=
+  let* a := get' SP in
+  wipe (nBefore (n * 8) a).
+
+Corollary wipeStack_less n : wipeStack n ⊑ ret tt.
+Proof.
+  unfold wipeStack.
+  rewrite get_spec.
+  cbn.
+  rewrite bind_assoc.
+  rewrite <- get_ret.
+  crush.
+  rewrite ret_bind.
+  apply wipe_less.
+Qed.
+
+Proposition rel_ret_tt
+            mu Y (my my' : M Y)
+            `(mu ⊑ ret tt)
+            `(my ⊑ my') : mu;; my ⊑ my'.
+Proof.
+  assert (my' = ret tt;; my') as HH.
+  - rewrite ret_bind. reflexivity.
+  - rewrite HH. crush; assumption.
+Qed.
+
+Definition w_pop64 := let* v := pop64 in
+                      wipeStack 1;;
+                      ret v.
+
+Corollary wiped_pop64 : w_pop64 ⊑ pop64.
+Proof.
+  unfold w_pop64.
+  rewrite <- bind_ret.
+  crush.
+  apply rel_ret_tt.
+  - apply wipeStack_less.
+  - crush.
+Qed.
+
+
+(** ** Standard cert start *)
+
+Definition stdStart m n {o} (ops: vector Z o) : M (vector B64 n) :=
+  let* v := popN n in
+  wipeStack (m + n);;
+  swallow ops;;
+  ret v.
+
+(** By putting [swallow] after [wipeStack] we ensure that [stdStart] fails
+    if the operations overlap with (the relevant parts of) the stack. *)
+
+Definition stdDis m n o :=
+  let* sp := get' SP in
+  let* pc := get' PC in
+  assume (nBefore (m * 8) sp # nAfter o pc);;
+  assume (nAfter (n * 8) sp # nAfter o pc);;
+  ret tt.
+
+
+(* TODO: Move *)
+
+Equations butLast' {X} (x: X) {n} (u: vector X n) : vector X n :=
+  butLast' _ [] := [];
+  butLast' x (y :: u) := x :: butLast' y u.
+
+Equations butLast {n X} (u: vector X (S n)) : vector X n :=
+  butLast (x :: u) := butLast' x u.
+
+Proposition shiftin_butLast {X n} (u: vector X (S n)) :
+  u = shiftin (Vector.last u) (butLast u).
+Proof.
+
+
+
+Proposition rev_cons {n X} (u: vector X (S n)) :
+  u = butLast u ++ [ Vector.last u ].
+
+
+
+
+Proposition wipe_swallow_precondition u {n} (ops: vector Z n) :
   wipe u;;
   swallow ops = let* pc := get' PC in
                 assume (u # nAfter (length ops) pc);;
@@ -696,6 +764,37 @@ Proof.
   - dependent elimination ops.
     simpl length.
     simp_assume.
+    smon_ext s.
+    unfold Addr.
+    rewrite get_spec.
+    smon_rewrite.
+    apply bind_extensional. intros [].
+    rewrite decide_true.
+    + reflexivity.
+    + now rewrite nAfter_empty.
+
+  - dependent elimination ops as [x :: ops].
+    specialize (IHn ops).
+    simp swallow.
+
+
+; [reflexivity |
+
+
+rewrite_strat (outermost nAfter_empty).
+
+    destruct (decide _) as [H|H].
+    + reflexivity.
+    + contradict H.
+      now rewrite nAfter_empty.
+
+  -
+
+
+
+
+
+    Set Printing All.
 
 (********* Continue from here *********)
 
@@ -812,7 +911,7 @@ let* x := pop64 in
            wipeStack 2;;
            swallow code_isZero;;
            pushZ (if decide (x = 0 :> Z) then -1 else 0);;
-           not_terminated).
+           not_terminated}.
 Proof.
   unfold nCert, code_isZero.
   simp nSteps.
