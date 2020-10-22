@@ -732,38 +732,118 @@ Definition stdDis m n o :=
   ret tt.
 
 
+
 (* TODO: Move *)
 
-Equations butLast' {X} (x: X) {n} (u: vector X n) : vector X n :=
-  butLast' _ [] := [];
-  butLast' x (y :: u) := x :: butLast' y u.
+(** In VectorSpec.v: [shiftin_last] *)
 
-Equations butLast {n X} (u: vector X (S n)) : vector X n :=
-  butLast (x :: u) := butLast' x u.
 
-Proposition shiftin_butLast {X n} (u: vector X (S n)) :
-  u = shiftin (Vector.last u) (butLast u).
+Proposition rew_cons [X m n x] [u: vector X m] [HS: S m = S n] (H: m = n) :
+  rew HS in (x :: u) = x :: rew H in u.
 Proof.
+  destruct H. revert HS. apply EqDec.UIP_K. reflexivity.
+Qed.
 
+Proposition shiftin_spec [X n] [x: X] [u: vector X n] (H: (n + 1 = S n)%nat) :
+  shiftin x u = rew H in (u ++ [x]).
+Proof.
+  induction u.
+  - revert H. apply EqDec.UIP_K. reflexivity.
+  - cbn in *.
+    set (HH := Nat.succ_inj _ _ H). rewrite (rew_cons HH).
+    f_equal. exact (IHu HH).
+Qed.
 
+(** We would have preferred to call this [shiftout_shiftin], but we stick
+to the same naming pattern of VectorSpec. *)
 
-Proposition rev_cons {n X} (u: vector X (S n)) :
-  u = butLast u ++ [ Vector.last u ].
+Proposition shiftin_shiftout
+            [X n] (x: X) (u: vector X n) :
+  shiftout (shiftin x u) = u.
+Proof.
+  induction u.
+  - reflexivity.
+  - cbn. rewrite IHu. reflexivity.
+Qed.
 
+Proposition last_shiftout_shifting [X n] (u: vector X (S n)) :
+  shiftin (Vector.last u) (shiftout u) = u.
+Proof.
+  induction n.
+  - dependent elimination u as [[x]]. reflexivity.
+  - dependent elimination u as [x :: u].
+    cbn. f_equal. exact (IHn u).
+Qed.
 
+(** Cf. [List.rev_ind]. *)
+Proposition vec_rev_ind
+            [A : Type]
+            (P : forall {n}, vector A n -> Prop)
+            (H_nil: P [])
+            (H_cons: forall {n} (u: vector A n) x, P u -> P (shiftin x u))
+            {n} (u: vector A n) : P u.
+Proof.
+  induction n.
+  - dependent elimination u. exact H_nil.
+  - specialize (H_cons n (shiftout u) (Vector.last u) (IHn (shiftout u))).
+    rewrite last_shiftout_shifting in H_cons. exact H_cons.
+Qed.
 
+Corollary vec_rev_ind'
+          [A : Type]
+          (P : forall {n}, vector A n -> Prop)
+          (H_nil: P [])
+          (H_cons: forall {n} (u: vector A n) x, P u -> P (u ++ [x]))
+          {n} (u: vector A n) : P u.
+Proof.
+  induction u using vec_rev_ind.
+  - exact H_nil.
+  - set (H := Nat.add_1_r n).
+    rewrite (shiftin_spec H).
+    destruct H.
+    exact (H_cons n u x IHu).
+Qed.
+
+Proposition swallow_equation_3 (n : nat) (z : Z) (u : vector Z n) :
+  swallow (shiftin z u) = swallow u;;
+                          swallow1 z.
+Proof.
+  set (H := Nat.add_1_r n).
+  rewrite (shiftin_spec H).
+  destruct H. cbn.
+  rewrite swallow_action. simp swallow.
+  setoid_rewrite bind_ret_tt.
+  reflexivity.
+Qed.
+
+Hint Rewrite swallow_equation_3 : swallow.
+
+Hint Rewrite nAfter_empty : nAfter.
+
+(* TODO: Move *)
+Proposition nAfter_equation_2 a n :
+  nAfter (S n) a = (!{ a } ∪ nAfter n (offset 1 a))%DSet.
+Proof.
+  unfold nAfter.
+  unfold union.
+  apply extensionality.
+  intros x.
+  setoid_rewrite def_spec.
+  split.
+  - intros [i [Hi Hx]].
+    by_lia (i = n \/ i < n) as Hii.
+    destruct Hii as [Hi1|Hi2].
+Admitted.
 
 Proposition wipe_swallow_precondition u {n} (ops: vector Z n) :
   wipe u;;
   swallow ops = let* pc := get' PC in
-                assume (u # nAfter (length ops) pc);;
+                assume (u # nAfter n pc);;
                 wipe u;;
                 swallow ops.
 Proof.
-  induction n.
-  - dependent elimination ops.
-    simpl length.
-    simp_assume.
+  induction ops using vec_rev_ind.
+  - simp_assume.
     smon_ext s.
     unfold Addr.
     rewrite get_spec.
@@ -773,28 +853,35 @@ Proof.
     + reflexivity.
     + now rewrite nAfter_empty.
 
-  - dependent elimination ops as [x :: ops].
-    specialize (IHn ops).
-    simp swallow.
-
-
-; [reflexivity |
-
-
-rewrite_strat (outermost nAfter_empty).
-
-    destruct (decide _) as [H|H].
-    + reflexivity.
-    + contradict H.
-      now rewrite nAfter_empty.
-
-  -
-
-
-
-
-
-    Set Printing All.
+  - simp swallow.
+    rewrite <- bind_assoc.
+    rewrite IHops at 1.
+    rewrite bind_assoc.
+    smon_ext' PC pc.
+    repeat rewrite lens_put_get.
+    destruct (decide (u # nAfter n pc)) as [Hd|Hd].
+    + destruct (decide (u # nAfter (S n) pc)) as [Hd'|Hd'].
+      * smon_rewrite.
+      * smon_rewrite.
+        assert (offset n pc ∈ u) as Hu.
+        -- clear IHops.
+           apply not_nAfter_disjoint_spec in Hd'.
+           destruct Hd' as [i [Hi Hu]].
+           by_lia (i = n \/ i < n) as Hii.
+           destruct Hii as [[]|Hii]; [exact Hu|].
+           contradict Hd.
+           unfold disjoint.
+           intros Hd.
+           apply (Hd (offset i pc)).
+           split.
+           ++ exact Hu.
+           ++ unfold nAfter.
+              rewrite def_spec.
+              exists i.
+              split.
+              ** lia.
+              ** reflexivity.
+        -- rewrite swallow_spec.
 
 (********* Continue from here *********)
 
