@@ -14,10 +14,31 @@ Opaque next.
 Open Scope Z.
 
 
+(********************)
+
+(** This holds in the initial smonad, see [srel_reflexive],
+[srel_transitive] and [est_transitive] (in RelExtras.v). *)
+
+(** Using [Declare Instance] here confuses typeclass resolution. *)
+
+Parameter RM_transitive :
+  forall X (RX: Rel X) (RXT: Transitive RX),
+    Transitive (Mono.RM X RX).
+
+Parameter RM_antisymmetric :
+  forall X (RX: Rel X) (RXT: Antisymmetric X eq RX),
+    Antisymmetric (M X) eq (Mono.RM X RX).
+
+Parameter err_less_eq :
+  forall {X} {RX: Rel X} (mx: M X) (Hmx: mx ⊑ err), mx = err.
+
+(********************)
+
+
 (** ** Preliminaries / to be moved *)
 
-(* TODO: Move (must repeat Operations.v) *)
-Notation "⫫" := (@fstMixer State).
+(* TODO: Delete / move to end of Operations.v. *)
+(* Notation "⫫" := (@fstMixer State). *)
 
 (* TODO: Move *)
 Proposition sub_put_spec {A B} {LA: Lens State A} {LB: Lens A B} (b: B) :
@@ -36,7 +57,7 @@ Global Ltac simp_loadMany := rewrite_strat (outermost (hints loadMany)).
 Opaque loadMany.
 Opaque load.
 
-Lemma postpone_assume P {DP: Decidable P} {X} (mx: M X) {Y} (f: X -> M Y) :
+Proposition postpone_assume P {DP: Decidable P} {X} (mx: M X) {Y} (f: X -> M Y) :
   assume P;;
   let* x := mx in
   f x = let* x := mx in
@@ -615,9 +636,9 @@ Proof.
   rewrite step_match_helper; [ | lia ].
   rewrite bind_ret_helper.
   rewrite <- bind_assoc.
-  apply (bind_propr _ _); [ | crush ].
+  apply (bind_propr _ _ _); [ | crush ].
   simp oneStep'.
-  apply (bind_propr _ _); crush.
+  apply (bind_propr _ _ _); crush.
   rewrite ofN_bitsToN, toBits_fromBits.
   reflexivity.
 Qed.
@@ -626,7 +647,7 @@ Instance chain_propr : PropR chain.
 Proof.
   intros u u' Hu v v' Hv.
   unfold chain.
-  apply (bind_propr _ _).
+  apply (bind_propr _ _ _).
   - exact Hu.
   - intros x x' Hx.
     cbv in Hx.
@@ -1033,7 +1054,7 @@ Lemma uphold_chain
 Proof.
   unfold uphold, chain.
   rewrite bind_assoc.
-  apply (bind_propr _ _).
+  apply (bind_propr _ _ _).
   - exact Hu.
   - crush.
     destruct y; cbn; smon_rewrite.

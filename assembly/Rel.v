@@ -20,6 +20,8 @@ Section basics_section.
 
   Context {X: Type}.
 
+  Global Instance prop_relation : Rel Prop := fun _ _ => True.
+
   Instance true_relation : Rel X | 30 := fun _ _ => True.
 
   Instance true_relation_equivalence : Equivalence true_relation.
@@ -59,6 +61,17 @@ Section basics_section.
 
   Global Instance fun_relation : Rel (X -> Y) | 10 :=
     fun f f' => forall (x x': X), x ⊑ x' -> f x ⊑ f' x'.
+
+  Global Instance fun_relation_transitive
+         {HrX: Reflexive RX}
+         {HtX: Transitive RX}
+         {HtY: Transitive RY} : Transitive fun_relation.
+  Proof.
+    intros f g h Hfg Hgh x x' Hx.
+    transitivity (g x').
+    - apply Hfg. exact Hx.
+    - apply Hgh. reflexivity.
+  Qed.
 
   Global Instance prod_relation : Rel (X * Y) | 5 :=
     fun p p' =>
@@ -144,12 +157,10 @@ Class PropR {X: Type} {RX: Rel X} (x: X) := propR : x ⊑ x.
 
 Section proper_section.
 
-  Context (S: Type) {RS: Rel S}.
+  Context (S: Type) {RS: Rel S}
+          (M: Type -> Type) {SM: SMonad S M} {RM: forall X (RX: Rel X), Rel (M X)}.
 
-  Class SMonadPropR
-        (M: Type -> Type)
-        {SM: SMonad S M}
-        {RM: forall X (RX: Rel X), Rel (M X)} :=
+  Class SMonadPropR :=
   {
     ret_propr {X} (RX: Rel X) : PropR (ret (M:=M) (X:=X));
     bind_propr {X Y} (RX: Rel X) (RY: Rel Y) : PropR (bind (M:=M) (X:=X) (Y:=Y));

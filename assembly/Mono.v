@@ -123,7 +123,7 @@ Proposition bind_propr'
             {mx mx': M X} (Hmx: mx ⊑ mx')
             {f f': X -> M Y} (Hf: f ⊑ f') : mx >>= f ⊑ mx' >>= f'.
 Proof.
-  exact (bind_propr State RX RY mx mx' Hmx f f' Hf).
+  exact (bind_propr State M RX RY mx mx' Hmx f f' Hf).
 Qed.
 
 Ltac crush0 :=
@@ -220,15 +220,11 @@ Ltac crush0 :=
   | _ => progress unfold PropR
   end.
 
-(* TODO: Move / remove *)
-(*
-Global Instance prop_relation : Rel Prop := fun _ _ => True.
-
+(** TODO: Useful? *)
 Instance assume_propr P {DP: Decidable P} : PropR (assume P).
 Proof.
   repeat crush0.
 Qed.
-*)
 
 
 (** *** Get *)

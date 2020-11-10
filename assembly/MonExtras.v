@@ -122,21 +122,3 @@ Section trivial_section.
       the initial [SMonad]. *)
 
 End trivial_section.
-
-
-(** ** Confined' **)
-
-Existing Instance initial_sublens.
-
-Instance unitCover_confined'
-         {S: Type}
-         {M: Type -> Type} `{SM: SMonad S M}
-         {X} (mx: M X)
-         {Hmx: Confined unitLens mx} : Confined' mx.
-Proof.
-  split.
-  intros B Lb.
-  apply (confined_proper_sub _ _ _ _ _ eq_refl Hmx).
-Qed.
-
-(** The converse is trivial. *)
