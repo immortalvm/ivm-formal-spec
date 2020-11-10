@@ -17,6 +17,8 @@ OpCodes.v
 Machine.v
 MachineExtras.v
 Rel.v
+CoreRel.v
 RelExtras.v
 Mono.v
+MonoExtras.v
 Cert.v
