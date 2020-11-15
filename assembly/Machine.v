@@ -26,7 +26,10 @@ Context
 
 Module concreteParameters <: MachineParameters.
   Definition Addr := B64.
-  Definition H_eqdec := (ltac:(typeclasses eauto) : EqDec B64).
+  Instance H_eqdec : EqDec B64.
+  Proof.
+    typeclasses eauto.
+  Qed.
   Definition available := available'.
   Definition offset := fun (z: Z) (a: B64) => toB64 (z + a).
   Instance offset_action : Z_action offset.

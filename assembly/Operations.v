@@ -81,10 +81,13 @@ Abstractions makes working with Coq much easier. *)
 
 Module Type MachineParameters.
   Parameter Inline Addr: Type.
+
+  (** In combination with [Existing Instance] this works much better
+  than [Declare Instance] for some reason. *)
   Parameter Inline H_eqdec: EqDec Addr.
   Parameter Inline available: Addr -> bool.
   Parameter Inline offset: Z -> Addr -> Addr.
-  Declare Instance offset_action: Z_action offset.
+  Parameter Inline offset_action: Z_action offset.
   Parameter Inline Cell: Type.
 
   Parameter Inline InputColor: Type.
@@ -236,7 +239,8 @@ Module Core (MP: MachineParameters).
 
   Context {MP2: MachineParams2}.
 
-  Existing Instance H_eqdec.
+  Global Existing Instance H_eqdec.
+  Global Existing Instance offset_action.
   Global Existing Instance H_mon.
 
   Notation "⫫" := (@fstMixer State).
