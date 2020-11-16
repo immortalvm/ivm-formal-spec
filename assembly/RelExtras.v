@@ -71,7 +71,7 @@ Section proper_section.
 
   Context {ARS: Antisymmetric S eq RS}.
 
-  Instance prod_relation_antisymm
+  Global Instance prod_relation_antisymm
            {X Y} {RX: Rel X} {RY: Rel Y}
            (ARX: Antisymmetric X eq RX)
            (ARY: Antisymmetric Y eq RY) :
@@ -83,7 +83,7 @@ Section proper_section.
     - apply (ARY _ _ Hy Hy').
   Qed.
 
-  Instance option_relation_antisymm
+  Global Instance option_relation_antisymm
            {X} {RX: Rel X} (ARX: Antisymmetric X eq RX) :
     Antisymmetric (option X) eq (option_relation RX).
   Proof.
@@ -105,7 +105,7 @@ Section proper_section.
     - exact (Hgf x x (RRX x)).
   Qed.
 
-  Instance less_antisym {X} {RX: Rel X} {ARX: Antisymmetric X eq RX} : Antisymmetric (EST S X) eq est_relation.
+  Global Instance less_antisym {X} {RX: Rel X} {ARX: Antisymmetric X eq RX} : Antisymmetric (EST S X) eq est_relation.
   Proof.
     typeclasses eauto.
   Qed.

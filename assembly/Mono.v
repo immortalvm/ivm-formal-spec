@@ -1,5 +1,5 @@
-From Assembly Require Export Machine Rel StateRel.
-Require Import Coq.Logic.PropExtensionality.
+From Assembly Require Export StateRel.
+Require Import Coq.Logic.ProofIrrelevance.
 
 Unset Suggest Proof Using.
 
@@ -13,10 +13,8 @@ Include CoreRel.
 (** ** Basic monotonicity *)
 
 (** Additional assumptions *)
-Context {RM: forall X (RX: Rel X), Rel (M X)}
-        {PM: SMonadPropR State M (RM:=RM)}.
-
-Global Existing Instance PM.
+Declare Instance RM X (RX: Rel X) : Rel (M X).
+Declare Instance PM : SMonadPropR State M (RM:=RM).
 
 Proposition bind_propr'
             {X Y} {RX: Rel X} {RY: Rel Y}

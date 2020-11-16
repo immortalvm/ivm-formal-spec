@@ -1,11 +1,13 @@
 From Assembly Require Export Machine Rel.
-Require Import Coq.Logic.PropExtensionality.
+Require Import Coq.Logic.ProofIrrelevance.
 
 Unset Suggest Proof Using.
 
 Module Type MachineParametersX.
-  Declare Instance MP1: MachineParams1.
-  Declare Instance MP2: MachineParams2.
+  Parameter Inline MP1: MachineParams1.
+  Global Existing Instance MP1.
+  Parameter Inline MP2: MachineParams2.
+  Global Existing Instance MP2.
 End MachineParametersX.
 
 Module CoreRel (MPX: MachineParametersX).

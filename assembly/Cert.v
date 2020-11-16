@@ -13,24 +13,20 @@ Opaque next.
 
 Open Scope Z.
 
-
 (********************)
 
-(** This holds in the initial smonad, see [srel_reflexive],
-[srel_transitive] and [est_transitive] (in RelExtras.v). *)
-
-(** Using [Declare Instance] here confuses typeclass resolution. *)
-
-Parameter RM_transitive :
-  forall X (RX: Rel X) (RXT: Transitive RX),
-    Transitive (Mono.RM X RX).
-
-Parameter RM_antisymmetric :
-  forall X (RX: Rel X) (RXT: Antisymmetric X eq RX),
-    Antisymmetric (M X) eq (Mono.RM X RX).
+(** The following holds in the initial smonad, see MonoExtras.v. *)
 
 Parameter err_less_eq :
   forall {X} {RX: Rel X} (mx: M X) (Hmx: mx ⊑ err), mx = err.
+
+Parameter RM_transitive :
+  forall X (RX: Rel X) (RXT: Transitive RX),
+    Transitive (RM X RX).
+
+Parameter RM_antisymmetric :
+  forall X (RX: Rel X) (RXT: Antisymmetric X eq RX),
+    Antisymmetric (M X) eq (RM X RX).
 
 (********************)
 
