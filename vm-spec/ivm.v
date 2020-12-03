@@ -224,53 +224,6 @@ Qed.
 
 (* end hide *)
 
-(** In some situations we want bit vectors to represent both positive and
-negative numbers:
-
-[[
-Equations signed (_: list bool) : Z :=
-  signed [] := 0;
-  signed [x] := -x;
-  signed (x :: u) := 2 * signed u + x.
-]]
-*)
-
-(* begin hide *)
-
-(* Presumably we can switch to the simpler definition above at some point. *)
-Equations signed (_: list bool) : Z :=
-  signed [] := 0;
-  signed (x :: u) := match u with
-                    | [] => -x
-                    | _ => 2 * signed u + x
-                    end.
-
-Lemma signed_equation_3: forall (x : bool) (u : list bool), u <> [] -> signed (x :: u) = 2 * signed u + x.
-Proof.
-  intros x [|y u] H; simp signed; [contradict H|]; reflexivity.
-Qed.
-
-Lemma toBits_signed: forall {n} (u: vector bool n), toBits n (signed u) = u.
-Proof.
-  induction u as [|x n u IH].
-  - reflexivity.
-  - destruct u as [|y n u].
-    + simp signed toBits.
-      destruct x; reflexivity.
-    + assert (to_list (Vector.cons x (Vector.cons y u)) = (x :: (Vector.cons y u))) as H;
-        [reflexivity
-        |rewrite H; clear H].
-      rewrite signed_equation_3; [|easy].
-      rewrite toBits_equation_3 at 1.
-      rewrite IH.
-      reflexivity.
-Qed.
-
-(* end hide *)
-
-(** The most significant bit determines if the [signed u] is negative, and
-[signed u] $\equiv$ [fromBits u] $\pmod{2^n}$ for every [u: vector bool n]. *)
-
 
 (** *** Bytes and words
 
@@ -315,8 +268,7 @@ entirely commutative) diagram:
 \begin{center}
   \begin{tikzcd}[row sep=normal, column sep=6em]
     \coqdocvar{list}\;\mathbb{B}
-    \arrow[r, "\coqdocvar{fromBits}"]
-    \arrow[dr, dashed, "\coqdocvar{signed}" sloped] &
+    \arrow[r, "\coqdocvar{fromBits}"] &
     \mathbb{N}
     \arrow[d, hook] &
     \coqdocvar{list}\;\mathbb{B}^8
@@ -634,18 +586,16 @@ Module Instructions.
   Notation EXIT := 0.
   Notation NOP := 1.
   Notation JUMP := 2.
-  Notation JUMP_ZERO := 3.
-  Notation SET_SP := 4.
-  Notation GET_PC := 5.
-  Notation GET_SP := 6.
-  Notation PUSH0 := 7.
-  Notation PUSH1 := 8.
-  Notation PUSH2 := 9.
-  Notation PUSH4 := 10.
-  Notation PUSH8 := 11.
-  Notation SIGX1 := 12.
-  Notation SIGX2 := 13.
-  Notation SIGX4 := 14.
+  Notation JZ_FWD := 3.
+  Notation JZ_BACK := 4.
+  Notation SET_SP := 5.
+  Notation GET_PC := 6.
+  Notation GET_SP := 7.
+  Notation PUSH0 := 8.
+  Notation PUSH1 := 9.
+  Notation PUSH2 := 10.
+  Notation PUSH4 := 11.
+  Notation PUSH8 := 12.
   Notation LOAD1 := 16.
   Notation LOAD2 := 17.
   Notation LOAD4 := 18.
@@ -907,20 +857,18 @@ Section generic_machine_section.
    0 & \coqdocvar{EXIT}\\
    1 & \coqdocvar{NOP}\\
    2 & \coqdocvar{JUMP}\\
-   3 & \coqdocvar{JUMP\_ZERO}\\
-   4 & \coqdocvar{SET\_SP}\\
-   5 & \coqdocvar{GET\_PC}\\
-   6 & \coqdocvar{GET\_SP}\\
+   3 & \coqdocvar{JZ\_FWD}\\
+   4 & \coqdocvar{JZ\_BACK}\\
+   5 & \coqdocvar{SET\_SP}\\
+   6 & \coqdocvar{GET\_PC}\\
+   7 & \coqdocvar{GET\_SP}\\
   }
   \col{
-   7 & \coqdocvar{PUSH0}\\
-   8 & \coqdocvar{PUSH1}\\
-   9 & \coqdocvar{PUSH2}\\
-  10 & \coqdocvar{PUSH4}\\
-  11 & \coqdocvar{PUSH8}\\
-  12 & \coqdocvar{SIGX1}\\
-  13 & \coqdocvar{SIGX2}\\
-  14 & \coqdocvar{SIGX4}\\
+   8 & \coqdocvar{PUSH0}\\
+   9 & \coqdocvar{PUSH1}\\
+  10 & \coqdocvar{PUSH2}\\
+  11 & \coqdocvar{PUSH4}\\
+  12 & \coqdocvar{PUSH8}\\
   }
   \col{
   16 & \coqdocvar{LOAD1}\\
@@ -967,12 +915,19 @@ Section generic_machine_section.
     | NOP => return' tt
 
     | JUMP => pop' >>= setPC'
-    | JUMP_ZERO =>
+    | JZ_FWD =>
         offset ::= next' 1;
         x ::= pop';
         if x =? 0
         then pc ::= get' PC;
-             setPC' (pc + (signed (toBits 8 offset)))
+             setPC' (pc + offset)
+        else return' tt
+    | JZ_BACK =>
+        offset ::= next' 1;
+        x ::= pop';
+        if x =? 0
+        then pc ::= get' PC;
+             setPC' (pc - (1 + offset))
         else return' tt
     | SET_SP => pop' >>= setSP'
     | GET_PC => get' PC >>= push'
@@ -983,9 +938,6 @@ Section generic_machine_section.
     | PUSH2 => next' 2 >>= push'
     | PUSH4 => next' 4 >>= push'
     | PUSH8 => next' 8 >>= push'
-    | SIGX1 => x ::= pop'; push' (signed (toBits 8 x))
-    | SIGX2 => x ::= pop'; push' (signed (toBits 16 x))
-    | SIGX4 => x ::= pop'; push' (signed (toBits 32 x))
 
     | LOAD1 => pop' >>= load' 1 >>= push'
     | LOAD2 => pop' >>= load' 2 >>= push'
