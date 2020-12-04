@@ -70,10 +70,10 @@ Global Unset Printing Primitive Projection Parameters.
 This section contains a mathematical definition of the abstract machine
 used to interpret the contents of this film. It has been formalized in a
 system for formal mathematics called Coq, which is based on higher-order
-type theory. The text below was extracted from the Coq description. It
-involves some formal logic and type theory (where for simplicity we assume
-the principles of propositional and functional extensionality), but we do
-not include the actual proofs here.
+type theory. The text in this section has been extracted from the Coq
+description. It involves some formal logic and type theory (where for
+simplicity we assume the principles of propositional and functional
+extensionality), but we have not included the actual proofs here.
 
 
 ** Basic types
@@ -133,8 +133,7 @@ Definition vector A n := { u : list A | length u = n }.
 
 For technical reasons, [vector] is not actually defined like this.
 However, we do have implicit inclusions [vector A n] $↪$ [list A] for
-every [n] known as "coercions", and for every [u: list A] there is a
-corresponding element in [vector A (length u)]. *)
+every [n]. Such inclusions are known as "coercions". *)
 
 (* begin hide *)
 Open Scope bool_scope.
@@ -142,7 +141,7 @@ Open Scope Z_scope.
 Coercion Z.of_nat : nat >-> Z.
 Notation vector := t. (* A more readable alias.*)
 Coercion to_list: vector >-> list.
-(* End hide *)
+(* end hide *)
 
 
 (** *** Binary numbers
@@ -163,10 +162,8 @@ Equations fromBits (_: list bool) : nat :=
 (** This definition is formulated using the Equations extension to Coq.
 Observe that the least significant bit comes first. Taking [fromBits] as a
 coercion, we will often be using elements of [list bool] and [vector bool n] as
-if they were natural numbers.
-
-Conversely, we can extract the $n$ least significant bits of any integer:
-*)
+if they were natural numbers. Conversely, we can extract the $n$ least
+significant bits of any integer: *)
 
 (* begin hide *)
 Section limit_scope.
@@ -261,32 +258,6 @@ Equations toLittleEndian n (_: Z) : vector Bits8 n :=
   toLittleEndian 0 _ := [];
   toLittleEndian (S n) z := (toBits 8 z) :: (toLittleEndian n (z / 256)).
 
-(** The least significant byte comes first, and we have the following (not
-entirely commutative) diagram:
-
-%
-\begin{center}
-  \begin{tikzcd}[row sep=normal, column sep=6em]
-    \coqdocvar{list}\;\mathbb{B}
-    \arrow[r, "\coqdocvar{fromBits}"] &
-    \mathbb{N}
-    \arrow[d, hook] &
-    \coqdocvar{list}\;\mathbb{B}^8
-    \arrow[l, dashed, swap, "\coqdocvar{fromLittleEndian}"]
-    \\
-    \coqdocvar{vector}\;\mathbb{B}\; n
-    \arrow[u, hook] &
-    \mathbb{Z}
-    \arrow[l, dashed, "\coqdocvar{toBits}\;\coqdocvar{n}"]
-    \arrow[r, dashed, swap, "\coqdocvar{toLittleEndian}\;\coqdocvar{n}"] &
-    \coqdocvar{vector}\;\mathbb{B}^8\; n
-    \arrow[u, hook]
-  \end{tikzcd}
-\end{center}
-%
-
- *)
-
 (* begin hide *)
 End limit_scope.
 
@@ -331,7 +302,7 @@ Class Monad (m: Type -> Type): Type :=
 }.
 
 (** Writing the type parameters as [{A}] and [{B}] means that when we
-apply [ret] and [bind], the type arguments should be left implicit.
+apply [ret] and [bind], the type arguments will be left implicit.
 Moreover, we use the following notation:
 %
 \begin{center}
@@ -343,6 +314,8 @@ Moreover, we use the following notation:
 %
 \end{tabular}
 \end{center}
+%
+Here [_] represents a variable that is never used.
 *)
 
 (* begin hide *)
@@ -394,6 +367,8 @@ Class Transformer (t: forall (m: Type -> Type) `{Monad m}, Type -> Type): Type :
   lift_morphism: forall {m} `{Monad m}, Morphism _ _ lift;
 }.
 
+(** Here [_] represents a term that can be deduced from the context. *)
+
 (* begin hide*)
 
 Existing Instance transformer_monad.
@@ -401,8 +376,7 @@ Existing Instance lift_morphism.
 
 (* end hide *)
 
-(** We get a simple transformer by composing [m] with [option] (as defined
-above): *)
+(** We get a simple transformer by composing [m] with [option]: *)
 
 Definition Opt m `{Monad m} A := m (option A).
 
@@ -552,11 +526,11 @@ Section opt_st_section.
   Definition update' (f: S -> S): C unit :=
     fun s => ret (Some tt, f s).
 
-  (** These definitions were simplified by placing them inside a "section"
-      with a list of shared [Context] parameters and a local abbreviation,
-      [C]. In this text computations (and functions returning
-      computations) have names ending with an apostrophe. For this reason
-      we also define:
+  (** We have simplified these definitions by placing them inside a
+      "section" with a list of shared [Context] parameters and a local
+      abbreviation, [C]. We shall follow the convention that computations
+      (and functions returning computations) have names ending with an
+      apostrophe. For this reason we also define:
 
 [[
   Definition return' {A} (x: A) : C A := ret x.
@@ -577,7 +551,7 @@ We have split specification of the machine in three parts. In
 section%~\ref{sec:io}% we specify the I/O operations in terms of a
 separate monad, [IO], whereas in the current section we describe the parts
 of the machine that are independent of the I/O operations. Finally, we put
-the pieces together in section%\ref{sec:integration}%. *)
+the pieces together in section%~\ref{sec:integration}%. *)
 
 (* begin hide *)
 
@@ -621,10 +595,9 @@ End Instructions.
 (** The current state of the generic virtual machine has three components:
 a program counter ([PC]), a stack pointer ([SP]), and the memory contents.
 The memory is a collection of memory cells. Each cell has a unique address
-of type [Bits64] and stores one byte of data. In practice, the addresses
-of the memory cells will form a subset $[0,\coqdocvar{memorySize})$ for
-some $\coqdocvar{memorySize}\leq 2^{64}$, see [initialCoreState] below.
-*)
+of type [Bits64] and stores one byte of data. The addresses of the
+available cells will define a consecutive subset of the natural numbers,
+see [initialCoreState] below. *)
 
 Record CoreState :=
   mkCoreState {
@@ -633,7 +606,7 @@ Record CoreState :=
       memory: Bits64 -> option Bits8;
     }.
 
-(** A record is an inductive type with a single constructor
+(** A "record" is an inductive type with a single constructor
 ([mkCoreState]), where we get projections for free. For example, [PC s :
 Bits64] for every [s : CoreState]. *)
 
@@ -691,7 +664,7 @@ Section generic_machine_section.
     typeclasses eauto.
   Qed.
 
-  (** Also observe that [fromIO stop' = stop']. *)
+  (** Observe that [fromIO stop' = stop']. *)
 
   (* begin hide *)
 
@@ -823,8 +796,8 @@ Section generic_machine_section.
   In the generic machine an I/O operation is simply an element [io: vector
   Bits64 n -> IO (list Bits64)] for some%~%[n]. When a corresponding
   operation is encountered, the machine will pop [n] elements from the
-  stack, execute [io] on these elements, and place the push the result
-  onto the stack. *)
+  stack, execute [io] on these elements, and push the result onto the
+  stack. *)
 
   Record IO_operation :=
     mkIO_operation {
@@ -1283,7 +1256,7 @@ Definition getCurrentOutput' : IO OneOutput :=
   | [] => stop'
   end.
 
-(** In practice, [getCurrentOutput'] will not stop since we start the
+(** In practice, [getCurrentOutput'] will not stop as we shall start the
 machine with a non-empty output list. *)
 
 Definition replaceOutput o s : IoState := s<|output := o :: tail (output s)|>.
