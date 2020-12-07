@@ -526,6 +526,13 @@ Section opt_st_section.
   Definition update' (f: S -> S): C unit :=
     fun s => ret (Some tt, f s).
 
+  Definition tryUpdate' (f: S -> option S): C unit :=
+    fun s =>
+    match f s with
+    | Some s' => ret (Some tt, s')
+    | None => ret (None, s)
+    end.
+
   (** We have simplified these definitions by placing them inside a
       "section" with a list of shared [Context] parameters and a local
       abbreviation, [C]. We shall follow the convention that computations
@@ -1066,17 +1073,87 @@ Definition noImage {C} : Image C.
     contradiction (Nat.nlt_0_r x Hx).
 Defined.
 
-(* end hide *)
-
-(** [Gray] represents the gray scale of the input images, and [Color] the
-colors of the output images: *)
-
-(* begin hide *)
-
 Section limit_scope.
 Open Scope type_scope.
 
 (* end hide *)
+
+Definition isSomeSome {X} (o: option (option X)) : Prop :=
+  match o with Some (Some _) => True | _ => False end.
+
+Lemma decideImageComplete {C} (img: Image (option C)) :
+  { forall x y, x < iWidth img -> y < iHeight img -> isSomeSome (iPixel img x y) } +
+  { exists x y, x < iWidth img /\ y < iHeight img /\ ~ isSomeSome (iPixel img x y) }.
+Proof.
+  destruct img as [w h p d]. cbn.
+  clear d.
+  set (ww := fromBits16 w).
+  set (hh := fromBits16 h).
+  induction ww; [ left; lia | ].
+  induction hh; [ left; lia | ].
+  clear w h.
+
+  destruct IHww as [IHww | IHww].
+  - assert (forall x y : nat, x < ww -> y < hh -> isSomeSome (p x y)) as H; [ intros; apply IHww; lia | ].
+    specialize (IHhh (left H)).
+    clear H.
+    destruct IHhh as [IHhh | IHhh ].
+    + remember (p ww hh) as pp eqn:Hpp.
+      destruct pp as [pp|]; [ destruct pp as [pp|] | ].
+      --
+        left.
+        intros x y Hx Hy.
+        assert (x = ww /\ y = hh \/ x < ww \/ y < hh) as H; [ lia | ].
+        destruct H as [[Hxx Hyy]|[H|H]].
+        ++ subst. unfold isSomeSome. now rewrite <- Hpp.
+        ++ apply IHww; lia.
+        ++ apply IHhh; lia.
+      --
+        right. exists ww. exists hh.
+        repeat split; [lia .. | ].
+        now rewrite <- Hpp.
+      --
+        right. exists ww. exists hh.
+        repeat split; [lia .. | ].
+        now rewrite <- Hpp.
+
+    + right.
+      destruct IHhh as [x [y [Hx [Hy H]]]].
+      exists x. exists y. repeat split; [lia .. | congruence ].
+
+  - right.
+    destruct IHww as [x [y [Hx [Hy H]]]].
+    exists x. exists y. repeat split; [ lia .. | assumption ].
+Defined.
+
+Definition tryExtractImage {C} (img: Image (option C)) : option (Image C).
+  destruct (decideImageComplete img) as [H|H].
+  - refine (Some
+    {|
+      iWidth := iWidth img;
+      iHeight := iHeight img;
+      iPixel := fun x y => match iPixel img x y with Some c => c | None => None end;
+      iDefined := _;
+    |}).
+    intros x y.
+    specialize (H x y).
+    split.
+    + intro HH.
+      apply (iDefined img).
+      intros HHH.
+      rewrite HHH in HH.
+      congruence.
+    + intros [Hx Hy].
+      specialize (H Hx Hy).
+      destruct (iPixel img x y).
+      * intros HHH. subst o. exact H.
+      * intros HHH. exact H.
+  - exact None.
+Defined.
+
+
+(** [Gray] represents the gray scale of the input images, and [Color] the
+colors of the output images: *)
 
 Definition Gray := Bits8.
 Definition Color := Bits64 * Bits64 * Bits64.
@@ -1126,7 +1203,18 @@ Definition OutputText := list Bits32.
 
 Definition OutputBytes := list Bits8.
 
-Definition OneOutput := (Image Color) * Sound * OutputText * OutputBytes.
+Definition CurrentOutput := (Image (option Color)) * Sound * OutputText * OutputBytes.
+
+Definition FlushedOutput := (Image Color) * Sound * OutputText * OutputBytes.
+
+Definition tryFlush (co: CurrentOutput) : option FlushedOutput :=
+  match co with
+  | (i, s, t, b) =>
+    match tryExtractImage i with
+    | Some ei => Some (ei, s, t, b)
+    | None => None
+    end
+  end.
 
 
 (** *** The I/O monad
@@ -1136,28 +1224,28 @@ The complete I/O state of our machine can now be defined as: *)
 Record IoState :=
   mkIoState {
       currentInput: Image Gray;
-      output: list OneOutput;
+      currentOutput: CurrentOutput;
+      flushedOutput: list FlushedOutput;
     }.
 
 (* begin hide *)
 
 End limit_scope.
 
-Instance etaIoState : Settable _ := settable! mkIoState < currentInput; output >.
+Instance etaIoState : Settable _ := settable! mkIoState < currentInput; currentOutput; flushedOutput >.
 
 (* end hide *)
 
 Definition initialIoState :=
   {|
     currentInput := noImage;
-    output := [(noImage, noSound, [], [])]
+    currentOutput := (noImage, noSound, [], []);
+    flushedOutput := [];
   |}.
 
-(** When the machine starts, [output] contains only an empty tuple; but as
-the machine executes, more elements will be added. The first element
-always represents the frame currently being produced. In other words, we
-use a reverse ordering here as well. The I/O monad is based on the
-identity monad: *)
+(** As the machine executes, more elements will be prepended to
+flushedOutput. In other words, we use a reverse ordering here as well. The
+I/O monad is based on the identity monad: *)
 
 Definition IO0 := ST IoState id.
 
@@ -1184,7 +1272,6 @@ Definition readPixel' (x y: nat) : IO Bits8 :=
 
 (** *** Output operations *)
 
-Definition defaultColor: Color := let z := toBits 64 0 in (z, z, z).
 (* begin hide *)
 
 Ltac derive name term :=
@@ -1200,12 +1287,12 @@ Proof.
   intros [Ht|Hf]; easy.
 Qed.
 
-Definition blank (width: Bits16) (height: Bits16): Image Color.
+Definition blank (width: Bits16) (height: Bits16): Image (option Color).
   refine (
       {|
         iWidth := width;
         iHeight := height;
-        iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
+        iPixel x y := if (x <? width) && (y <? height) then Some None else None;
         iDefined := _;
       |}
     ).
@@ -1234,11 +1321,11 @@ Defined.
 (* end hide *)
 (**
 [[
-Definition blank (width: Bits16) (height: Bits16): Image Color :=
+Definition blank (width: Bits16) (height: Bits16): Image (option Color) :=
   {|
     iWidth := width;
     iHeight := height;
-    iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
+    iPixel x y := if (x <? width) && (y <? height) then Some None else None;
     iDefined := _;
   |}.
 ]]
@@ -1246,27 +1333,22 @@ Definition blank (width: Bits16) (height: Bits16): Image Color :=
 Here %\:%[p && q = if p then q else false]. *)
 
 Definition newFrame' (width height rate: nat) : IO unit :=
-  let o := (blank (toBits 16 width) (toBits 16 height), emptySound rate, [], []) in
-  update' (fun s => s<|output := o :: output s|>).
+  tryUpdate' (fun s =>
+    match tryFlush (currentOutput s) with
+    | Some fl => let newCo := (blank (toBits 16 width) (toBits 16 height), emptySound rate, [], []) in
+                 Some (s<|flushedOutput := fl :: flushedOutput s|> <|currentOutput := newCo|>)
+    | None => None
+    end).
 
-Definition getCurrentOutput' : IO OneOutput :=
-  oList ::= get' output;
-  match oList with
-  | o :: _ => return' o
-  | [] => stop'
-  end.
-
-(** In practice, [getCurrentOutput'] will not stop as we shall start the
-machine with a non-empty output list. *)
-
-Definition replaceOutput o s : IoState := s<|output := o :: tail (output s)|>.
+(* TODO: Rename *)
+Definition replaceOutput o s : IoState := s<|currentOutput := o|>.
 
 (**
 [[
-Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color) :=
+Definition trySetPixel (image: Image (option Color)) (x y: nat) (c: Color): option (Image (option Color)) :=
   if (x <? iWidth image) && (y <? iHeight image)
   then let p xx yy := if (xx =? x) && (yy =? y)
-                     then Some c
+                     then Some (Some c)
                      else iPixel image xx yy in
        Some (image <| iPixel := p |>)
   else None).
@@ -1275,8 +1357,8 @@ Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image
 
 (* begin hide *)
 
-Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color).
-  refine (let newPix xx yy := if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy in
+Definition trySetPixel (image: Image (option Color)) (x y: nat) (c: Color): option (Image (option Color)).
+  refine (let newPix xx yy := if (xx =? x) && (yy =? y) then Some (Some c) else iPixel image xx yy in
           if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
           then Some
                  {|
@@ -1311,7 +1393,7 @@ Defined.
 (* end hide *)
 
 Definition setPixel' (x y r g b : nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     match trySetPixel image x y (toBits 64 r, toBits 64 g, toBits 64 b) with
     | None => stop'
@@ -1323,7 +1405,7 @@ Definition setPixel' (x y r g b : nat) : IO unit :=
 (**
 [[
 Definition addSample' (l r : nat) : Comp unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text) =>
     if sRate sound =? 0
     then stop'
@@ -1343,7 +1425,7 @@ Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
   |}.
 
 Definition addSample' (l r : nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
     | left _ => stop'
@@ -1356,13 +1438,13 @@ Definition addSample' (l r : nat) : IO unit :=
 (* end hide *)
 
 Definition putChar' (c: nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     update' (replaceOutput (image, sound, (toBits 32 c) :: text, bytes))
   end.
 
 Definition putByte' (b: nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     update' (replaceOutput (image, sound, text, (toBits 8 b) :: bytes))
   end.
@@ -1455,6 +1537,8 @@ Definition State := CoreState * IoState.
 (* begin hide *)
 End limit_scope.
 (* end hide *)
+
+(* TODO: Flush at EXIT *)
 
 Definition finalState
            program argument (start: Bits64) (memorySize: nat) inputList
