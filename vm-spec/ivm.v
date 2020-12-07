@@ -435,18 +435,18 @@ Defined.
 
 (** Here we define [ret] and [bind] in terms of the corresponding
 operations of [m]. The axioms are easy to verify. Monads of the form [Opt
-m] can represent computations that may stop before producing a value: *)
+m] can represent computations that may fail to produce a value: *)
 
-Definition stop' {m} `{Monad m} {A}: Opt m A := ret None.
+Definition error' {m} `{Monad m} {A}: Opt m A := ret None.
 
-(** Observe that [stop' >>= f = stop'] for every [f]. *)
+(** Observe that [error' >>= f = error'] for every [f]. *)
 
 (* begin hide *)
 
-Lemma stop_bind : forall m `(M: Monad m) A B (f: A -> Opt m B), stop' >>= f = stop'.
+Lemma stop_bind : forall m `(M: Monad m) A B (f: A -> Opt m B), error' >>= f = error'.
 Proof.
   intros.
-  unfold stop'.
+  unfold error'.
   simpl.
   rewrite monad_left.
   reflexivity.
@@ -476,7 +476,7 @@ Qed.
 
 As discovered by Eugenio Moggi in 1989, monads can be used to represent
 computations with side-effects such as input and output. In particular, we
-can define a transformer which extends and existing monad with the ability
+can define a transformer which extends any existing monad with the ability
 to access and modify a value referred to as the "current state": *)
 
 (* begin hide *)
@@ -526,9 +526,16 @@ Section opt_st_section.
   Definition update' (f: S -> S): C unit :=
     fun s => ret (Some tt, f s).
 
+  Definition tryUpdate' (f: S -> option S): C unit :=
+    fun s =>
+    match f s with
+    | Some s' => ret (Some tt, s')
+    | None => ret (None, s)
+    end.
+
   (** We have simplified these definitions by placing them inside a
       "section" with a list of shared [Context] parameters and a local
-      abbreviation, [C]. We shall follow the convention that computations
+      abbreviation [C]. We shall follow the convention that computations
       (and functions returning computations) have names ending with an
       apostrophe. For this reason we also define:
 
@@ -550,7 +557,7 @@ Notation return' := ret.
 We have split specification of the machine in three parts. In
 section%~\ref{sec:io}% we specify the I/O operations in terms of a
 separate monad, [IO], whereas in the current section we describe the parts
-of the machine that are independent of the I/O operations. Finally, we put
+of the machine that are independent of these operations. Finally, we put
 the pieces together in section%~\ref{sec:integration}%. *)
 
 (* begin hide *)
@@ -596,7 +603,7 @@ End Instructions.
 a program counter ([PC]), a stack pointer ([SP]), and the memory contents.
 The memory is a collection of memory cells. Each cell has a unique address
 of type [Bits64] and stores one byte of data. The addresses of the
-available cells will define a consecutive subset of the natural numbers,
+available cells should form a consecutive subset of the natural numbers,
 see [initialCoreState] below. *)
 
 Record CoreState :=
@@ -622,29 +629,24 @@ Definition initialCoreState
            (start: Bits64)
            (memorySize: nat)
            (_: start + memorySize <= 2^64)
-           (_: length program + 8 + length argument <= memorySize) : CoreState :=
+           (_: length program + 8 + length argument <= memorySize) : CoreState -> Prop :=
   let stop := (start + memorySize)%nat in
   let mem := program ++ toLittleEndian 8 (length argument) ++ argument in
-  {|
-    PC := toBits 64 start;
-    SP := toBits 64 stop;
-    memory a :=
-      if (start <=? a) && (a <? stop)
-      then Some (nth (a - start) mem (toBits 8 0))
-      else None
-  |}.
+  fun s => PC s = start
+        /\ SP s = stop :> nat
+        /\ forall (a: Bits64), start <= a < stop ->
+            exists x, memory s a = Some (nth (a - start) mem x).
 
-(** In other words, before the machine is started, the available memory
-will be initialized to 0, except for a "program" and an "argument" -- both
-sequences of bytes. The length of the argument is stored in 64 bits
-between the program and the argument. The program counter is set to first
-address of the available memory, whereas the stack pointer is set to the
-first address after the available memory. *)
+(** In other words, a valid initial state has PC pointing to the first address of
+the available memory and SP pointing to the first address after the available memory.
+Moreover, the memory should initially contain a "program", an "argument" and
+between them 8 bytes containing the length of the argument. The rest of the available
+memory is arbitrary, but well-defined ([Some x]). *)
 
 
 Section generic_machine_section.
 
-  (** We assume an I/O monad of form [Opt m] (to be defined later). *)
+  (** We assume an I/O monad of form [Opt m]. *)
 
   Context m `{Monad m}.
 
@@ -664,7 +666,7 @@ Section generic_machine_section.
     typeclasses eauto.
   Qed.
 
-  (** Observe that [fromIO stop' = stop']. *)
+  (** Observe that [fromIO error' = error']. *)
 
   (* begin hide *)
 
@@ -679,12 +681,12 @@ Section generic_machine_section.
 
   (** *** Memory access
 
-  The machine stops if it is asked to access an unavailable memory address: *)
+  It is an error to access an unavailable memory address: *)
 
   Definition loadByte' (a: Z) : Comp Bits8 :=
     mem ::= get' memory;
     match mem (toBits 64 a) with
-    | None => stop'
+    | None => error'
     | Some value => return' value
     end.
 
@@ -710,18 +712,18 @@ Section generic_machine_section.
 
   (** That is, [load' n a s0 = (Some x, s1)] if [s0 = s1] and the [n]
   bytes at addresses [a], ..., [a+n-1] represent the natural number [x]
-  $<2^n$. [storeByte'] also stops if the address is not available: *)
+  $<2^n$. *)
 
   Definition storeByte' (a: Z) (value: Bits8) : Comp unit :=
     mem ::= get' memory;
     let u: Bits64 := toBits 64 a in
     match mem u with
-    | None => stop'
+    | None => error'
     | _ => let newMem (v: Bits64) := if v =? u then Some value else mem v in
           update' (fun s => s<|memory := newMem|>)
     end.
 
-  (** Here [s<|memory := newMem|>] is identical to [s], except that the
+  (** Here [s<|memory := newMem|>] is like to [s], except that the
   field [memory] has been changed to [newMem]. *)
 
   Equations storeBytes' (_: Z) (_: list Bits8) : Comp unit :=
@@ -736,8 +738,8 @@ Section generic_machine_section.
 
   (** *** Program counter *)
 
-  Definition setPC' (az: Z): Comp unit :=
-    update' (fun s => s<|PC := toBits 64 az|>).
+  Definition setPC' (a: Z): Comp unit :=
+    update' (fun s => s<|PC := toBits 64 a|>).
 
   Definition next' (n: nat) : Comp nat :=
     a ::= get' PC;
@@ -755,8 +757,8 @@ Section generic_machine_section.
   popped. The stack grows "downwards" in the sense that [SP] is decreased
   when new elements are pushed. *)
 
-  Definition setSP' (az: Z): Comp unit :=
-    update' (fun s => s<|SP := toBits 64 az|>).
+  Definition setSP' (a: Z): Comp unit :=
+    update' (fun s => s<|SP := toBits 64 a|>).
 
   Definition pop': Comp Bits64 :=
     a ::= get' SP;
@@ -769,9 +771,9 @@ Section generic_machine_section.
   Open Scope vector_scope.
   (* end hide *)
 
-  Equations popN' (n: nat) : Comp (vector Bits64 n) :=
-    popN' 0 := return' [];
-    popN' (S n) := u ::= popN' n; x ::= pop'; return' (x :: u).
+  Equations popVector' (n: nat) : Comp (vector Bits64 n) :=
+    popVector' 0 := return' [];
+    popVector' (S n) := u ::= popVector' n; x ::= pop'; return' (x :: u).
 
   (* begin hide *)
   End limit_scope.
@@ -787,8 +789,8 @@ Section generic_machine_section.
     pushList' [] := return' tt;
     pushList' (x :: u) := push' x;; pushList' u.
 
-  (** Since [popN'] returns elements in the order they were pushed, it is
-  essentially a left inverse to [pushList']. *)
+  (** Since [popVector'] returns elements in the order they were pushed,
+  it is essentially a left inverse to [pushList']. *)
 
 
   (** *** Generic I/O interface
@@ -806,14 +808,14 @@ Section generic_machine_section.
       }.
 
   Definition from_IO_operation (op: IO_operation) : Comp unit :=
-    arguments ::= popN' (ioArgs op);
+    arguments ::= popVector' (ioArgs op);
     results ::= fromIO (operation op arguments);
     pushList' results.
 
   Context (IO_operations: list IO_operation).
 
   Definition ioStep' (n: nat) : Comp unit :=
-    nth (255 - n) (map from_IO_operation IO_operations) stop'.
+    nth (255 - n) (map from_IO_operation IO_operations) error'.
 
   (** In other words, we assume a list of I/O operations that will be
   mapped to "opcodes" 255, 254, ...*)
@@ -867,8 +869,7 @@ Section generic_machine_section.
   43 & \coqdocvar{XOR}\\
   44 & \coqdocvar{POW2}\\
   }
-  \end{center}
-  %
+  \end{center}\vspace{1ex}
   *)
 
   (* begin hide *)
@@ -878,13 +879,8 @@ Section generic_machine_section.
   Let map2 (f: bool->bool->bool) (u: Bits64) (v: Bits64) : Bits64 := Vector.map2 f u v.
   (* end hide *)
 
-  (** %\vspace{1ex}% Now we can define what it means for our abstract machine
-  to perform one execution step: *)
-
-  Definition oneStep' : Comp unit :=
-    opcode ::= next' 1;
+  Definition exec' opcode : Comp unit :=
     match opcode with
-    | EXIT => stop'
     | NOP => return' tt
 
     | JUMP => pop' >>= setPC'
@@ -944,38 +940,60 @@ Section generic_machine_section.
     | n => ioStep' n
     end.
 
-  (* begin hide *)
-  End limit_scope.
-  (*end hide *)
-  (** In this definition [map] and [map2] denote the obvious "bitwise" transformations:
+  (** Here [map] and [map2] denote the "bitwise" transformations:
 
   %\begin{center}%
   [map : (bool -> bool) -> Bits64 -> Bits64] %$\qquad\qquad$%
   [map2 : (bool -> bool -> bool) -> Bits64 -> Bits64 -> Bits64]
-  %\end{center}%
+  %\end{center}
 
-  We can also run the machine for [n] steps or until it stops: *)
+  Now we can define what it means for our abstract machine
+  to perform one execution step: *)
 
-  Equations nSteps' (_: nat) : Comp unit :=
-    nSteps' 0 := return' tt;
-    nSteps' (S n) := oneStep';; nSteps' n.
+  Definition oneStep' : Comp bool :=
+    opcode ::= next' 1;
+    match opcode with
+    | EXIT => return' true
+    | _ => exec' opcode;; return' false
+    end.
+
+  (* begin hide *)
+  End limit_scope.
+  (*end hide *)
+  (** We can also run the machine for [n] steps or until it stops: *)
+
+  Equations nSteps' (_: nat) : Comp bool :=
+    nSteps' 0 := return' false;
+    nSteps' (S n) :=
+      done ::= oneStep';
+      if done
+      then return' true
+      else nSteps' n.
+
 
   (* begin hide *)
 
-  Lemma nSteps_succ: forall n, nSteps' (S n) = nSteps' n;; oneStep'.
+  Lemma nSteps_succ: forall n, nSteps' (S n) =
+    done ::= nSteps' n;
+    if done
+    then return' true
+    else oneStep'.
   Proof.
     intro n.
     induction n.
     - simp nSteps'.
       transformer_crush.
+      destruct x; reflexivity.
     - simp nSteps' in *.
       rewrite <- monad_assoc.
       rewrite IHn.
-      reflexivity.
+      f_equal.
+      extensionality done.
+      destruct done; [ rewrite monad_left | ]; reflexivity.
   Qed.
 
-  Lemma nSteps_stop: forall (init: Comp unit) n,
-      init;; nSteps' n;; stop' = init;; nSteps' n
+  (* Lemma nSteps_error: forall (init: Comp unit) n,
+      init;; nSteps' n;; error' = init;; nSteps' n
       -> init;; nSteps' (S n) = init;; nSteps' n.
   Proof.
     intros init n HH.
@@ -987,8 +1005,8 @@ Section generic_machine_section.
     reflexivity.
   Qed.
 
-  Lemma nSteps_stop_k: forall (init: Comp unit) n k,
-      init;; nSteps' n;; stop' = init;; nSteps' n
+  Lemma nSteps_error_k: forall (init: Comp unit) n k,
+      init;; nSteps' n;; error' = init;; nSteps' n
       -> init;; nSteps' (k + n) = init;; nSteps' n.
   Proof.
     intros init n k HH.
@@ -996,12 +1014,12 @@ Section generic_machine_section.
     - reflexivity.
     - rewrite plus_Sn_m.
       rewrite <- IH.
-      apply nSteps_stop.
+      apply nSteps_error.
       rewrite monad_assoc.
       rewrite IH.
       rewrite <- monad_assoc.
       exact HH.
-  Qed.
+  Qed. *)
 
   (* end hide *)
 
@@ -1010,14 +1028,12 @@ End generic_machine_section.
 
 (** ** Actual input and output%\label{sec:io}%
 
-In this section we shall define the I/O operations in terms of a
+In this section we define the I/O operations in terms of a
 corresponding monad. For simplicity, we will again use a monad of the form
 [Opt (ST S m)]; but whereas a concrete implementation of the iVM machine
 would typically reflect [CoreState] in its program state, the I/O state
 might be distributed across the system as a whole. For instance,
-[readFrame'] (defined below) might trigger a scan the next frame of the
-film roll on the fly. It is not necessary to perform a complete scan
-before starting the machine.
+[newFrame'] (defined below) might write the current frame to disk.
 
 *** Bitmap images
 
@@ -1030,12 +1046,12 @@ Record Image (C: Type) :=
       iWidth: Bits16;
       iHeight: Bits16;
       iPixel: nat -> nat -> option C;
-      iDefined: forall x y, iPixel x y <> None <-> x < iWidth /\ y < iHeight;
+      iBounded: forall x y, iPixel x y <> None <-> x < iWidth /\ y < iHeight;
     }.
 
 (** Here [C] represents the color of a single pixel. The arguments to
 [iWidth] and [iHeight] (of type [Image C]) are implicit in the type of
-[iDefined]. The simplest image consists of [0 * 0] pixels:
+[iBounded]. The simplest image consists of [0 * 0] pixels:
 
 [[
 Definition noImage {C} : Image C :=
@@ -1043,7 +1059,7 @@ Definition noImage {C} : Image C :=
      iWidth := toBits 16 0;
      iHeight := toBits 16 0;
      iPixel := fun _ _ => None;
-     iDefined := _;
+     iBounded := _;
   |}.
 ]]
 *)
@@ -1055,7 +1071,7 @@ Definition noImage {C} : Image C.
              iWidth := toBits 16 0;
              iHeight := toBits 16 0;
              iPixel := fun _ _ => None;
-             iDefined := _;
+             iBounded := _;
            |}).
   unfold fromBits16.
   rewrite zeroBits_zero.
@@ -1066,20 +1082,102 @@ Definition noImage {C} : Image C.
     contradiction (Nat.nlt_0_r x Hx).
 Defined.
 
+Section limit_scope.
+Open Scope type_scope.
+
+Definition isSomeSome {X} (o: option (option X)) : Prop :=
+  match o with Some (Some _) => True | _ => False end.
+
+Lemma decideImageComplete {C} (img: Image (option C)) :
+  { forall x y, x < iWidth img -> y < iHeight img -> isSomeSome (iPixel img x y) } +
+  { exists x y, x < iWidth img /\ y < iHeight img /\ ~ isSomeSome (iPixel img x y) }.
+Proof.
+  destruct img as [w h p d]. cbn.
+  clear d.
+  set (ww := fromBits16 w).
+  set (hh := fromBits16 h).
+  induction ww; [ left; lia | ].
+  induction hh; [ left; lia | ].
+  clear w h.
+
+  destruct IHww as [IHww | IHww].
+  - assert (forall x y : nat, x < ww -> y < hh -> isSomeSome (p x y)) as H; [ intros; apply IHww; lia | ].
+    specialize (IHhh (left H)).
+    clear H.
+    destruct IHhh as [IHhh | IHhh ].
+    + remember (p ww hh) as pp eqn:Hpp.
+      destruct pp as [pp|]; [ destruct pp as [pp|] | ].
+      --
+        left.
+        intros x y Hx Hy.
+        assert (x = ww /\ y = hh \/ x < ww \/ y < hh) as H; [ lia | ].
+        destruct H as [[Hxx Hyy]|[H|H]].
+        ++ subst. unfold isSomeSome. now rewrite <- Hpp.
+        ++ apply IHww; lia.
+        ++ apply IHhh; lia.
+      --
+        right. exists ww. exists hh.
+        repeat split; [lia .. | ].
+        now rewrite <- Hpp.
+      --
+        right. exists ww. exists hh.
+        repeat split; [lia .. | ].
+        now rewrite <- Hpp.
+
+    + right.
+      destruct IHhh as [x [y [Hx [Hy H]]]].
+      exists x. exists y. repeat split; [lia .. | congruence ].
+
+  - right.
+    destruct IHww as [x [y [Hx [Hy H]]]].
+    exists x. exists y. repeat split; [ lia .. | assumption ].
+Defined.
+
+Definition tryExtractImage {C} (img: Image (option C)) : option (Image C).
+  destruct (decideImageComplete img) as [H|H].
+  - refine (Some
+    {|
+      iWidth := iWidth img;
+      iHeight := iHeight img;
+      iPixel := fun x y => match iPixel img x y with Some c => c | None => None end;
+      iBounded := _;
+    |}).
+    intros x y.
+    specialize (H x y).
+    split.
+    + intro HH.
+      apply (iBounded img).
+      intros HHH.
+      rewrite HHH in HH.
+      congruence.
+    + intros [Hx Hy].
+      specialize (H Hx Hy).
+      destruct (iPixel img x y).
+      * intros HHH. subst o. exact H.
+      * intros HHH. exact H.
+  - exact None.
+Defined.
+
 (* end hide *)
 
 (** [Gray] represents the gray scale of the input images, and [Color] the
 colors of the output images: *)
 
-(* begin hide *)
-
-Section limit_scope.
-Open Scope type_scope.
-
-(* end hide *)
-
 Definition Gray := Bits8.
 Definition Color := Bits64 * Bits64 * Bits64.
+
+(** For output images under construction we use the type [Image (option Color)].
+When all the pixels have been set, we can extract an image of type [Image Color].
+Thus, we have a function
+%\begin{center}%
+[
+tryExtractImage : Image (option Color) -> option (Image Color).
+]
+%\end{center}%
+The exact definition of this function in Coq is beyond the scope of text.
+It basically involves checking that every pixel [<> None].
+*)
+
 
 (** *** Sound and text
 
@@ -1126,7 +1224,18 @@ Definition OutputText := list Bits32.
 
 Definition OutputBytes := list Bits8.
 
-Definition OneOutput := (Image Color) * Sound * OutputText * OutputBytes.
+Definition CurrentOutput := (Image (option Color)) * Sound * OutputText * OutputBytes.
+
+Definition FlushedOutput := (Image Color) * Sound * OutputText * OutputBytes.
+
+Definition tryFlush (co: CurrentOutput) : option FlushedOutput :=
+  match co with
+  | (i, s, t, b) =>
+    match tryExtractImage i with
+    | Some ei => Some (ei, s, t, b)
+    | None => None
+    end
+  end.
 
 
 (** *** The I/O monad
@@ -1136,28 +1245,28 @@ The complete I/O state of our machine can now be defined as: *)
 Record IoState :=
   mkIoState {
       currentInput: Image Gray;
-      output: list OneOutput;
+      currentOutput: CurrentOutput;
+      flushedOutput: list FlushedOutput;
     }.
 
 (* begin hide *)
 
 End limit_scope.
 
-Instance etaIoState : Settable _ := settable! mkIoState < currentInput; output >.
+Instance etaIoState : Settable _ := settable! mkIoState < currentInput; currentOutput; flushedOutput >.
 
 (* end hide *)
 
 Definition initialIoState :=
   {|
     currentInput := noImage;
-    output := [(noImage, noSound, [], [])]
+    currentOutput := (noImage, noSound, [], []);
+    flushedOutput := [];
   |}.
 
-(** When the machine starts, [output] contains only an empty tuple; but as
-the machine executes, more elements will be added. The first element
-always represents the frame currently being produced. In other words, we
-use a reverse ordering here as well. The I/O monad is based on the
-identity monad: *)
+(** As the machine executes, more elements will be prepended to
+flushedOutput. In other words, we use a reverse ordering here as well. The
+I/O monad is based on the identity monad: *)
 
 Definition IO0 := ST IoState id.
 
@@ -1167,7 +1276,7 @@ Definition IO := Opt IO0.
 (** *** Input operations *)
 
 Definition readFrame' (allInput: list (Image Gray)) (i: nat) : IO (Bits16 * Bits16) :=
-  update' (fun s => s<|currentInput := nth i allInput noImage|>);;
+  update' ( fun s => s<|currentInput := nth i allInput noImage|> );;
   frame ::= get' currentInput;
   return' (iWidth frame, iHeight frame).
 
@@ -1177,14 +1286,13 @@ Definition readFrame' (allInput: list (Image Gray)) (i: nat) : IO (Bits16 * Bits
 Definition readPixel' (x y: nat) : IO Bits8 :=
   frame ::= get' currentInput;
   match iPixel frame x y with
-  | None => stop'
+  | None => error'
   | Some c => return' c
   end.
 
 
 (** *** Output operations *)
 
-Definition defaultColor: Color := let z := toBits 64 0 in (z, z, z).
 (* begin hide *)
 
 Ltac derive name term :=
@@ -1200,13 +1308,13 @@ Proof.
   intros [Ht|Hf]; easy.
 Qed.
 
-Definition blank (width: Bits16) (height: Bits16): Image Color.
+Definition empty (width height: Bits16): Image (option Color).
   refine (
       {|
         iWidth := width;
         iHeight := height;
-        iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
-        iDefined := _;
+        iPixel x y := if (x <? width) && (y <? height) then Some None else None;
+        iBounded := _;
       |}
     ).
   intros x y.
@@ -1234,39 +1342,36 @@ Defined.
 (* end hide *)
 (**
 [[
-Definition blank (width: Bits16) (height: Bits16): Image Color :=
+Definition empty (width height: Bits16) : Image (option Color) :=
   {|
     iWidth := width;
     iHeight := height;
-    iPixel x y := if (x <? width) && (y <? height) then Some defaultColor else None;
-    iDefined := _;
+    iPixel x y := if (x <? width) && (y <? height) then Some None else None;
+    iBounded := _;
   |}.
 ]]
 
 Here %\:%[p && q = if p then q else false]. *)
 
 Definition newFrame' (width height rate: nat) : IO unit :=
-  let o := (blank (toBits 16 width) (toBits 16 height), emptySound rate, [], []) in
-  update' (fun s => s<|output := o :: output s|>).
+  tryUpdate' (fun s =>
+    match tryFlush (currentOutput s) with
+    | Some fl =>
+      let newCo := (empty (toBits 16 width) (toBits 16 height), emptySound rate, [], []) in
+      Some (s<|flushedOutput := fl :: flushedOutput s|> <|currentOutput := newCo|>)
+    | None => None
+    end).
 
-Definition getCurrentOutput' : IO OneOutput :=
-  oList ::= get' output;
-  match oList with
-  | o :: _ => return' o
-  | [] => stop'
-  end.
-
-(** In practice, [getCurrentOutput'] will not stop as we shall start the
-machine with a non-empty output list. *)
-
-Definition replaceOutput o s : IoState := s<|output := o :: tail (output s)|>.
+(* TODO: Rename *)
+Definition replaceOutput o s : IoState := s<|currentOutput := o|>.
 
 (**
 [[
-Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color) :=
+Definition trySetPixel (image: Image (option Color))
+                      (x y: nat) (c: Color): option (Image (option Color)) :=
   if (x <? iWidth image) && (y <? iHeight image)
   then let p xx yy := if (xx =? x) && (yy =? y)
-                     then Some c
+                     then Some (Some c)
                      else iPixel image xx yy in
        Some (image <| iPixel := p |>)
   else None).
@@ -1275,17 +1380,18 @@ Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image
 
 (* begin hide *)
 
-Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image Color).
-  refine (let newPix xx yy := if (xx =? x) && (yy =? y) then Some c else iPixel image xx yy in
-          if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
-          then Some
-                 {|
-                   iWidth := iWidth image;
-                   iHeight := iHeight image;
-                   iPixel := newPix;
-                   iDefined := _
-                 |}
-          else None).
+Definition trySetPixel (image: Image (option Color)) (x y: nat) (c: Color): option (Image (option Color)).
+  refine (
+    let newPix xx yy := if (xx =? x) && (yy =? y) then Some (Some c) else iPixel image xx yy in
+    if Sumbool.sumbool_of_bool ((x <? iWidth image) && (y <? iHeight image))
+    then Some
+            {|
+              iWidth := iWidth image;
+              iHeight := iHeight image;
+              iPixel := newPix;
+              iBounded := _
+            |}
+    else None).
   subst newPix.
   intros xx yy.
   split;
@@ -1303,19 +1409,19 @@ Definition trySetPixel (image: Image Color) (x y: nat) (c: Color): option (Image
       derive H (proj1 (reflect_it (Nat.eqb_spec _ _)) H);
       subst;
       exact e.
-  - apply (iDefined image).
+  - apply (iBounded image).
   - discriminate.
-  - apply (iDefined image).
+  - apply (iBounded image).
 Defined.
 
 (* end hide *)
 
 Definition setPixel' (x y r g b : nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     match trySetPixel image x y (toBits 64 r, toBits 64 g, toBits 64 b) with
-    | None => stop'
     | Some newImage => update' (replaceOutput (newImage, sound, text, bytes))
+    | None => error'
     end
   end.
 
@@ -1323,12 +1429,11 @@ Definition setPixel' (x y r g b : nat) : IO unit :=
 (**
 [[
 Definition addSample' (l r : nat) : Comp unit :=
-  o ::= getCurrentOutput';
-  match o with (image, sound, text) =>
-    if sRate sound =? 0
-    then stop'
+  o ::= get' currentOutput;
+  match o with (image, sound, text, bytes) =>
+    if sRate sound =? 0 then error'
     else let ns := sound <| sSamples := (toBits 16 l, toBits 16 r) :: sSamples sound |> in
-         update' (replaceOutput (image, ns, text))
+         update' (replaceOutput (image, ns, text, bytes))
   end.
 ]]
 *)
@@ -1343,10 +1448,10 @@ Definition addSample (s: Sound) (H: 0 <> sRate s) (l: Bits16) (r: Bits16) :=
   |}.
 
 Definition addSample' (l r : nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     match Sumbool.sumbool_of_bool (0 =? sRate sound) with
-    | left _ => stop'
+    | left _ => error'
     | right H =>
       let newSound := addSample sound (beq_nat_false _ _ H) (toBits 16 l) (toBits 16 r) in
       update' (replaceOutput (image, newSound, text, bytes))
@@ -1356,13 +1461,13 @@ Definition addSample' (l r : nat) : IO unit :=
 (* end hide *)
 
 Definition putChar' (c: nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     update' (replaceOutput (image, sound, (toBits 32 c) :: text, bytes))
   end.
 
 Definition putByte' (b: nat) : IO unit :=
-  o ::= getCurrentOutput';
+  o ::= get' currentOutput;
   match o with (image, sound, text, bytes) =>
     update' (replaceOutput (image, sound, text, (toBits 8 b) :: bytes))
   end.
@@ -1377,7 +1482,7 @@ Equations nFun (n: nat) (A B: Type): Type :=
   nFun O _ B := B;
   nFun (S n) A B := A -> (nFun n A B).
 
-(** In other words, [nFun n A B = ]$\underbrace{A\rightarrow A\rightarrow ...}_n$[ -> B]. *)
+(** In other words, [nFun n A B = ]$\underbrace{A\rightarrow A\rightarrow ...\rightarrow}_n$ [B]. *)
 
 (* begin hide *)
 Open Scope vector_scope.
@@ -1397,14 +1502,13 @@ Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list 
 Definition IO_operations (allInput: list (Image Gray)) :=
   [
     io_operation 1 (fun i => wh ::= readFrame' allInput i; return' [fst wh : Z; snd wh : Z]);
-    io_operation 2 (fun x y => p ::= readPixel' x y; return' [p:Z]);
+    io_operation 2 (fun x y => p ::= readPixel' x y; return' [p: Z]);
     io_operation 3 (fun w h r => newFrame' w h r;; return' []);
     io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
     io_operation 2 (fun l r => addSample' l r;; return' []);
     io_operation 1 (fun c => putChar' c;; return' []);
     io_operation 1 (fun c => putByte' c;; return' [])
   ].
-
 
 
 (** ** Integration%\label{sec:integration}%
@@ -1421,30 +1525,6 @@ Proof.
 Defined.
 (* end hide *)
 
-Lemma characterize_stopped: forall (c: Comp (m:=IO0) unit) (cs: CoreState) (ios: IoState),
-    let init := update' (fun _ => cs);; fromIO (update' (fun _ => ios)) in
-    init;; c;; stop' = init;; c  <->  fst (fst (c cs ios)) = None.
-Proof. (* TODO: Improve proof *)
-  intros.
-  split; intro H.
-  - assert ((init;; c;; stop') cs ios = (init;; c) cs ios) as HH;
-      [congruence|]; clear H; rename HH into H.
-    subst init.
-    simpl in H.
-    rewrite <- H.
-    clear H.
-    destruct (fst (fst (c cs ios))); reflexivity.
-  - apply functional_extensionality. intro cs2.
-    apply functional_extensionality. intro iso2.
-    simpl.
-    rewrite H.
-    clear cs2 iso2.
-    destruct (c cs ios) as [[opt cs2] ios2].
-    simpl. simpl in H.
-    rewrite H.
-    reflexivity.
-Qed.
-
 (* begin hide *)
 Section limit_scope.
 Open Scope type_scope.
@@ -1454,28 +1534,51 @@ Definition State := CoreState * IoState.
 
 (* begin hide *)
 End limit_scope.
+
+Lemma nSteps_done_m inputList n cs ios cs' ios' :
+  let ioOps := IO_operations inputList in
+  nSteps' ioOps n cs ios = ((Some true, cs'), ios') ->
+  forall k, nSteps' ioOps (k + n)%nat cs ios = ((Some true, cs'), ios').
+Proof.
+  intros ioOps.
+  intros HH.
+  intros k.
+  induction k.
+  - exact HH.
+  - cbn. rewrite nSteps_succ.
+    cbn in *. rewrite IHk. reflexivity.
+Qed.
+
 (* end hide *)
 
 Definition finalState
            program argument (start: Bits64) (memorySize: nat) inputList
            (Ha: start + memorySize <= 2^64)
-           (Hb: length program + 8 + length argument <= memorySize): State -> Prop :=
-  let cs := initialCoreState program argument start memorySize Ha Hb in
+           (Hb: length program + 8 + length argument <= memorySize)
+           (cs: CoreState)
+           (Hc: initialCoreState program argument start memorySize Ha Hb cs) : State -> Prop :=
   let ioOps := IO_operations inputList in
-  fun s => exists n, nSteps' ioOps n cs initialIoState = ((None, fst s), snd s).
+  fun s => exists n, nSteps' ioOps n cs initialIoState = ((Some true, fst s), snd s).
+(**
+This is a bit imprecise: If the machine terminates normally (encountering [EXIT]), it should
+also try to flush the current output before terminating, cf. [tryFlush] above. *)
 
-(** This is a partial function in the following sense: *)
+(* begin hide *)
+Arguments finalState : clear implicits.
+(* end hide *)
 
-Lemma finalState_unique: forall p a st ms i Ha Hb s1 s2,
-    finalState p a st ms i Ha Hb s1 -> finalState p a st ms i Ha Hb s2 -> s1 = s2.
+(** [finalState] is a partial function in the following sense: *)
+
+Lemma finalState_unique: forall p a st ms i Ha Hb cs Hc s1 s2,
+    finalState p a st ms i Ha Hb cs Hc s1 -> finalState p a st ms i Ha Hb cs Hc s2 -> s1 = s2.
 Proof. (* TODO: simplify *)
-  intros p a st ms i Ha Hb s1 s2 H1 H2.
+  intros p a st ms i Ha Hb cs Hc s1 s2 H1 H2.
   destruct H1 as [n1 H1].
   destruct H2 as [n2 H2].
   revert H1 H2.
-  generalize (initialCoreState p a st ms Ha Hb).
+  clear Hc.
   generalize initialIoState.
-  intros ios cs H1 H2.
+  intros ios H1 H2.
   set (g := nSteps' (IO_operations i)) in *.
   enough (g n1 cs ios = g n2 cs ios) as HH.
   - rewrite H1, H2 in HH.
@@ -1483,11 +1586,7 @@ Proof. (* TODO: simplify *)
     destruct s1.
     destruct s2.
     f_equal; assumption.
-  - set (init := update' (fun _ => cs);; fromIO (update' (fun _ => ios))).
-    assert (init;; g n1;; stop' = init;; g n1) as Hs1; [apply characterize_stopped; rewrite H1; reflexivity|].
-    assert (init;; g n2;; stop' = init;; g n2) as Hs2; [apply characterize_stopped; rewrite H2; reflexivity|].
-
-    set (n3 := max n1 n2).
+  - set (n3 := max n1 n2).
     enough (g n3 cs ios = g n1 cs ios /\ g n3 cs ios = g n2 cs ios) as [HH1 HH2].
     + rewrite HH2 in HH1.
       rewrite H1, H2 in HH1.
@@ -1498,16 +1597,21 @@ Proof. (* TODO: simplify *)
     + split.
       * set (k1 := (n3 - n1)%nat).
         assert (n3 = (k1 + n1)%nat) as Hn1; [lia|].
-        assert (init;; g (k1 + n1)%nat = init;; g n1) as Hi1; [apply nSteps_stop_k; exact Hs1|].
-        rewrite <- Hn1 in Hi1.
-        assert ((init;; g n3) cs ios = (init;; g n1) cs ios) as HH1; [congruence|].
-        exact HH1.
+        rewrite Hn1.
+        subst g.
+        rewrite H1.
+        erewrite nSteps_done_m.
+        -- reflexivity.
+        -- exact H1.
+
       * set (k2 := (n3 - n2)%nat).
         assert (n3 = (k2 + n2)%nat) as Hn2; [lia|].
-        assert (init;; g (k2 + n2)%nat = init;; g n2) as Hi2; [apply nSteps_stop_k; exact Hs2|].
-        rewrite <- Hn2 in Hi2.
-        assert ((init;; g n3) cs ios = (init;; g n2) cs ios) as HH2; [congruence|].
-        exact HH2.
+        rewrite Hn2.
+        subst g.
+        rewrite H2.
+        erewrite nSteps_done_m.
+        -- reflexivity.
+        -- exact H2.
 Qed.
 
 (** In a framework with general recursion we could have defined this
