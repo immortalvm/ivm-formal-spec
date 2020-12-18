@@ -3,14 +3,14 @@
 # tex_makefile is ugly and will hopefully soon be replaced by Dune.
 
 ivm.vo: coq-record-update ivm.v
-		coqc -Q ../coq-record-update/src RecordUpdate -Q . VmSpec -no-glob ivm.v
+		coqc -Q coq-record-update/src RecordUpdate -Q . VmSpec -no-glob ivm.v
 
 .PHONY: compile
 compile: ivm.vo
 
 .PHONY: coq-record-update
 coq-record-update:
-	$(MAKE) -C ../coq-record-update
+	$(MAKE) -C coq-record-update
 
 # gsed refers to GNU sed (which has more features that MacOS sed).
 ivm_expanded.v: ivm.v
@@ -37,7 +37,7 @@ all: ivm.vo doc.pdf
 
 .PHONY: clean
 clean:
-	$(MAKE) -C ../coq-record-update clean
+	$(MAKE) -C coq-record-update clean
 	rm -f .ivm.aux ivm_expanded.v ivm.tex coqdoc.sty
 	latexmk -quiet -pdf -c
 
