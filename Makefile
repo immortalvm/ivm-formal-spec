@@ -12,10 +12,18 @@ compile: ivm.vo
 coq-record-update:
 	$(MAKE) -C coq-record-update
 
+# Detect OS (fails on Windows...)
+UNAME_S=$(shell uname -s)
+
 # gsed refers to GNU sed (which has more features that MacOS sed).
 ivm_expanded.v: ivm.v
+ifeq ($(UNAME_S),Linux)
+				sed 's/^\[\[$$/\n*)/g' ivm.v | \
+				sed 's/^\]\]$$/(**/g' > ivm_expanded.v
+else # Mac
 				gsed 's/^\[\[$$/\n*)/g' ivm.v | \
 				gsed 's/^\]\]$$/(**/g' > ivm_expanded.v
+endif
 
 ivm.tex: ivm_expanded.v
 		 coqdoc -q \
