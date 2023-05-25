@@ -595,6 +595,7 @@ Module Instructions.
   Notation NOT := 42.
   Notation XOR := 43.
   Notation POW2 := 44.
+  Notation CHECK := 48.
 End Instructions.
 
 (* end hide *)
@@ -867,7 +868,8 @@ Section generic_machine_section.
   41 & \coqdocvar{OR}\\
   42 & \coqdocvar{NOT}\\
   43 & \coqdocvar{XOR}\\
-  44 & \coqdocvar{POW2}\\
+  44 & \coqdocvar{POW2}\\[2ex]
+  48 & \coqdocvar{CHECK}
   }
   \end{center}\vspace{1ex}
   *)
@@ -936,6 +938,12 @@ Section generic_machine_section.
         push' (map2 (fun x y => if x then (if y then false else true) else y) u v)
     | NOT => u ::= pop'; push' (map (fun x => if x then false else true) u)
     | POW2 => n ::= pop'; push' (2 ^ n)
+
+    | CHECK =>
+        n ::= pop';
+        if n >? 1
+        then error'
+        else return' tt
 
     | n => ioStep' n
     end.
