@@ -70,3 +70,6 @@ nra.cache
 *-blx.aux
 *-blx.bib
 *.run.xml
+
+# AUCTex
+auto/*
