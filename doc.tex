@@ -1,5 +1,6 @@
 \batchmode
 \documentclass[10pt,a4paper]{article}
+\usepackage{ucs}
 \usepackage[utf8x]{inputenc}
 
 %Warning: tipa declares many non-standard macros used by utf8x to
@@ -17,11 +18,12 @@
 \usepackage{amsmath,amssymb}
 \usepackage{url}
 \usepackage{graphicx}
-\usepackage{bbm}
+\usepackage{dsfont}
 \usepackage{hyperref}
 \usepackage{xspace}
 \usepackage{tikz-cd}
 
+\newcommand{\mathbbm}{\mathds}
 
 \newcommand{\FSharp}{\textsf{F\nolinebreak[4]\kern-.05em\raisebox{.2ex}{\small\#}}\xspace}
 
