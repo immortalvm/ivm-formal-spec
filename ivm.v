@@ -327,7 +327,7 @@ Notation "ma ;; mb" := (bind ma (fun _ => mb)) (at level 60, right associativity
 
 (** The simplest monad is the "identity monad", were [m A = A] for every [A]: *)
 
-#[refine] Instance IdMonad: Monad id :=
+#[refine, export] Instance IdMonad: Monad id :=
 {
   ret A x := x;
   bind A ma B f := f ma;
@@ -371,8 +371,8 @@ Class Transformer (t: forall (m: Type -> Type) `{Monad m}, Type -> Type): Type :
 
 (* begin hide*)
 
-Existing Instance transformer_monad.
-Existing Instance lift_morphism.
+#[export] Existing Instance transformer_monad.
+#[export] Existing Instance lift_morphism.
 
 (* end hide *)
 
@@ -420,7 +420,7 @@ Ltac transformer_crush :=
 
 (* end hide *)
 
-#[refine] Instance OptionTransformer: Transformer Opt :=
+#[refine, export] Instance OptionTransformer: Transformer Opt :=
 {
   transformer_monad m _ :=
     {|
@@ -452,7 +452,7 @@ Proof.
   reflexivity.
 Qed.
 
-Instance opt_morphism: forall m0 `(Monad m0) m1 `(Monad m1) (F: forall A, m0 A -> m1 A) `(Morphism m0 m1 F),
+#[export] Instance opt_morphism: forall m0 `(Monad m0) m1 `(Monad m1) (F: forall A, m0 A -> m1 A) `(Morphism m0 m1 F),
     Morphism (Opt m0) (Opt m1) (fun A => F (option A)).
 Proof.
   intros.
@@ -495,7 +495,7 @@ Arguments ST _ _ {_} _.
 
 (* end hide *)
 
-#[refine] Instance StateTransformer S: Transformer (ST S) :=
+#[refine, export] Instance StateTransformer S: Transformer (ST S) :=
 {
   transformer_monad m _ :=
     {|
@@ -619,7 +619,7 @@ Bits64] for every [s : CoreState]. *)
 
 (* begin hide *)
 
-Instance etaCoreState : Settable _ := settable! mkCoreState < PC; SP; memory >.
+#[export] Instance etaCoreState : Settable _ := settable! mkCoreState < PC; SP; memory >.
 
 (* end hide *)
 
@@ -1253,7 +1253,7 @@ Record IoState :=
 
 End limit_scope.
 
-Instance etaIoState : Settable _ := settable! mkIoState < currentInput; currentOutput; flushedOutput >.
+#[export] Instance etaIoState : Settable _ := settable! mkIoState < currentInput; currentOutput; flushedOutput >.
 
 (* end hide *)
 
@@ -1518,7 +1518,7 @@ from start to finish. *)
 
 (* begin hide *)
 (* Why is this needed?*)
-Instance CompMonad: Monad (Comp (m:=IO0)).
+#[export] Instance CompMonad: Monad (Comp (m:=IO0)).
 Proof.
   unfold Comp.
   typeclasses eauto.
