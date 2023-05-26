@@ -65,7 +65,7 @@ Global Unset Printing Primitive Projection Parameters.
 (** printing map2 $\coqdocvar{map}_2$ *)
 
 
-(** * Formal specification of the iVM abstract machine%\label{sec:formal}%
+(** * Formal specification of the iVM abstract machine version 1%\label{sec:formal}%
 
 This section contains a mathematical definition of the abstract machine
 used to interpret the contents of this film. It has been formalized in a
