@@ -65,7 +65,7 @@ Global Unset Printing Primitive Projection Parameters.
 (** printing map2 $\coqdocvar{map}_2$ *)
 
 
-(** * Formal specification of the iVM abstract machine version 1%\label{sec:formal}%
+(** * Formal specification of the iVM abstract machine version 2%\label{sec:formal}%
 
 This section contains a mathematical definition of the abstract machine
 used to interpret the contents of this film. It has been formalized in a
@@ -1253,6 +1253,7 @@ The complete I/O state of our machine can now be defined as: *)
 Record IoState :=
   mkIoState {
       currentInput: Image Gray;
+      charsRead: nat;
       currentOutput: CurrentOutput;
       flushedOutput: list FlushedOutput;
     }.
@@ -1261,13 +1262,14 @@ Record IoState :=
 
 End limit_scope.
 
-#[export] Instance etaIoState : Settable _ := settable! mkIoState < currentInput; currentOutput; flushedOutput >.
+#[export] Instance etaIoState : Settable _ := settable! mkIoState < currentInput; charsRead; currentOutput; flushedOutput >.
 
 (* end hide *)
 
 Definition initialIoState :=
   {|
     currentInput := noImage;
+    charsRead := 0;
     currentOutput := (noImage, noSound, [], []);
     flushedOutput := [];
   |}.
@@ -1283,12 +1285,12 @@ Definition IO := Opt IO0.
 
 (** *** Input operations *)
 
-Definition readFrame' (allInput: list (Image Gray)) (i: nat) : IO (Bits16 * Bits16) :=
-  update' ( fun s => s<|currentInput := nth i allInput noImage|> );;
+Definition readFrame' (allInputFrames: list (Image Gray)) (i: nat) : IO (Bits16 * Bits16) :=
+  update' ( fun s => s<|currentInput := nth i allInputFrames noImage|> );;
   frame ::= get' currentInput;
   return' (iWidth frame, iHeight frame).
 
-(** Here [nth i allInput noImage] is the [i]th element of the list, or
+(** Here [nth i allInputFrames noImage] is the [i]th element of the list, or
 [noImage] if the list is too short. *)
 
 Definition readPixel' (x y: nat) : IO Bits8 :=
@@ -1297,6 +1299,15 @@ Definition readPixel' (x y: nat) : IO Bits8 :=
   | None => error'
   | Some c => return' c
   end.
+
+Definition readChar' (allInputChars: nat -> Bits32) : IO Bits32 :=
+  i ::= get' charsRead;
+  update' ( fun s => s<|charsRead := (1 + i)%nat|> );;
+  return' (allInputChars i).
+
+(** In other words, we represent textual input from the user as an
+infinite stream of 32-bit characters known in advance. However, the
+intention is to represent interactivity. *)
 
 
 (** *** Output operations *)
@@ -1507,15 +1518,16 @@ Close Scope vector_scope.
 (* For some reason, I can't make this a "let" in the next definition. *)
 Definition io_operation n f := {| operation := nApp (f: nFun n Bits64 (IO (list Z))) |}.
 
-Definition IO_operations (allInput: list (Image Gray)) :=
+Definition IO_operations (allInputFrames: list (Image Gray)) (allInputChars: nat -> Bits32) :=
   [
-    io_operation 1 (fun i => wh ::= readFrame' allInput i; return' [fst wh : Z; snd wh : Z]);
+    io_operation 1 (fun i => wh ::= readFrame' allInputFrames i; return' [fst wh : Z; snd wh : Z]);
     io_operation 2 (fun x y => p ::= readPixel' x y; return' [p: Z]);
     io_operation 3 (fun w h r => newFrame' w h r;; return' []);
     io_operation 5 (fun x y r g b => setPixel' x y r g b;; return' []);
     io_operation 2 (fun l r => addSample' l r;; return' []);
     io_operation 1 (fun c => putChar' c;; return' []);
-    io_operation 1 (fun c => putByte' c;; return' [])
+    io_operation 1 (fun c => putByte' c;; return' []);
+    io_operation 0 (c ::= readChar' allInputChars; return' [c: Z])
   ].
 
 
@@ -1543,8 +1555,8 @@ Definition State := CoreState * IoState.
 (* begin hide *)
 End limit_scope.
 
-Lemma nSteps_done_m inputList n cs ios cs' ios' :
-  let ioOps := IO_operations inputList in
+Lemma nSteps_done_m inputFrames inputChars n cs ios cs' ios' :
+  let ioOps := IO_operations inputFrames inputChars in
   nSteps' ioOps n cs ios = ((Some true, cs'), ios') ->
   forall k, nSteps' ioOps (k + n)%nat cs ios = ((Some true, cs'), ios').
 Proof.
@@ -1560,12 +1572,12 @@ Qed.
 (* end hide *)
 
 Definition finalState
-           program argument (start: Bits64) (memorySize: nat) inputList
+           program argument (start: Bits64) (memorySize: nat) inputFrames inputChars
            (Ha: start + memorySize <= 2^64)
            (Hb: length program + 8 + length argument <= memorySize)
            (cs: CoreState)
            (Hc: initialCoreState program argument start memorySize Ha Hb cs) : State -> Prop :=
-  let ioOps := IO_operations inputList in
+  let ioOps := IO_operations inputFrames inputChars in
   fun s => exists n, nSteps' ioOps n cs initialIoState = ((Some true, fst s), snd s).
 (**
 This is a bit imprecise: If the machine terminates normally (encountering [EXIT]), it should
@@ -1577,17 +1589,17 @@ Arguments finalState : clear implicits.
 
 (** [finalState] is a partial function in the following sense: *)
 
-Lemma finalState_unique: forall p a st ms i Ha Hb cs Hc s1 s2,
-    finalState p a st ms i Ha Hb cs Hc s1 -> finalState p a st ms i Ha Hb cs Hc s2 -> s1 = s2.
+Lemma finalState_unique: forall p a st ms i c Ha Hb cs Hc s1 s2,
+    finalState p a st ms i c Ha Hb cs Hc s1 -> finalState p a st ms i c Ha Hb cs Hc s2 -> s1 = s2.
 Proof. (* TODO: simplify *)
-  intros p a st ms i Ha Hb cs Hc s1 s2 H1 H2.
+  intros p a st ms i c Ha Hb cs Hc s1 s2 H1 H2.
   destruct H1 as [n1 H1].
   destruct H2 as [n2 H2].
   revert H1 H2.
   clear Hc.
   generalize initialIoState.
   intros ios H1 H2.
-  set (g := nSteps' (IO_operations i)) in *.
+  set (g := nSteps' (IO_operations i c)) in *.
   enough (g n1 cs ios = g n2 cs ios) as HH.
   - rewrite H1, H2 in HH.
     inversion HH.
